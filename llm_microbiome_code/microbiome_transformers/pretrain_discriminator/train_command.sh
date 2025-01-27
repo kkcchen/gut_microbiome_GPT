@@ -1,0 +1,12 @@
+# Record the start time
+start_time=$(date +%s)
+
+
+CUDA_VISIBLE_DEVICES=1 python begin.py -c ~/guille/train_encodings_512.npy -t ~/guille/test_encodings_512.npy -v ~/guille/vocab_embeddings.npy -o /scratch/popeq/Research/Rohan_ensemble/training_outputs/discriminators/frozen_embeds/240epgen/5head5layer -b 32 -l 5 -a 5 -e 15 -s 513 -gl 10 -ga 10 -gs 513 --cuda --d_log_file /scratch/popeq/Research/Rohan_ensemble/training_outputs/logs/disc_train.txt --load_gen /scratch/popeq/Research/Rohan_ensemble/training_outputs/generators/gen_epoch0_gen/pytorch_model.bin /scratch/popeq/Research/Rohan_ensemble/training_outputs/generators/gen_epoch0_gen/pytorch_model.bin /scratch/popeq/Research/Rohan_ensemble/training_outputs/generators/gen_epoch0_gen/pytorch_model.bin /scratch/popeq/Research/Rohan_ensemble/training_outputs/generators/gen_epoch0_gen/pytorch_model.bin /scratch/popeq/Research/Rohan_ensemble/training_outputs/generators/gen_epoch0_gen/pytorch_model.bin /scratch/popeq/Research/Rohan_ensemble/training_outputs/generators/gen_epoch0_gen/pytorch_model.bin /scratch/popeq/Research/Rohan_ensemble/training_outputs/generators/gen_epoch0_gen/pytorch_model.bin /scratch/popeq/Research/Rohan_ensemble/training_outputs/generators/gen_epoch0_gen/pytorch_model.bin --load_g_embed /scratch/popeq/Research/Rohan_ensemble/training_outputs/generators/gen_epoch0_gen_embed /scratch/popeq/Research/Rohan_ensemble/training_outputs/generators/gen_epoch0_gen_embed /scratch/popeq/Research/Rohan_ensemble/training_outputs/generators/gen_epoch0_gen_embed /scratch/popeq/Research/Rohan_ensemble/training_outputs/generators/gen_epoch0_gen_embed /scratch/popeq/Research/Rohan_ensemble/training_outputs/generators/gen_epoch0_gen_embed /scratch/popeq/Research/Rohan_ensemble/training_outputs/generators/gen_epoch0_gen_embed /scratch/popeq/Research/Rohan_ensemble/training_outputs/generators/gen_epoch0_gen_embed /scratch/popeq/Research/Rohan_ensemble/training_outputs/generators/gen_epoch0_gen_embed --freeze
+
+# Record the end time
+end_time=$(date +%s)
+
+# Calculate and record the duration
+duration=$((end_time - start_time))
+echo "Training duration: $duration seconds" >> /scratch/popeq/Research/Rohan_ensemble/training_outputs/logs/disc_train.txt

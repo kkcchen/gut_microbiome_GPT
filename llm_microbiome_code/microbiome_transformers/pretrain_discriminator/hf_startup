@@ -1,0 +1,29 @@
+#!/bin/bash
+
+#SBATCH -J ELECTRA10layerdisc
+
+#SBATCH -A eecs
+
+#SBATCH -p dgx2
+
+#SBATCH --gres=gpu:1
+
+#SBATCH -o ELECTRA10layerdisc.out
+
+#SBATCH -e ELECTRA10layerdisc.err
+
+#SBATCH --mail-type=BEGIN,END,FAIL
+
+#SBATCH --mail-user=varmar@oregonstate.edu
+
+source ~/guille/torch10.1/bin/activate
+
+
+python begin.py -c ~/guille/train_encodings_512.npy -t ~/guille/test_encodings_512.npy -v ~/guille/vocab_embeddings.npy -o ~/models/discsgdlr1e2/frozen_embeds/240epgen/5head5layer -b 32 -l 5 -a 5 -e 15 -s 513 -gl 10 -ga 10 -gs 513 --cuda --d_log_file ~/models/discsgdlr1e2/frozen_embeds/240epgen/5head5layer.txt \
+--load_gen ~/models/gensgdlr1e2/gen_epoch29_gen/pytorch_model.bin ~/models/gensgdlr1e2/gen_epoch59_gen/pytorch_model.bin ~/models/gensgdlr1e2/gen_epoch89_gen/pytorch_model.bin ~/models/gensgdlr1e2/gen_epoch119_gen/pytorch_model.bin ~/models/gensgdlr1e2/gen_epoch149_gen/pytorch_model.bin \
+~/models/gensgdlr1e2/gen_epoch179_gen/pytorch_model.bin ~/models/gensgdlr1e2/gen_epoch209_gen/pytorch_model.bin ~/models/gensgdlr1e2/gen_epoch239_gen/pytorch_model.bin \
+--load_g_embed ~/models/gensgdlr1e2/gen_epoch29_gen_embed ~/models/gensgdlr1e2/gen_epoch59_gen_embed ~/models/gensgdlr1e2/gen_epoch89_gen_embed ~/models/gensgdlr1e2/gen_epoch119_gen_embed ~/models/gensgdlr1e2/gen_epoch149_gen_embed  \
+ ~/models/gensgdlr1e2/gen_epoch179_gen_embed ~/models/gensgdlr1e2/gen_epoch209_gen_embed ~/models/gensgdlr1e2/gen_epoch239_gen_embed --freeze
+
+
+
