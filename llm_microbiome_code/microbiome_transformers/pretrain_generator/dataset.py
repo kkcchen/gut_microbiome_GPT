@@ -50,7 +50,7 @@ class ELECTRADataset(Dataset):
         sample = self.samples[item]
         sorted_indices = np.argsort(sample[:,1])
         sample = sample[sorted_indices][::-1]
-        cls_marker = np.array([[self.cls_index,self.cls_frequency]],dtype=np.float)
+        cls_marker = np.array([[self.cls_index,self.cls_frequency]],dtype=float)
         sample = np.concatenate((cls_marker,sample))
         electra_input,electra_label,frequencies,mask_locations = self.match_sample_to_embedding(sample)
 

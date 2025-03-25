@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.optim import Adam
@@ -61,8 +62,9 @@ class ELECTRATrainer:
         if log_file:
             self.log_file = log_file
             if not append:
-                with open(self.log_file,"w+") as f:
-                    f.write("EPOCH,MODE,AVG LOSS,TOTAL CORRECT,TOTAL ELEMENTS,ACCURACY,MASK CORRECT,MASK 3 CORRECT,MASK 5 CORRECT,MASK 10 CORRECT,TOTAL MASK,MASK ACCURACY\n")
+                # with open(self.log_file,"w+") as f:
+                #     f.write("EPOCH,MODE,AVG LOSS,TOTAL CORRECT,TOTAL ELEMENTS,ACCURACY,MASK CORRECT,MASK 3 CORRECT,MASK 5 CORRECT,MASK 10 CORRECT,TOTAL MASK,MASK ACCURACY\n")
+                ...
         print("Total Parameters:", sum([p.nelement() for p in self.electra.parameters()]))
 
     def train(self, epoch):
@@ -162,19 +164,29 @@ class ELECTRATrainer:
                 log_loss = g_loss.item()    
                 cumulative_g_loss += g_loss.item()
 
-            if i % self.log_freq == 0:
-                data_iter.write("epoch: {}, iter: {}, avg loss: {},accuracy: {}/{}={:.2f}%, mask accuracy: {}/{}={:.2f}%, loss: {}".format(epoch,i,cumulative_g_loss/(i+1),g_total_correct,total_element,g_total_correct/total_element*100,g_total_mask_correct,total_mask,g_total_mask_correct/total_mask*100,log_loss))
-
+            if i % self.log_freq == 0 and str_code == "train":
+                data_iter.write("epoch: {}, iter: {}, avg loss: {},accuracy: {}/{}={:.2f}%, mask accuracy: {}/{}={"
+                                ":.2f}%, loss: {}".format(epoch,i,cumulative_g_loss/(i+1),g_total_correct,
+                                                          total_element,g_total_correct/total_element*100,
+                                                          g_total_mask_correct,total_mask,
+                                                          g_total_mask_correct/total_mask*100,log_loss))
+                with open(self.log_file, "a") as f:
+                    f.write(
+                        "epoch: {}, iter: {}, avg loss: {},accuracy: {}/{}={:.2f}%, mask accuracy: {}/{}={:.2f}%, loss: {}\n".format(
+                            epoch, i, cumulative_g_loss / (i + 1), g_total_correct, total_element,
+                            g_total_correct / total_element * 100, g_total_mask_correct, total_mask,
+                            g_total_mask_correct / total_mask * 100, log_loss))
  
             del data
             del mask
             del g_loss
 
-
-
-        print("EP{}_{}, avg_loss={}, accuracy={:.2f}%".format(epoch,str_code,cumulative_g_loss /(len(data_iter)*data_loader.batch_size),g_total_mask_correct/total_mask*100))
-        if self.log_file:
+        if str_code == "train":
+            print("EP{}_{}, avg_loss={}, accuracy={:.2f}%".format(epoch,str_code,cumulative_g_loss /(len(data_iter)*data_loader.batch_size),g_total_mask_correct/total_mask*100))
+        if self.log_file and str_code == "test":
             with open(self.log_file,"a") as f:
+                f.write("test results after epoch: \n")
+                f.write("EPOCH,MODE,AVG LOSS,TOTAL CORRECT,TOTAL ELEMENTS,ACCURACY,MASK CORRECT,MASK 3 CORRECT,MASK 5 CORRECT,MASK 10 CORRECT,TOTAL MASK,MASK ACCURACY\n")
                 f.write("{},{},{},{},{},{},{},{},{},{},{},{}\n".format(epoch,str_code,cumulative_g_loss/(len(data_loader)*data_loader.batch_size),g_total_correct,total_element,g_total_correct/total_element*100,g_total_mask_correct,g_total_3_mask_correct,g_total_5_mask_correct,g_total_10_mask_correct,total_mask,g_total_mask_correct/total_mask*100))
 
  
