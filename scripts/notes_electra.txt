@@ -1,0 +1,84 @@
+files we need for train generator/discriminator:
+- train_dataset, npy, (num_samples, num_bacteria, 2), they truncated num_bacteria to 512, the last 2 dims are (embedding_id, frequency/abundance)
+- test_dataset, same as train dataset
+- vocab_path, npy, (num_bacteria, embedding_dim=100 for them), they used deepmicro for this, we need metadata and a whole bunch of things to use deepmicro tho
+    - im just using clip for bacteria name right now
+
+dataset setup:
+- each item is originally (512, 2), which first dim representing bacteria id and second dim representing relative abundance
+- sort by abundance
+- apply cls token so things are (513, 2)
+- seperate the two dims, only the first dim is used for training as input
+- the labels are the ground truth bacteria index
+- a mask tensor of shape (513) is also returned, boolean
+
+hmc contains 4850 samples from american gut project (PRJEB11419)
+
+To run pretrain generator
+python begin.py --train_dataset
+/home/kevin/Desktop/gut_microbiome/dataset/hmc/electra/transformer/train.npy
+--test_dataset
+/home/kevin/Desktop/gut_microbiome/dataset/hmc/electra/transformer/test.npy
+--vocab_path
+/home/kevin/Desktop/gut_microbiome/dataset/hmc/electra/bac_vocab.npy
+--output_path
+/home/kevin/Desktop/gut_microbiome/llm_microbiome_code/microbiome_transformers/outputs/hmc/
+--batch_size
+48
+--layers
+10
+-e
+101
+--attn_heads
+10
+--seq_len
+513
+--hidden
+200
+--cuda
+--log_file
+/home/kevin/Desktop/gut_microbiome/llm_microbiome_code/microbiome_transformers/outputs/hmc/logs_e20.txt
+--load_gen
+/home/kevin/Desktop/gut_microbiome/llm_microbiome_code/microbiome_transformers/outputs/hmc/_epoch19_gen/model.safetensors
+--load_g_embed
+/home/kevin/Desktop/gut_microbiome/llm_microbiome_code/microbiome_transformers/outputs/hmc/_epoch19_gen_embed
+--resume_epoch
+20
+
+To run pretrain discriminator
+python begin.py -c
+/home/kevin/Desktop/gut_microbiome/dataset/hmc/electra/transformer/train.npy
+-t
+/home/kevin/Desktop/gut_microbiome/dataset/hmc/electra/transformer/test.npy
+-v
+/home/kevin/Desktop/gut_microbiome/dataset/hmc/electra/bac_vocab.npy
+-o
+/home/kevin/Desktop/gut_microbiome/llm_microbiome_code/microbiome_transformers/outputs/hmc_disc2
+-b
+32
+-l
+5
+-a
+5
+-hs
+200
+-ghs
+200
+-e
+15
+-s
+513
+-gl
+10
+-ga
+10
+-gs
+513
+--cuda
+--d_log_file
+/home/kevin/Desktop/gut_microbiome/llm_microbiome_code/microbiome_transformers/outputs/hmc_disc/logs.txt
+--load_gen
+/home/kevin/Desktop/gut_microbiome/llm_microbiome_code/microbiome_transformers/outputs/hmc/_epoch59_gen/model.safetensors
+--load_g_embed
+/home/kevin/Desktop/gut_microbiome/llm_microbiome_code/microbiome_transformers/outputs/hmc/_epoch59_gen_embed
+--freeze
