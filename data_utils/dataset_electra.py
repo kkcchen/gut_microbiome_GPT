@@ -13,7 +13,7 @@ import numpy as np
 
 
 class ELECTRADataset(Dataset):
-    def __init__(self, samples_path, embedding_path):
+    def __init__(self, samples_path, embedding_path, original=False):
         self.embeddings = np.load(embedding_path)
         self.num_embeds = self.embeddings.shape[0]
         self.samples = np.load(samples_path)
@@ -44,25 +44,35 @@ class ELECTRADataset(Dataset):
         self.mask_index = self.lookup_embedding(self.mask)
         self.cls_index = self.lookup_embedding(self.cls)
         self.padding_index = self.cls_index + 1
+        self.original = original
 
     def __len__(self):
         return self.samples.shape[0]
 
     def __getitem__(self, item):
-
-        # pdb.set_trace()
-        sample = self.samples[item]
-        sorted_indices = np.argsort(sample[:, 1])
-        sample = sample[sorted_indices][::-1]
-        cls_marker = np.array([[self.cls_index, self.cls_frequency]], dtype=float)
-        sample = np.concatenate((cls_marker, sample))
-        electra_input, electra_label, frequencies, mask_locations = self.match_sample_to_embedding(sample)
-
-        output = {"electra_input": torch.tensor(electra_input, dtype=torch.long),
-                  "electra_label": torch.tensor(electra_label, dtype=torch.long),
-                  "species_frequencies": torch.tensor(frequencies, dtype=torch.long),
-                  "mask_locations": torch.tensor(mask_locations)
-                  }
+        if not self.original:
+            sample = self.samples[item]
+            sorted_indices = np.argsort(sample[:, 1])
+            sample = sample[sorted_indices][::-1]
+            cls_marker = np.array([[self.cls_index, self.cls_frequency]], dtype=float)
+            sample = np.concatenate((cls_marker, sample))
+            electra_input, electra_label, frequencies, mask_locations = self.match_sample_to_embedding(sample)
+            output = {"electra_input": torch.tensor(electra_input, dtype=torch.long),
+                      "electra_label": torch.tensor(electra_label, dtype=torch.long),
+                      "species_frequencies": torch.tensor(frequencies, dtype=torch.long),
+                      "mask_locations": torch.tensor(mask_locations)
+                      }
+        else:
+            sample = self.samples[item]
+            sorted_indices = np.argsort(sample[:, 1])
+            sample = sample[sorted_indices][::-1]
+            cls_marker = np.array([[self.cls_index, self.cls_frequency]], dtype=float)
+            sample = np.concatenate((cls_marker, sample))
+            ignore_idx = (sample[:, self.frequency_index] <= 0)
+            sample[ignore_idx] = self.padding_index
+            # sample = sample[:, self.embed_index]
+            output = {"electra_input": torch.tensor(sample[:, self.embed_index], dtype=torch.long),
+                      "species_frequencies": torch.tensor(sample[:, self.frequency_index], dtype=torch.long),}
 
         return output
 

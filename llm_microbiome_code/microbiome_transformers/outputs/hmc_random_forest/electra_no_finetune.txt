@@ -1,0 +1,25 @@
+/home/kevin/miniconda3/envs/microbiome/bin/python /home/kevin/Desktop/gut_microbiome/scripts/hmc_electra_random_forest.py
+Total parameter combinations to evaluate: 3
+Starting Random Forest classifier on region 0
+Test Accuracy: 0.9625064580411838
+AUC: 0.9139370169067794
+Starting Random Forest classifier on region 1
+Test Accuracy: 0.986198243412798
+AUC: 0.9640916981700538
+Starting Random Forest classifier on region 2
+Test Accuracy: 0.902649642040003
+AUC: 0.8548614628482627
+Starting Random Forest classifier on region 3
+Test Accuracy: 0.8515757620488597
+AUC: 0.877322952493842
+Starting Random Forest classifier on region 4
+Test Accuracy: 0.9939478928334194
+AUC: 0.884259988734884
+Starting Random Forest classifier on region 5
+Test Accuracy: 0.9820650970551332
+AUC: 0.854625440483495
+Starting Random Forest classifier on region 6
+Test Accuracy: 0.9867886928924644
+AUC: 0.9542766717344111
+
+Process finished with exit code 0
