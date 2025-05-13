@@ -32,7 +32,7 @@ class ELECTRADataset(Dataset):
         # find max and min ranges of values for every feature in embedding space
         # create random embedding
         self.embedding_mins = np.amin(self.embeddings, axis=0)
-        self.embedding_maxes = np.amin(self.embeddings, axis=0)
+        self.embedding_maxes = np.amax(self.embeddings, axis=0)
         self.mask = self.generate_random_embedding()
 
         self.padding = np.zeros(self.embeddings.shape[1])
