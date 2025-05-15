@@ -1,3 +1,4 @@
 from .electra_generator import ElectraGenerator
 from .electra_discriminator import ElectraDiscriminator
 from .electra_finetuner import ElectraFineTuner
+from .hmbGPT.hmbGPT import TransformerEncoder
