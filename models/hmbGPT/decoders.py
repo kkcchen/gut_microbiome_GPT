@@ -1,5 +1,6 @@
 # TODO: do proper attribution from scGPT
 
+import torch
 from torch import nn, Tensor
 from typing import Dict, Mapping, Optional, Tuple, Any, Union
 

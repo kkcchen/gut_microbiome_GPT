@@ -77,7 +77,7 @@ class TransformerModel(nn.Module):
         self.domain_spec_batchnorm = domain_spec_batchnorm # look into DSBN later, but it is false for now
         self.input_emb_style = input_emb_style # default, continuous, mentioned in paper. could try using category encoding but this is likely less expressive
         self.cell_emb_style = cell_emb_style # default: cls, but can also be avg-pool, w-pool. refers to how to encode the cell embeddings
-        # self.explicit_zero_prob = explicit_zero_prob # use a separate NN to predict the probability of zero for expression. Not mentioned in the paper, so off for now
+        self.explicit_zero_prob = explicit_zero_prob # use a separate NN to predict the probability of zero for expression. Not mentioned in the paper, so off for now
         self.norm_scheme = "pre" if pre_norm else "post" # hyperparameter for the transformer encoder.
         if self.input_emb_style not in ["category", "continuous", "scaling"]:
             raise ValueError(
@@ -245,3 +245,151 @@ class TransformerModel(nn.Module):
             cell_emb = F.normalize(cell_emb, p=2, dim=1)  # (batch, embsize)
 
         return cell_emb
+    
+    def forward(
+        self,
+        src: Tensor,
+        values: Tensor,
+        src_key_padding_mask: Tensor,
+        batch_labels: Optional[Tensor] = None,
+        CLS: bool = False,
+        CCE: bool = False,
+        MVC: bool = False,
+        ECS: bool = False,
+        do_sample: bool = False,
+    ) -> Mapping[str, Tensor]:
+        """
+        Args:
+            src (:obj:`Tensor`): token ids, shape [batch_size, seq_len]
+            values (:obj:`Tensor`): token values, shape [batch_size, seq_len]
+            src_key_padding_mask (:obj:`Tensor`): mask for src, shape [batch_size,
+                seq_len]
+            batch_labels (:obj:`Tensor`): batch labels, shape [batch_size]
+            CLS (:obj:`bool`): if True, return the celltype classification objective
+                (CLS) output
+            CCE (:obj:`bool`): if True, return the contrastive cell embedding objective
+                (CCE) output
+            MVC (:obj:`bool`): if True, return the masked value prediction for cell
+                embedding MVC output
+            ECS (:obj:`bool`): if True, return the elastic cell similarity objective
+                (ECS) output.
+
+        Returns:
+            dict of output Tensors.
+        """
+        transformer_output = self._encode(
+            src, values, src_key_padding_mask, batch_labels
+        )
+        if self.use_batch_labels:
+            raise NotImplementedError(
+                "Batch labels are not implemented yet. Please set use_batch_labels=False to avoid this error."
+            )
+        #     batch_emb = self.batch_encoder(batch_labels)  # (batch, embsize)
+
+        output = {}
+        mlm_output = self.decoder(
+            transformer_output
+            # if not self.use_batch_labels
+            # else torch.cat(
+            #     [
+            #         transformer_output,
+            #         batch_emb.unsqueeze(1).repeat(1, transformer_output.shape[1], 1),
+            #     ],
+            #     dim=2,
+            # ),
+            # # else transformer_output + batch_emb.unsqueeze(1),
+        )
+        if self.explicit_zero_prob and do_sample:
+            bernoulli = Bernoulli(probs=mlm_output["zero_probs"])
+            output["mlm_output"] = bernoulli.sample() * mlm_output["pred"]
+        else:
+            output["mlm_output"] = mlm_output["pred"]  # (batch, seq_len)
+        if self.explicit_zero_prob:
+            output["mlm_zero_probs"] = mlm_output["zero_probs"]
+
+        cell_emb = self._get_cell_emb_from_layer(transformer_output, values)
+        output["cell_emb"] = cell_emb
+
+        if CLS:
+            raise NotImplementedError(
+                "CLS is not implemented yet. Please set CLS=False to avoid this error."
+            )
+            output["cls_output"] = self.cls_decoder(cell_emb)  # (batch, n_cls)
+        if CCE:
+            raise NotImplementedError(
+                "Contrastive cell embedding objective is not implemented yet. "
+                "Please set CCE=False to avoid this error."
+            )
+        #     cell1 = cell_emb
+        #     transformer_output2 = self._encode(
+        #         src, values, src_key_padding_mask, batch_labels
+        #     )
+        #     cell2 = self._get_cell_emb_from_layer(transformer_output2)
+
+        #     # Gather embeddings from all devices if distributed training
+        #     if dist.is_initialized() and self.training:
+        #         cls1_list = [
+        #             torch.zeros_like(cell1) for _ in range(dist.get_world_size())
+        #         ]
+        #         cls2_list = [
+        #             torch.zeros_like(cell2) for _ in range(dist.get_world_size())
+        #         ]
+        #         dist.all_gather(tensor_list=cls1_list, tensor=cell1.contiguous())
+        #         dist.all_gather(tensor_list=cls2_list, tensor=cell2.contiguous())
+
+        #         # NOTE: all_gather results have no gradients, so replace the item
+        #         # of the current rank with the original tensor to keep gradients.
+        #         # See https://github.com/princeton-nlp/SimCSE/blob/main/simcse/models.py#L186
+        #         cls1_list[dist.get_rank()] = cell1
+        #         cls2_list[dist.get_rank()] = cell2
+
+        #         cell1 = torch.cat(cls1_list, dim=0)
+        #         cell2 = torch.cat(cls2_list, dim=0)
+        #     # TODO: should detach the second run cls2? Can have a try
+        #     cos_sim = self.sim(cell1.unsqueeze(1), cell2.unsqueeze(0))  # (batch, batch)
+        #     labels = torch.arange(cos_sim.size(0)).long().to(cell1.device)
+        #     output["loss_cce"] = self.creterion_cce(cos_sim, labels)
+        if MVC:
+            mvc_output = self.mvc_decoder(
+                cell_emb
+                # if not self.use_batch_labels
+                # else torch.cat([cell_emb, batch_emb], dim=1),
+                # # else cell_emb + batch_emb,
+                # self.cur_gene_token_embs,
+            )
+            # if self.explicit_zero_prob and do_sample:
+            #     bernoulli = Bernoulli(probs=mvc_output["zero_probs"])
+            #     output["mvc_output"] = bernoulli.sample() * mvc_output["pred"]
+            # else:
+            output["mvc_output"] = mvc_output["pred"]  # (batch, seq_len)
+            if self.explicit_zero_prob:
+                raise NotImplementedError(
+                    "Explicit zero prob is not implemented for MVC decoder"
+                )
+                output["mvc_zero_probs"] = mvc_output["zero_probs"]
+        if ECS:
+            raise NotImplementedError(
+                "Elastic cell similarity is not implemented yet. "
+                "Please set ECS=False to avoid this error."
+            )
+            # Here using customized cosine similarity instead of F.cosine_similarity
+            # to avoid the pytorch issue of similarity larger than 1.0, pytorch # 78064
+            # normalize the embedding
+            cell_emb_normed = F.normalize(cell_emb, p=2, dim=1)
+            cos_sim = torch.mm(cell_emb_normed, cell_emb_normed.t())  # (batch, batch)
+
+            # mask out diagnal elements
+            mask = torch.eye(cos_sim.size(0)).bool().to(cos_sim.device)
+            cos_sim = cos_sim.masked_fill(mask, 0.0)
+            # only optimize positive similarities
+            cos_sim = F.relu(cos_sim)
+
+            output["loss_ecs"] = torch.mean(1 - (cos_sim - self.ecs_threshold) ** 2)
+
+        if self.do_dab:
+            raise NotImplementedError(
+                "DAB is not implemented yet. Please set do_dab=False to avoid this error."
+            )
+            output["dab_output"] = self.grad_reverse_discriminator(cell_emb)
+
+        return output
