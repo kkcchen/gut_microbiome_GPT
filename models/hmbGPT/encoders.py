@@ -3,7 +3,7 @@
 from torch import nn, Tensor
 from typing import Dict, Mapping, Optional, Tuple, Any, Union
 
-
+#TODO: try starting with embeddings of taxa. evo2? word2vec?
 class TaxaEncoder(nn.Module):
     def __init__(
         self,
