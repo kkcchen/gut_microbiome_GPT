@@ -1,5 +1,31 @@
 import numpy as np
 from typing import Dict, Optional, Union
+from pandas import DataFrame as df
+
+class BatchVocab():
+    """
+    A class to represent the vocabulary of batches in the dataset.
+    """
+
+    def __init__(self, vocab: np.ndarray):
+        """
+        Initialize the vocabulary with taxa and special tokens.
+
+        Args:
+            vocab (np.ndarray): A numpy array containing batch names. 
+                The first column should be the sample names, and the rest are batch names
+        """
+        # get the unique batch names
+        self.vocab = vocab
+        self.itos = vocab[:].tolist()
+        self.stoi = {token: idx for idx, token in enumerate(self.itos)}
+
+        # make sure there are no duplicates in the batch names
+        if len(self.itos) != len(set(self.itos)):
+            raise ValueError("Duplicate batch names found in the DataFrame.")
+        
+    def __getitem__(self, item: str):
+        return self.stoi.get(item, None)
 
 class Preprocessor:
     """
@@ -23,17 +49,15 @@ class Preprocessor:
         self.binning = binning
         self.filter_gene_by_counts = filter_gene_by_counts
 
-    def __call__(self, unprocessed_data, batch_labels) -> Dict:
+    def __call__(self, unprocessed_data: df) -> Dict:
         """
         format controls the different input value wrapping, including categorical
         binned style, fixed-sum normalized counts, log1p fixed-sum normalized counts, etc.
 
         Args:
 
-        unprocessed_data (:class:`np.ndarray`):
-            The :class:`np.ndarray` object to preprocess. size (num_samples, num_taxa)
-        batch_labels (:class:`np.ndarray`):
-            The batch labels of the data. size (num_samples, )
+        unprocessed_data (:class:`df`):
+            The :class:`df` object to preprocess. size (num_samples, num_taxa)
 
         Returns:
         :class:`np.ndarray`:
@@ -41,9 +65,6 @@ class Preprocessor:
         :class:`np.ndarray`:
             The bin edges of the data.
         """
-
-        assert len(unprocessed_data) == len(batch_labels)
-
         # step 1: filter genes
         # skipped 
 
@@ -69,7 +90,10 @@ class Preprocessor:
             binned_rows = []
             bin_edges = []
 
-            for row in unprocessed_data:
+            # Iterate over each row (sample) in the DataFrame, excluding non-numeric columns
+            numeric_data = unprocessed_data.select_dtypes(include=[np.number])
+            for _, row in numeric_data.iterrows():
+                row = row.values  # convert Series to np array for processing
                 if row.max() == 0:
                     # raise ValueError(
                     #     "The data has all zero values, please check the data."
@@ -95,8 +119,45 @@ class Preprocessor:
                 bin_edges.append(np.concatenate([[0], bins]))
         else:
             raise ValueError("Binning is not enabled, should this be the case?")
-        
+                
+        # Update the original DataFrame with binned data (only numeric columns)
+        numeric_cols = unprocessed_data.select_dtypes(include=[np.number]).columns
+        unprocessed_data.loc[:, numeric_cols] = np.stack(binned_rows)
         return np.stack(binned_rows), np.stack(bin_edges)
+
+    def get_batch_labels(self, unprocessed_data: df) -> np.ndarray:
+        """
+        Get the batch labels of the data.
+
+        Args:
+        unprocessed_data (:class:`df`):
+            The unprocessed data. There should be a column named "sample" in the data, with experiment_srr format
+
+        Returns:
+        :class:`np.ndarray`:
+            The batch labels.
+        """
+        if "sample" not in unprocessed_data.columns:
+            raise ValueError(
+                "The unprocessed data must have a column named 'sample' to get batch labels."
+            )
+        sample_srr = unprocessed_data['sample'].str.split('_', n=1, expand=True)
+
+        # make a list with no repeats
+        unique_samples = sample_srr[0].unique()
+
+        batch_vocab = BatchVocab(unique_samples)
+
+        # add a column to the unprocessed_data with the batch labels
+        unprocessed_data['batch'] = sample_srr[0]
+
+        # convert the batch labels to indices
+        unprocessed_data['batch'] = unprocessed_data['batch'].map(batch_vocab.__getitem__)
+        # move the batch column to the front
+        unprocessed_data = unprocessed_data[['batch'] + [col for col in unprocessed_data.columns if col != 'batch']]
+    
+        return BatchVocab(unique_samples).itos
+
 
 def _digitize(x: np.ndarray, bins: np.ndarray, side="both") -> np.ndarray:
     """
