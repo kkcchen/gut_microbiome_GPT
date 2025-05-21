@@ -1,1 +1,1 @@
-from .dataset_electra import ELECTRADataset
+from .tokenizer import MicrobiomeVocab
