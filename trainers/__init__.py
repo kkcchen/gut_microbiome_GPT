@@ -1,3 +1,0 @@
-from .electra.electra_gen_trainer import GeneratorTrainer
-from .electra.electra_disc_trainer import DiscriminatorTrainer
-from .electra.electra_disc_finetune_trainer import DiscriminatorFinetuneTrainer
