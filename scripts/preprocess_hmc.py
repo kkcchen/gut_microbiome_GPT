@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import os
-import fasttext
+# import fasttext
 import json
 # os.environ["GOOGLE_API_KEY"] = "AIzaSyB41iEts_InBYR3sHz1bywFYN2JjxlBTJ0"
 # GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
@@ -58,8 +58,9 @@ def train_test_split(npy_file_path, save_path, test_size=0.2, random_state=42):
     test = arr[test_indices]
     print('Train shape: {}'.format(train.shape))
     print('Test shape: {}'.format(test.shape))
-    train_save_name = os.path.join(save_path, 'train.npy')
-    test_save_name = os.path.join(save_path, 'test.npy')
+    base_name = os.path.splitext(os.path.basename(npy_file_path))[0]
+    train_save_name = os.path.join(save_path, f"{base_name}_train.npy")
+    test_save_name = os.path.join(save_path, f"{base_name}_test.npy")
     np.save(train_save_name, train)
     np.save(test_save_name, test)
 
@@ -111,9 +112,9 @@ def save_taxonomy_table(df_to_save, save_path, save_name, cols_to_drop):
     print(f"saved numpy array has shape {stacked_data.shape}")
 
 
-def split_dataframe_by_samples(df, sample_col="sample", remove_agp=True):
+def split_dataframe_by_samples(df, sample_col="sample", remove_agp=True, split_ratio=0.5):
     """
-    Splits the dataframe into two groups, each with roughly 50% of the total rows.
+    Splits the dataframe into two groups, each with roughly {split_ratio} of the total rows assigned to group 1, and others to group 2.
     All samples from the same study (extracted from sample_name) remain together.
 
     sample_col is in the format "{study_id}_{sample_id}".
@@ -143,7 +144,7 @@ def split_dataframe_by_samples(df, sample_col="sample", remove_agp=True):
 
     # Greedily assign studies to the group with fewer samples.
     for study, cnt in sorted_studies:
-        if count1 <= count2:
+        if count1 < (count1 + count2) * split_ratio:
             group1_studies.append(study)
             count1 += cnt
         else:
@@ -157,7 +158,7 @@ def split_dataframe_by_samples(df, sample_col="sample", remove_agp=True):
     return df_group1, df_group2, group1_studies, group2_studies
 
 
-def read_taxonomic_table(file_path, df1_save_path, df2_save_path):
+def read_taxonomic_table(file_path, df1_save_path, df2_save_path, split_ratio=0.5):
     """takes a file path of a csv file containing the hmc taxonomic table
     returns:
     - a numpy array of data of shape (n_rows, n_cols, 2) where [:, :, 0] represents the index of column and [:, :, 1]
@@ -165,18 +166,20 @@ def read_taxonomic_table(file_path, df1_save_path, df2_save_path):
     - a list of column names (bacteria names)
     - a list of row names (sample names)
     """
-    df = pd.read_csv(file_path, index_col=0)
+    # Read the CSV in chunks and concatenate to avoid memory issues
+    chunks = pd.read_csv(file_path, index_col=0, chunksize=10000)
+    df = pd.concat(chunks, ignore_index=True)
     col_names = df.columns.tolist()
     # 1. shuffle the dataframe
     df_shuffled = df.sample(frac=1, random_state=42).reset_index(drop=True)
     # 2. split by sample
-    df1, df2, df1_studies, df2_studies = split_dataframe_by_samples(df_shuffled)
+    df1, df2, df1_studies, df2_studies = split_dataframe_by_samples(df_shuffled, split_ratio=split_ratio)
 
     # save df1
     if not os.path.exists(df1_save_path):
         os.makedirs(df1_save_path)
     # save taxonomy table
-    save_taxonomy_table(df1, df1_save_path, "taxonomy_table", ['sample', 'study_id'])
+    save_taxonomy_table(df1, df1_save_path, "taxonomy_table_pretrain", ['sample', 'study_id'])
     # save study id list into json
     with open(f"{df1_save_path}/studies_list.json", "w") as f1:
         json.dump(df1_studies, f1)
@@ -185,7 +188,7 @@ def read_taxonomic_table(file_path, df1_save_path, df2_save_path):
     if not os.path.exists(df2_save_path):
         os.makedirs(df2_save_path)
     # save taxonomy table
-    save_taxonomy_table(df2, df2_save_path, "taxonomy_table", ['sample', 'study_id'])
+    save_taxonomy_table(df2, df2_save_path, "taxonomy_table_finetune", ['sample', 'study_id'])
     # save study id list into json
     with open(f"{df2_save_path}/studies_list.json", "w") as f2:
         json.dump(df2_studies, f2)
@@ -193,47 +196,47 @@ def read_taxonomic_table(file_path, df1_save_path, df2_save_path):
     return col_names
 
 
-def create_vocab_embeddings_biowordvec(col_names, npy_save_dir, batch_size=256):
-    """
-    takes in a list of column names, generates an embedding for each column name
-    use biowordvec embeddings
-    GOOGLE GEMINI API KEY: AIzaSyB41iEts_InBYR3sHz1bywFYN2JjxlBTJ0
-    """
-    # Replace the file path with the location of your downloaded BioWordVec model.
-    model_path = "/home/kevin/Desktop/gut_microbiome/pretrained_models/BioWordVec_PubMed_MIMICIII_d200.bin"
+# def create_vocab_embeddings_biowordvec(col_names, npy_save_dir, batch_size=256):
+#     """
+#     takes in a list of column names, generates an embedding for each column name
+#     use biowordvec embeddings
+#     GOOGLE GEMINI API KEY: AIzaSyB41iEts_InBYR3sHz1bywFYN2JjxlBTJ0
+#     """
+#     # Replace the file path with the location of your downloaded BioWordVec model.
+#     model_path = "/home/kevin/Desktop/gut_microbiome/pretrained_models/BioWordVec_PubMed_MIMICIII_d200.bin"
 
-    bio_model = fasttext.load_model(model_path)
+#     bio_model = fasttext.load_model(model_path)
 
-    # Retrieve the vector for a word (works even if the word is OOV due to subword features)
-    words = [bacteria.split(".")[-1] for bacteria in col_names]
-    all_embeddings = []
-    for i in range(0, len(words), batch_size):
-        batch = words[i : i + batch_size]
-        batch_embeddings = [bio_model.get_word_vector(word) for word in batch]
-        all_embeddings.extend(batch_embeddings)
+#     # Retrieve the vector for a word (works even if the word is OOV due to subword features)
+#     words = [bacteria.split(".")[-1] for bacteria in col_names]
+#     all_embeddings = []
+#     for i in range(0, len(words), batch_size):
+#         batch = words[i : i + batch_size]
+#         batch_embeddings = [bio_model.get_word_vector(word) for word in batch]
+#         all_embeddings.extend(batch_embeddings)
 
-    embedding = np.array(all_embeddings)
-    print("Embedding shape:", embedding.shape)
-    if not os.path.exists(npy_save_dir):
-        os.makedirs(npy_save_dir)
-    save_name = os.path.join(npy_save_dir, "bac_vocab.npy")
-    np.save(save_name, embedding)
+#     embedding = np.array(all_embeddings)
+#     print("Embedding shape:", embedding.shape)
+#     if not os.path.exists(npy_save_dir):
+#         os.makedirs(npy_save_dir)
+#     save_name = os.path.join(npy_save_dir, "bac_vocab.npy")
+#     np.save(save_name, embedding)
 
 
 if __name__ == '__main__':
-    taxonomic_table_path = "/home/kevin/Desktop/gut_microbiome/dataset/hmc/taxonomic_table.csv"
-    df1_save_dir = "/home/kevin/Desktop/gut_microbiome/dataset/hmc/electra/transformer"
-    df2_save_dir = "/home/kevin/Desktop/gut_microbiome/dataset/hmc/electra/random_forest"
-    npy1_path = "/home/kevin/Desktop/gut_microbiome/dataset/hmc/electra/transformer/taxonomy_table.npy"
-    npy2_path = "/home/kevin/Desktop/gut_microbiome/dataset/hmc/electra/random_forest/taxonomy_table.npy"
+    taxonomic_table_path = "/home/kchen/microbiome/gut_microbiome_GPT/datasets/taxonomic_table.csv"
+    pretrain_save_dir = "/home/kchen/microbiome/gut_microbiome_GPT/datasets/new_split/pretrain_data"
+    finetune_save_dir = "/home/kchen/microbiome/gut_microbiome_GPT/datasets/new_split/finetune_data"
+    npy_pretrain_path = "/home/kchen/microbiome/gut_microbiome_GPT/datasets/new_split/pretrain_data/taxonomy_table_pretrain.npy"
+    npy_finetune_path = "/home/kchen/microbiome/gut_microbiome_GPT/datasets/new_split/finetune_data/taxonomy_table_finetune.npy"
 
-    npy1_512_path = "/home/kevin/Desktop/gut_microbiome/dataset/hmc/electra/transformer/taxonomy_table_512.npy"
+    # npy1_512_path = "/home/kchen/microbiome/gut_microbiome_GPT/datasets/hmc/electra/transformer/taxonomy_table_512.npy"
 
-    # col_names = read_taxonomic_table(taxonomic_table_path, df1_save_dir, df2_save_dir)
+    col_names = read_taxonomic_table(taxonomic_table_path, pretrain_save_dir, finetune_save_dir, split_ratio=0.75)
     # vocab_embeddings = create_vocab_embeddings_biowordvec(col_names, npy_save_dir)
     # get_top_k_npy(npy1_path, df1_save_dir)
     # get_top_k_npy(npy2_path, df2_save_dir)
-    # train_test_split(npy1_512_path, df1_save_dir)
+    train_test_split(npy_pretrain_path, pretrain_save_dir)
 
     # rf_sample_list_path = "/home/kevin/Desktop/gut_microbiome/dataset/hmc/electra/random_forest/sample_list.json"
     # sample_metadata_path = "/home/kevin/Desktop/gut_microbiome/dataset/hmc/sample_metadata.tsv"
@@ -242,7 +245,7 @@ if __name__ == '__main__':
     # with open(label_save_path, "w") as f1:
     #     json.dump(locations, f1)
 
-    rf_npy_path = "/home/kevin/Desktop/gut_microbiome/dataset/hmc/electra/random_forest/taxonomy_table.npy"
+    # rf_npy_path = "/home/kevin/Desktop/gut_microbiome/dataset/hmc/electra/random_forest/taxonomy_table.npy"
     # rf_save_path =
 
 
