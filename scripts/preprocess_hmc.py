@@ -95,6 +95,11 @@ def save_taxonomy_table(df_to_save, save_path, save_name, cols_to_drop):
     n_rows, n_cols = data.shape
     col_indices = np.tile(np.arange(n_cols), (n_rows, 1))
 
+    # Save column names
+    col_names = df.columns.tolist()
+    with open(os.path.join(save_path, f"{save_name}_colnames.json"), "w") as f2:
+        json.dump(col_names, f2)
+
     # Stack the column indices and data along a new third axis.
     stacked_data = np.stack((col_indices, data), axis=2)
     if not os.path.exists(save_path):
@@ -102,6 +107,7 @@ def save_taxonomy_table(df_to_save, save_path, save_name, cols_to_drop):
     file_name = os.path.join(save_path, f"{save_name}.npy")
     np.save(file_name, stacked_data)
     print(f"Saved {file_name}")
+    print(f"Saved column names to {save_name}_colnames.json")
     print(f"saved numpy array has shape {stacked_data.shape}")
 
 

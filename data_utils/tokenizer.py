@@ -6,7 +6,7 @@ import torch
 class MicrobiomeVocab():
     def __init__(
         self,
-        data: df,
+        vocab_list: List[str],
         class_token: str = "<cls>",
         mask_token: str = "<mask>",
         pad_token: str = "<pad>",
@@ -16,26 +16,13 @@ class MicrobiomeVocab():
         """
         Initialize the vocabulary with taxa and special tokens.
         Args:
-            taxa (df): A DataFrame containing taxa names. columns are taxa names.
-            data frame should be in this format:
-                | sample | taxa0 | ... | taxaN |
-                |--------|-------|-----|-------|
-                |   s1   |   1   | ... |   0   |
-                |   s2   |   0   | ... |   1   |
+            vocab_list (List[str]): A list of taxa names.
             class_token (str): The token representing the class.
             mask_token (str): The token representing the mask.
         """
-        # check the data follows the format
-        if not isinstance(data, df):
-            raise ValueError("Data should be a pandas DataFrame.")
-        if not all(isinstance(col, str) for col in data.columns[1:]):
-            raise ValueError("All taxa names should be strings.")
-        if not all(isinstance(x, (int, np.integer)) for x in data.iloc[:, 1:].values.flatten()):
-            raise ValueError("All taxa values should be numeric.")
-        
 
-        self.data = data
-        self.itos = data.columns.tolist()[1:] + [class_token, mask_token, pad_token]
+        self.vocab_list = vocab_list
+        self.itos = vocab_list + [class_token, mask_token, pad_token]
         # assert there are no duplicates in the taxa names
         if len(self.itos) != len(set(self.itos)):
             raise ValueError("Duplicate taxa names found in the DataFrame.")
@@ -44,11 +31,15 @@ class MicrobiomeVocab():
         self.class_token = class_token
         self.mask_token = mask_token
         self.pad_token = pad_token
+
         self.pad_value = pad_value
         self.mask_value = mask_value
 
+        self.pad_index = self.stoi[pad_token]
+        self.class_index = self.stoi[class_token]
+
     def __len__(self):
-        return len(self.data)
+        return len(self.itos)
 
     def __getitem__(self, item: str):
         return self.stoi.get(item, None)
@@ -70,6 +61,7 @@ class Tokenizer:
 
     def tokenize_batch(
         self,
+        data: np.ndarray,
         return_pt: bool = True,
         prepend_cls: bool = True,
         include_zero_count: bool = False,
@@ -78,43 +70,66 @@ class Tokenizer:
         Tokenize a batch of data. Returns a list of tuple (array_like taxa_id, array_like values).
 
         Args:
-            data (array-like): A batch of data, with shape (batch_size, n_features).
-                n_features equals the number of all taxa.
+            data (array-like): A batch of data, with shape (num_samples, n_taxa, 2). [:,:,0] is taxa_id, [:,:,1] is values.
             return_pt (bool): Whether to return torch tensors of gene_ids and counts,
                 default to True.
 
         Returns:
-            list: A list of tuple (gene_id, count) of non zero gene expressions.
+            list: A list of tuple (taxa_id, count) of non zero gene expressions.
         """
         tokenized_data = []
-        for i in range(len(self.vocab)):
-            row = self.vocab.data.iloc[i, 1:].to_numpy()
+        for sample in data:
             if include_zero_count:
-                values = row
-                taxa_names = self.vocab.data.columns[1:]
+                values = sample[:, 1]
+                taxa_ids = sample[:, 0]
             else:
-                idx = np.nonzero(row)[0]
-                values = row[idx]
-                taxa_names = self.vocab.data.columns[1:].to_numpy()[idx]
+                idx = np.nonzero(sample)[:, 1]
+                values = sample[idx, 1]
+                taxa_ids = sample[:, 0][idx]
 
             if prepend_cls:
-                taxa_names = np.insert(taxa_names, 0, self.vocab.class_token)
+                taxa_ids = np.insert(taxa_ids, 0, self.vocab.class_index)
                 values = np.insert(values, 0, self.vocab.pad_value)
 
-            taxa_id = np.array(self.vocab.lookup_indices(taxa_names), dtype=np.int64)
-            values = np.array(values, dtype=np.int64)
-
             if return_pt:
-                taxa_id = torch.from_numpy(taxa_id).long()
+                taxa_ids = torch.from_numpy(taxa_ids).long()   
                 values = torch.from_numpy(values).float()
 
-            tokenized_data.append((taxa_id, values))
+            tokenized_data.append((taxa_ids, values))
+
+
         return tokenized_data
-    
+
+        # if prepend_cls:
+        #     cls_idx = self.vocab.class_index
+        #     cls_count = self.vocab.pad_value
+        #     data_prepend = torch.cat(
+        #         [
+        #             torch.tensor([cls_idx, cls_count], dtype=torch.float32).reshape(1, 1, 2),
+        #             data,
+        #         ],
+        #         dim=2,
+        #     )
+
+        #     return [
+        #         (
+        #             torch.from_numpy(row[:, 0]),
+        #             torch.from_numpy(row[:, 1])
+        #         ) for row in data_prepend
+        #     ]
+        
+        # else:
+        #     return [
+        #         (
+        #             torch.from_numpy(row[:, 0]), 
+        #             torch.from_numpy(row[:, 1])
+        #         ) for row in data
+        #     ]
+
     def pad_batch(
         self,
         batch: List[Tuple],
-        max_len: int,
+        max_len: Optional[int] = None,
         cls_prepended: bool = True,
     ) -> Dict[str, torch.Tensor]:
         """
@@ -128,9 +143,11 @@ class Tokenizer:
             Dict[str, torch.Tensor]: A dictionary of taxa_id and values.
         """
         max_ori_len = max(len(batch[i][0]) for i in range(len(batch)))
-        max_len = min(max_ori_len, max_len)
+        if max_len is not None:
+            max_len = min(max_ori_len, max_len)
+        else:
+            max_len = max_ori_len
 
-        pad_id = self.vocab[self.vocab.pad_token]
         # if vocab_mod is not None:
         #     mod_pad_id = vocab_mod[pad_token]
         taxa_ids_list = []
@@ -161,7 +178,7 @@ class Tokenizer:
                     [
                         taxa_ids,
                         torch.full(
-                            (max_len - len(taxa_ids),), pad_id, dtype=taxa_ids.dtype
+                            (max_len - len(taxa_ids),), self.vocab.pad_index, dtype=taxa_ids.dtype
                         ),
                     ]
                 )
@@ -189,7 +206,7 @@ class Tokenizer:
             #     mod_types_list.append(mod_types)
 
         batch_padded = {
-            "taxa": torch.stack(taxa_ids_list, dim=0),
+            "taxa_ids": torch.stack(taxa_ids_list, dim=0),
             "values": torch.stack(values_list, dim=0),
         }
         # if mod_types is not None:
@@ -198,17 +215,17 @@ class Tokenizer:
 
     def tokenize_and_pad_batch(
         self,
-        max_len: int,
         prepend_cls: bool = True,
         include_zero_count: bool = False,
         return_pt: bool = True,
         # mod_type: np.ndarray = None,
     ) -> Dict[str, torch.Tensor]:
         """
-        Tokenize and pad a batch of data. Returns a list of tuple (gene_id, count).
+        Tokenize and pad a batch of data. Returns a dict with padded taxa ids and values.
+
+        Args:
+            max_len (Optional[int]): The maximum length to pad/truncate to. If None, uses the max length in the batch.
         """
-        # if mod_type is not None:
-        #     cls_id_mod_type = vocab_mod[cls_token]
         tokenized_data = self.tokenize_batch(
             return_pt=return_pt,
             prepend_cls=prepend_cls,
@@ -217,7 +234,6 @@ class Tokenizer:
 
         batch_padded = self.pad_batch(
             tokenized_data,
-            max_len=max_len,
             cls_prepended=prepend_cls,
         )
         return batch_padded

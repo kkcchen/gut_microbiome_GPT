@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Union, List
 from pandas import DataFrame as df
 
 class BatchVocab():
@@ -49,7 +49,7 @@ class Preprocessor:
         self.binning = binning
         self.filter_gene_by_counts = filter_gene_by_counts
 
-    def __call__(self, unprocessed_data: df) -> Dict:
+    def process_from_df(self, unprocessed_data: df) -> Dict:
         """
         format controls the different input value wrapping, including categorical
         binned style, fixed-sum normalized counts, log1p fixed-sum normalized counts, etc.
@@ -65,6 +65,9 @@ class Preprocessor:
         :class:`np.ndarray`:
             The bin edges of the data.
         """
+        # delete first column
+        unprocessed_data.drop(unprocessed_data.columns[0], axis=1, inplace=True)
+
         # step 1: filter genes
         # skipped 
 
@@ -124,6 +127,66 @@ class Preprocessor:
         numeric_cols = unprocessed_data.select_dtypes(include=[np.number]).columns
         unprocessed_data.loc[:, numeric_cols] = np.stack(binned_rows)
         return np.stack(binned_rows), np.stack(bin_edges)
+    
+
+    def process_from_np(self, unprocessed_data: np.ndarray) -> Dict:
+        """
+        Process the unprocessed data from a numpy array.
+
+        Args:
+        unprocessed_data (:class:`np.ndarray`):
+            The unprocessed data. size (num_samples, num_taxa, 2), {:,:, 0} is the taxa id, {:,:, 1} is the value
+
+
+        Returns:
+        :class:`np.ndarray`:
+            The preprocessed data.
+        :class:`np.ndarray`:
+            The bin edges of the data.
+        """
+        if not isinstance(unprocessed_data, np.ndarray):
+            raise ValueError("The unprocessed data must be a numpy array.")
+        
+        if not self.binning:
+            raise ValueError("Binning is not enabled, should this be the case?")
+
+            
+        n_bins = self.binning  # NOTE: the first bin is always a spectial for zero
+        binned_rows = []
+        bin_edges = []
+
+        # Iterate over each row 
+        for sample in unprocessed_data:
+            row = sample[:, 1]
+            if row.max() == 0:
+                # raise ValueError(
+                #     "The data has all zero values, please check the data."
+                # )
+                binned_rows.append(np.zeros_like(row, dtype=np.int64))
+                bin_edges.append(np.array([0] * n_bins))
+                continue
+
+            non_zero_ids = row.nonzero()
+            non_zero_row = row[non_zero_ids]
+            bins = np.quantile(non_zero_row, np.linspace(0, 1, n_bins - 1))
+            # bins = np.sort(np.unique(bins))
+            # NOTE: comment this line for now, since this will make the each category
+            # has different relative meaning across datasets
+            non_zero_digits = _digitize(non_zero_row, bins) + 1
+
+            # print(non_zero_digits, row, bins)
+            assert non_zero_digits.min() >= 1
+            assert non_zero_digits.max() <= n_bins - 1
+            binned_row = np.zeros_like(row, dtype=np.int64)
+            binned_row[non_zero_ids] = non_zero_digits
+            binned_rows.append(binned_row)
+            bin_edges.append(np.concatenate([[0], bins]))
+                
+        # Update the original DataFrame with binned data (only numeric columns)
+        numeric_cols = unprocessed_data.select_dtypes(include=[np.number]).columns
+        unprocessed_data.loc[:, numeric_cols] = np.stack(binned_rows)
+        return np.stack(binned_rows), np.stack(bin_edges)
+        
 
     def get_batch_labels(self, unprocessed_data: df) -> np.ndarray:
         """
