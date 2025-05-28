@@ -11,7 +11,16 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch.nn.modules.transformer import _get_clones
 
-from flash_attn.flash_attention import FlashAttention
+try:
+    from flash_attn.modules.mha import FlashSelfAttention, FlashCrossAttention
+
+    flash_attn_available = True
+except ImportError:
+    import warnings
+    warnings.warn("flash_attn is not installed")
+    flash_attn_available = False
+
+
 from .layers import MultiheadAttention
 
 
@@ -28,7 +37,6 @@ class FlashscGPTMHA(nn.Module):
         bias=True,
         batch_first=True,
         attention_dropout=0.0,
-        causal=False,
         device=None,
         dtype=None,
     ) -> None:
@@ -36,7 +44,6 @@ class FlashscGPTMHA(nn.Module):
         factory_kwargs = {"device": device, "dtype": dtype}
         super().__init__()
         self.embed_dim = embed_dim
-        self.causal = causal
 
         self.num_heads = num_heads
         assert (
@@ -46,23 +53,39 @@ class FlashscGPTMHA(nn.Module):
         assert (
             self.head_dim % 8 == 0 and self.head_dim <= 128
         ), "Only support head_dim <= 128 and divisible by 8"
+        self.flash_attn_available = flash_attn_available
 
-        self.Wqkv = nn.Linear(embed_dim, 3 * embed_dim, bias=bias, **factory_kwargs)
-        self.self_attn = FlashAttention(attention_dropout=attention_dropout)
-        self.cross_attn = MultiheadAttention(
-            embed_dim,
-            num_heads,
-            dropout=attention_dropout,
-            batch_first=batch_first,
-            **factory_kwargs,
-        )
-        # self.cross_attn = FlashCrossAttention(attention_dropout=attention_dropout)
-        # for cross attetion, launch multiple queries in parallel, each query is just
-        # a single gen gene. Then each kv is the entire set of pect genes plus this gen
-        # gene together.
-        # In practice, we can simply put these queries in the batch dimension, and then
-        # they can be processed in parallel.
-        self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias, **factory_kwargs)
+        if flash_attn_available:
+            raise NotImplementedError(
+                "FlashAttention is not supported yet, TODO add support"
+            )
+            self.self_attn = FlashSelfAttention(attention_dropout=attention_dropout)
+            self.cross_attn = FlashCrossAttention(attention_dropout=attention_dropout)
+            self.Wqkv = nn.Linear(embed_dim, 3 * embed_dim, bias=bias, **factory_kwargs)
+            self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias, **factory_kwargs)
+
+            # for cross attetion, launch multiple queries in parallel, each query is just
+            # a single gen gene. Then each kv is the entire set of pect genes plus this gen
+            # gene together.
+            # In practice, we can simply put these queries in the batch dimension, and then
+            # they can be processed in parallel.
+        else:
+            # Fallback to regular attention if flash_attn is not available
+            self.self_attn = MultiheadAttention(
+                embed_dim,
+                num_heads,
+                dropout=attention_dropout,
+                batch_first=batch_first,
+                **factory_kwargs,
+            )
+
+            self.cross_attn = MultiheadAttention(
+                embed_dim,
+                num_heads,
+                dropout=attention_dropout,
+                batch_first=batch_first,
+                **factory_kwargs,
+            )
 
     def forward(
         self,
@@ -78,38 +101,34 @@ class FlashscGPTMHA(nn.Module):
         pcpt_key_padding_mask: bool tensor of shape (batch, pcpt_len), 1 means valid and 0 means not valid.
         gen_key_padding_mask: bool tensor of shape (batch, gen_len), 1 means valid and 0 means not valid.
         """
-        pcpt_qkv = self.Wqkv(pcpt_total_embs)
 
-        pcpt_qkv = rearrange(
-            pcpt_qkv, "b s (three h d) -> b s three h d", three=3, h=self.num_heads
-        )
-
-        # full self attention on pcpt genes
-        pcpt_context, pcpt_attn_weights = self.self_attn(
+        if self.flash_attn_available:
+            raise NotImplementedError(
+                "FlashAttention is not supported yet, TODO add support"
+            )
+            # FlashAttention expects (batch, seq, 3, nheads, head_dim)
+            pcpt_qkv = self.Wqkv(pcpt_total_embs)
+            pcpt_qkv = rearrange(
+                pcpt_qkv, "b s (three h d) -> b s three h d", three=3, h=self.num_heads
+            )
+            pcpt_context, pcpt_attn_weights = self.self_attn(
             pcpt_qkv,
             key_padding_mask=pcpt_key_padding_mask,
             need_weights=need_weights,
-            causal=self.causal,
-        )
-        pcpt_context = self.out_proj(rearrange(pcpt_context, "b s h d -> b s (h d)"))
+            )
+            pcpt_context = self.out_proj(rearrange(pcpt_context, "b s h d -> b s (h d)"))
+        else:
+            # Fallback: use torch MultiheadAttention, expects (batch, seq, embed_dim)
+            pcpt_context, pcpt_attn_weights = self.self_attn(
+            pcpt_total_embs, pcpt_total_embs, pcpt_total_embs,
+            key_padding_mask=pcpt_key_padding_mask,
+            need_weights=need_weights,
+            )
 
         if gen_total_embs is None:
             return (pcpt_context, None), (pcpt_attn_weights, None)
 
-        gen_qkv = self.Wqkv(gen_total_embs)
-        gen_qkv = rearrange(
-            gen_qkv, "b s (three h d) -> b s three h d", three=3, h=self.num_heads
-        )
 
-        # CROSS ATTENTION USING RAW PYTORCH IMPLEMENTATION
-        cross_q = gen_qkv[:, :, 0, :, :]  # (batch, gen_len, nheads, head_dim)
-        cross_q = rearrange(cross_q, "b gen_s h d -> b gen_s (h d)")
-        cross_kv = torch.cat(
-            [pcpt_qkv[:, :, 1:, :, :], gen_qkv[:, :, 1:, :, :]], dim=1
-        )  # (batch, pcpt_seq+gen_seq, 2, nheads, head_dim)
-        cross_kv = rearrange(cross_kv, "b pcpt_gen_s two h d -> b pcpt_gen_s two (h d)")
-
-        # make the attention mask, for pytorch implementation, true means attention is not allowed
         @lru_cache(maxsize=1)
         def make_mask(q_len, k_len, device):
             attention_mask = torch.zeros(
@@ -120,13 +139,31 @@ class FlashscGPTMHA(nn.Module):
                 q_len, device=device, dtype=torch.bool
             )
             return attention_mask
+        
+        if self.flash_attn_available:
+            raise NotImplementedError(
+                "FlashAttention is not supported yet, TODO add support"
+            )
+            gen_qkv = self.Wqkv(gen_total_embs)
+            gen_qkv = rearrange(
+                gen_qkv, "b s (three h d) -> b s three h d", three=3, h=self.num_heads
+            )
 
-        attention_mask = make_mask(cross_q.shape[1], cross_kv.shape[1], cross_q.device)
+            # CROSS ATTENTION USING RAW PYTORCH IMPLEMENTATION
+            cross_q = gen_qkv[:, :, 0, :, :]  # (batch, gen_len, nheads, head_dim)
+            cross_q = rearrange(cross_q, "b gen_s h d -> b gen_s (h d)")
+            cross_kv = torch.cat(
+                [pcpt_qkv[:, :, 1:, :, :], gen_qkv[:, :, 1:, :, :]], dim=1
+            )  # (batch, pcpt_seq+gen_seq, 2, nheads, head_dim)
+            cross_kv = rearrange(cross_kv, "b pcpt_gen_s two h d -> b pcpt_gen_s two (h d)")
 
-        if pcpt_key_padding_mask is None and gen_key_padding_mask is None:
-            key_padding_mask = None
-        else:
-            if pcpt_key_padding_mask is None:
+            # make the attention mask, for flash implementation, true means attention not allowed
+
+            attention_mask = ~make_mask(cross_q.shape[1], cross_kv.shape[1], cross_q.device)
+
+            if pcpt_key_padding_mask is None and gen_key_padding_mask is None:
+                key_padding_mask = None
+            elif pcpt_key_padding_mask is None:
                 pcpt_key_padding_mask = torch.ones(
                     (pcpt_qkv.shape[0], pcpt_qkv.shape[1]),
                     device=pcpt_qkv.device,
@@ -138,18 +175,69 @@ class FlashscGPTMHA(nn.Module):
                     device=gen_qkv.device,
                     dtype=torch.bool,
                 )
-            key_padding_mask = ~torch.cat(
+
+            key_padding_mask = torch.cat(
                 [pcpt_key_padding_mask, gen_key_padding_mask], dim=1
             )
-        cross_context, _ = self.cross_attn(
+
+            # FlashAttention cross attention expects (batch, seq, 3, nheads, head_dim)
+            # Prepare cross_qkv for FlashCrossAttention: (batch, gen_len, 3, nheads, head_dim)
+            # For cross attention, queries are gen_qkv, keys/values are concatenated pcpt and gen
+            # Here, we concatenate pcpt and gen embeddings for keys and values
+            # Prepare q, k, v
+            cross_q = gen_qkv[:, :, 0, :, :]  # (batch, gen_len, nheads, head_dim)
+            cross_kv = torch.cat(
+                [pcpt_qkv[:, :, 1:, :, :], gen_qkv[:, :, 1:, :, :]], dim=1
+            )  # (batch, pcpt_len+gen_len, 2, nheads, head_dim)
+            # cross_kv: (batch, pcpt_len+gen_len, 2, nheads, head_dim), where 2 is (key, value)
+            # FlashCrossAttention expects keys and values in the same tensor
+            # cross_kv will be passed as both key and value
+
+            # FlashCrossAttention expects (batch, q_seq, nheads, head_dim), (batch, kv_seq, nheads, head_dim)
+            gen_context, gen_attn_weights = self.cross_attn(
             cross_q,
-            cross_kv[:, :, 0, :],
-            cross_kv[:, :, 1, :],
+            cross_kv,
             key_padding_mask=key_padding_mask,
             attn_mask=attention_mask,
-        )
-        gen_context = cross_context  # (batch, gen_len, hidden_dim)
-        gen_attn_weights = None
+            need_weights=need_weights,
+            )
+            gen_context = self.out_proj(rearrange(gen_context, "b s h d -> b s (h d)"))
+        else:
+            # Fallback: use torch MultiheadAttention, expects (batch, seq, embed_dim)
+            # cross_q: (batch, gen_len, hidden_dim)
+            # cross_kv: (batch, pcpt_len+gen_len, 2, hidden_dim)
+            pcpt_gen_embeddings = torch.cat(
+                [pcpt_total_embs, gen_total_embs], dim=1
+            )
+            attention_mask = make_mask(
+                gen_total_embs.shape[1], pcpt_gen_embeddings.shape[1], gen_total_embs.device
+            )
+
+            if pcpt_key_padding_mask is None and gen_key_padding_mask is None:
+                key_padding_mask = None
+            elif pcpt_key_padding_mask is None:
+                pcpt_key_padding_mask = torch.zeros(
+                    (pcpt_total_embs.shape[0], pcpt_total_embs.shape[1]),
+                    device=pcpt_total_embs.device,
+                    dtype=torch.bool,
+                )
+            elif gen_key_padding_mask is None:
+                gen_key_padding_mask = torch.zeros(
+                    (gen_total_embs.shape[0], gen_total_embs.shape[1]),
+                    device=gen_total_embs.device,
+                    dtype=torch.bool,
+                )
+
+            key_padding_mask = torch.cat(
+                [pcpt_key_padding_mask, gen_key_padding_mask], dim=1
+            )
+            
+            gen_context, gen_attn_weights = self.cross_attn(
+            gen_total_embs, pcpt_gen_embeddings, pcpt_gen_embeddings,
+            key_padding_mask=key_padding_mask,
+            attn_mask=attention_mask,
+            need_weights=need_weights,
+            )
 
         # # CROSS ATTENTION ON GEN GENES
         # # prepare cross_q, where each query is per only one gen gene
@@ -180,7 +268,6 @@ class FlashscGPTMHA(nn.Module):
         #     gen_qkv,
         #     key_padding_mask=gen_key_padding_mask,
         #     need_weights=need_weights,
-        #     causal=self.causal,
         # )
         # gen_context = self.out_proj(rearrange(gen_context, "b s h d -> b s (h d)"))
 
@@ -271,6 +358,9 @@ class FlashscGPTLayer(nn.Module):
         we follow pytorch rule that the mask is True for padded tokens, but
         in the inner flash MHA, it assumes the mask is False for padded tokens.
         """
+        raise NotImplementedError(
+            "we should not reverse as flash is not implemented yet"
+        )
         if src_key_padding_mask is None:
             return None
 
@@ -297,8 +387,13 @@ class FlashscGPTLayer(nn.Module):
             see the docs in Transformer class.
         """
 
-        pcpt_key_padding_mask_ = self._reverse_key_padding_mask(pcpt_key_padding_mask)
-        gen_key_padding_mask_ = self._reverse_key_padding_mask(gen_key_padding_mask)
+        if flash_attn_available:
+            pcpt_key_padding_mask_ = self._reverse_key_padding_mask(pcpt_key_padding_mask)
+            gen_key_padding_mask_ = self._reverse_key_padding_mask(gen_key_padding_mask)
+        else:
+            # Fallback to regular attention, no need to reverse the mask
+            pcpt_key_padding_mask_ = pcpt_key_padding_mask
+            gen_key_padding_mask_ = gen_key_padding_mask
 
         if self.norm_scheme == "pre":
             pcpt_total_embs = self.norm1(pcpt_total_embs)
@@ -377,13 +472,13 @@ class FlashscGPTGenerator(nn.Module):
         encoder_layer,
         num_layers,
         norm=None,
-        mask_check=True,
+        # mask_check=True,
     ):
         super().__init__()
         self.layers = _get_clones(encoder_layer, num_layers)
         self.num_layers = num_layers
         self.norm = norm
-        self.mask_check = mask_check
+        # self.mask_check = mask_check
 
     def forward(
         self,

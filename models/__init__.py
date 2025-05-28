@@ -1,1 +1,1 @@
-from .hmbGPT import TransformerEncoder
+from .hmbGPT import TransformerModel

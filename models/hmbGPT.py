@@ -11,23 +11,14 @@ import torch.distributed as dist
 import torch.nn.functional as F
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 from torch.distributions import Bernoulli
-from tqdm import trange
+# from tqdm import trange
 
 from data_utils import MicrobiomeVocab
 
-try:
-    from .flash_layers import (
+from .flash_layers import (
     FlashscGPTLayer,
     FlashscGPTGenerator,
 )
-
-    flash_attn_available = True
-except ImportError:
-    import warnings
-
-    warnings.warn("flash_attn is not installed")
-    flash_attn_available = False
-
 
 
 # from .dsbn import DomainSpecificBatchNorm1d
@@ -49,7 +40,6 @@ from .decoders import (
 class TransformerModel(nn.Module):
     def __init__(
         self,
-        ntoken: int,
         d_model: int,
         nhead: int,
         d_hid: int,
@@ -104,7 +94,7 @@ class TransformerModel(nn.Module):
 
         # TODO: add dropout in the TaxaEncoder
         self.flag_encoder = nn.Embedding(2, d_model)
-        self.encoder = TaxaEncoder(ntoken, d_model, padding_idx=vocab[vocab.pad_token])
+        self.encoder = TaxaEncoder(len(vocab), d_model, padding_idx=vocab.pad_index)
 
         # Value Encoder, NOTE: the scaling style is also handled in _encode method
         if input_emb_style == "continuous":
@@ -202,38 +192,38 @@ class TransformerModel(nn.Module):
 
         self.init_weights()
 
-    def _encode(
-        self,
-        src: Tensor,
-        values: Tensor,
-        src_key_padding_mask: Tensor,
-        batch_labels: Optional[Tensor] = None,  # (batch,)
-    ) -> Tensor:
-        # self._check_batch_labels(batch_labels)
+    # def _encode(
+    #     self,
+    #     src: Tensor,
+    #     values: Tensor,
+    #     src_key_padding_mask: Tensor,
+    #     batch_labels: Optional[Tensor] = None,  # (batch,)
+    # ) -> Tensor:
+    #     # self._check_batch_labels(batch_labels)
 
-        src = self.encoder(src)  # (batch, seq_len, embsize)
-        self.cur_gene_token_embs = src
+    #     src = self.encoder(src)  # (batch, seq_len, embsize)
+    #     self.cur_gene_token_embs = src
 
-        values = self.value_encoder(values)  # (batch, seq_len, embsize)
-        if self.input_emb_style == "scaling":
-            values = values.unsqueeze(2)
-            total_embs = src * values
-        else:
-            total_embs = src + values
+    #     values = self.value_encoder(values)  # (batch, seq_len, embsize)
+    #     if self.input_emb_style == "scaling":
+    #         values = values.unsqueeze(2)
+    #         total_embs = src * values
+    #     else:
+    #         total_embs = src + values
 
-        # to do with dsbn. ignore for now
-        # if getattr(self, "dsbn", None) is not None:
-        #     batch_label = int(batch_labels[0].item())
-        #     total_embs = self.dsbn(total_embs.permute(0, 2, 1), batch_label).permute(
-        #         0, 2, 1
-        #     )  # the batch norm always works on dim 1
-        # elif getattr(self, "bn", None) is not None:
-        #     total_embs = self.bn(total_embs.permute(0, 2, 1)).permute(0, 2, 1)
+    #     # to do with dsbn. ignore for now
+    #     # if getattr(self, "dsbn", None) is not None:
+    #     #     batch_label = int(batch_labels[0].item())
+    #     #     total_embs = self.dsbn(total_embs.permute(0, 2, 1), batch_label).permute(
+    #     #         0, 2, 1
+    #     #     )  # the batch norm always works on dim 1
+    #     # elif getattr(self, "bn", None) is not None:
+    #     #     total_embs = self.bn(total_embs.permute(0, 2, 1)).permute(0, 2, 1)
 
-        output = self.transformer_encoder(
-            total_embs, src_key_padding_mask=src_key_padding_mask
-        )
-        return output  # (batch, seq_len, embsize)
+    #     output = self.transformer_encoder(
+    #         total_embs, src_key_padding_mask=src_key_padding_mask
+    #     )
+    #     return output  # (batch, seq_len, embsize)
     
     # this only initializes the taxa embedding layer
     def init_weights(self) -> None:
@@ -270,48 +260,51 @@ class TransformerModel(nn.Module):
     
     def transformer_generate(
         self,
-        pcpt_genes: Tensor,
+        pcpt_taxa: Tensor,
         pcpt_values: Tensor,
         pcpt_key_padding_mask: Tensor,
-        gen_genes: Tensor,
+        gen_taxa: Tensor,
         gen_key_padding_mask: Tensor,
-        batch_labels: Optional[Tensor] = None,  # (batch,)
+        # batch_labels: Optional[Tensor] = None,  # (batch,)
         input_cell_emb: Optional[Tensor] = None,  # (batch, embsize)
     ) -> Tuple[Tensor, Tensor]:
-        self._check_batch_labels(batch_labels)
+        # self._check_batch_labels(batch_labels)
 
-        pcpt_token_embs = self.encoder(pcpt_genes)  # (batch, pcpt_len, embsize)
+        pcpt_token_embs = self.encoder(pcpt_taxa)  # (batch, pcpt_len, embsize)
         pcpt_values = self.value_encoder(pcpt_values)  # (batch, pcpt_len, embsize)
         pcpt_total_embs = pcpt_token_embs + pcpt_values
 
         assert self.input_emb_style != "scaling"
-        if gen_genes is not None:
-            gen_token_embs = self.encoder(gen_genes)  # (batch, gen_len, embsize)
-            self.cur_gene_token_embs = torch.cat(
-                [pcpt_token_embs, gen_token_embs], dim=1
-            )
+        if gen_taxa is not None:
+            gen_token_embs = self.encoder(gen_taxa)  # (batch, gen_len, embsize)
+            # self.cur_gene_token_embs = torch.cat(
+            #     [pcpt_token_embs, gen_token_embs], dim=1
+            # )
             # this is a flag to let the model know that this is a generative training
             gen_flags = self.flag_encoder(
                 torch.tensor(1).to(pcpt_values.device)
-            ).expand(gen_genes.shape[0], gen_genes.shape[1], -1)
+            ).expand(gen_taxa.shape[0], gen_taxa.shape[1], -1)
 
             gen_total_embs = gen_token_embs + gen_flags
         else:
-            self.cur_gene_token_embs = pcpt_token_embs
-            gen_total_embs = None
+            raise NotImplementedError(
+                "gen_taxa should not be none..."
+            )
+            # self.cur_gene_token_embs = pcpt_token_embs
+            # gen_total_embs = None
 
         # if self.domain_spec_batchnorm:
         #     batch_label = int(batch_labels[0].item())
         #     pcpt_total_embs = self.dsbn(
         #         pcpt_total_embs.permute(0, 2, 1), batch_label
         #     ).permute(0, 2, 1)
-        #     if gen_genes is not None:
+        #     if gen_taxa is not None:
         #         gen_total_embs = self.dsbn(
         #             gen_total_embs.permute(0, 2, 1), batch_label
         #         ).permute(0, 2, 1)
         # else:
         #     pcpt_total_embs = self.bn(pcpt_total_embs.permute(0, 2, 1)).permute(0, 2, 1)
-        #     if gen_genes is not None:
+        #     if gen_taxa is not None:
         #         gen_total_embs = self.bn(gen_total_embs.permute(0, 2, 1)).permute(
         #             0, 2, 1
         #         )
@@ -331,30 +324,30 @@ class TransformerModel(nn.Module):
     
     def forward(
         self,
-        pcpt_genes: Tensor,
+        pcpt_taxa: Tensor,
         pcpt_values: Tensor,
         pcpt_key_padding_mask: Tensor,
-        gen_genes: Tensor,
+        gen_taxa: Tensor,
         gen_key_padding_mask: Tensor,
         # batch_labels: Optional[Tensor] = None,
         # CLS: bool = False,
         # CCE: bool = False,
-        MVC: bool = False,
+        # MVC: bool = False,
         # ECS: bool = False,
         # do_sample: bool = False,
         input_cell_emb: Optional[Tensor] = None,
     ) -> Mapping[str, Tensor]:
         """
         Args:
-            pcpt_genes (:obj:`Tensor`): token ids of the perceptual part, shape
+            pcpt_taxa (:obj:`Tensor`): token ids of the perceptual part, shape
                 [batch_size, seq_len]
             pcpt_values (:obj:`Tensor`): token values of the perceptual part, shape
                 [batch_size, seq_len]
-            pcpt_key_padding_mask (:obj:`Tensor`): mask for pcpt_genes, shape
+            pcpt_key_padding_mask (:obj:`Tensor`): mask for pcpt_taxa, shape
                 [batch_size, seq_len]
-            gen_genes (:obj:`Tensor`): token ids of the generative part, shape
+            gen_taxa (:obj:`Tensor`): token ids of the generative part, shape
                 [batch_size, seq_len]
-            gen_key_padding_mask (:obj:`Tensor`): mask for gen_genes, shape
+            gen_key_padding_mask (:obj:`Tensor`): mask for gen_taxa, shape
                 [batch_size, seq_len]
 
             CLS (:obj:`bool`): if True, return the celltype classification objective
@@ -372,10 +365,10 @@ class TransformerModel(nn.Module):
             dict of output Tensors.
         """
         pcpt_output, gen_output = self.transformer_generate(
-            pcpt_genes,
+            pcpt_taxa,
             pcpt_values,
             pcpt_key_padding_mask,
-            gen_genes,
+            gen_taxa,
             gen_key_padding_mask,
             # batch_labels,
             input_cell_emb=input_cell_emb,
@@ -406,15 +399,15 @@ class TransformerModel(nn.Module):
         full_preds = decoder_output["pred"]  # (batch, seq_len)
 
         # separate pcpt and gen predictions
-        pcpt_preds = full_preds[:, :pcpt_genes.shape[1]]
-        gen_preds = full_preds[:, pcpt_genes.shape[1]:]
+        output["pcpt_preds"] = full_preds[:, : pcpt_taxa.shape[1]]
+        output["gen_preds"] = full_preds[:, pcpt_taxa.shape[1] :]
         # if self.explicit_zero_prob:
         #     output["mlm_zero_probs"] = mlm_output["zero_probs"]
 
         cell_emb = self._get_cell_emb_from_layer(transformer_output)
         output["cell_emb"] = cell_emb
 
-        # if CLS:
+        # if CLS: # GEP
         #     raise NotImplementedError(
         #         "CLS is not implemented yet. Please set CLS=False to avoid this error."
         #     )
@@ -453,24 +446,24 @@ class TransformerModel(nn.Module):
         #     cos_sim = self.sim(cell1.unsqueeze(1), cell2.unsqueeze(0))  # (batch, batch)
         #     labels = torch.arange(cos_sim.size(0)).long().to(cell1.device)
         #     output["loss_cce"] = self.creterion_cce(cos_sim, labels)
-        if MVC:
-            mvc_output = self.mvc_decoder(
-                cell_emb
-                # if not self.use_batch_labels
-                # else torch.cat([cell_emb, batch_emb], dim=1),
-                # # else cell_emb + batch_emb,
-                # self.cur_gene_token_embs,
-            )
-            # if self.explicit_zero_prob and do_sample:
-            #     bernoulli = Bernoulli(probs=mvc_output["zero_probs"])
-            #     output["mvc_output"] = bernoulli.sample() * mvc_output["pred"]
-            # else:
-            output["mvc_output"] = mvc_output["pred"]  # (batch, seq_len)
-            if self.explicit_zero_prob:
-                raise NotImplementedError(
-                    "Explicit zero prob is not implemented for MVC decoder"
-                )
-                output["mvc_zero_probs"] = mvc_output["zero_probs"]
+        # if MVC: # GEPC
+        #     mvc_output = self.mvc_decoder(
+        #         cell_emb
+        #         # if not self.use_batch_labels
+        #         # else torch.cat([cell_emb, batch_emb], dim=1),
+        #         # # else cell_emb + batch_emb,
+        #         # self.cur_gene_token_embs,
+        #     )
+        #     # if self.explicit_zero_prob and do_sample:
+        #     #     bernoulli = Bernoulli(probs=mvc_output["zero_probs"])
+        #     #     output["mvc_output"] = bernoulli.sample() * mvc_output["pred"]
+        #     # else:
+        #     output["mvc_output"] = mvc_output["pred"]  # (batch, seq_len)
+        #     if self.explicit_zero_prob:
+            # raise NotImplementedError(
+            #         "Explicit zero prob is not implemented for MVC decoder"
+            #     )
+            # output["mvc_zero_probs"] = mvc_output["zero_probs"]
         # if ECS:
         #     raise NotImplementedError(
         #         "Elastic cell similarity is not implemented yet. "

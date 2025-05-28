@@ -48,8 +48,9 @@ class ContinuousValueEncoder(nn.Module):
         # TODO: test using actual embedding layer if input is categorical
         # expand last dimension
         x = x.unsqueeze(-1)
-        # clip x to [-inf, max_value]
-        x = torch.clamp(x, max=self.max_value)
+        # # clip x to [-inf, max_value]
+        # x = torch.clamp(x, max=self.max_value)
+        assert torch.max(x) <= self.max_value, "Input values exceed max_value"
         x = self.activation(self.linear1(x))
         x = self.linear2(x)
         x = self.norm(x)
