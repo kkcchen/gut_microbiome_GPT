@@ -6,7 +6,7 @@ from torch.utils.data import Dataset, DataLoader
 from data_utils.tokenizer import MicrobiomeVocab
 
 class SeqDataset(Dataset):
-    def __init__(self, data: Dict[str, torch.Tensor], vocab: MicrobiomeVocab, gen_percent: float = 0):
+    def __init__(self, data: Dict[str, torch.Tensor], vocab: MicrobiomeVocab, gen_percent: float = 0, class_token: bool = True):
         """
         Args:
             data (Dict[str, torch.Tensor]): The input data.
@@ -17,10 +17,16 @@ class SeqDataset(Dataset):
         self.data = data
         self.vocab = vocab
         self.gen_percent = gen_percent
+        self.class_token = class_token
+
+        if class_token:
+            sample_length = self.data["taxa_ids"].shape[1] + 1
+        else:
+            sample_length = self.data["taxa_ids"].shape[1]
 
         if self.gen_percent > 0:
-            self.gen_len = int(self.data["taxa_ids"].shape[1] * self.gen_percent)
-            self.pcpt_len = self.data["taxa_ids"].shape[1] - self.gen_len
+            self.gen_len = int(sample_length * self.gen_percent)
+            self.pcpt_len = sample_length - self.gen_len
         else:
             raise NotImplementedError(
                 "Generation percentage must be greater than 0 to use this dataset, for generation mode"
@@ -33,11 +39,10 @@ class SeqDataset(Dataset):
         # return {k: v[idx] for k, v in self.data.items()}
         return self.separate_pcpt_gen(
             ids=self.data["taxa_ids"][idx],
-            values=self.data["values"][idx],
-            class_token=self.vocab.class_token
+            values=self.data["values"][idx]
         )
 
-    def separate_pcpt_gen(self, ids: torch.Tensor, values: torch.Tensor, class_token: bool = True) -> Dict[str, torch.Tensor]:
+    def separate_pcpt_gen(self, ids: torch.Tensor, values: torch.Tensor) -> Dict[str, torch.Tensor]:
         # Step 1: Identify valid (non-class, non-pad) tokens
         valid_mask = (ids != self.vocab.pad_index) & (ids != self.vocab.class_index)
         valid_indices = torch.nonzero(valid_mask, as_tuple=True)[0]
@@ -56,7 +61,7 @@ class SeqDataset(Dataset):
         pcpt_values = values[pcpt_indices]
 
         # prepend class token to pcpt
-        if class_token:
+        if self.class_token:
             pcpt_ids = torch.cat([torch.tensor([self.vocab.class_index], dtype=pcpt_ids.dtype), pcpt_ids])
             pcpt_values = torch.cat([torch.tensor([self.vocab.pad_value], dtype=pcpt_values.dtype), pcpt_values])
 

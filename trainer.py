@@ -18,46 +18,57 @@ from trainers import logger
 from models import TransformerModel
 from data_utils.tokenizer import MicrobiomeVocab, Tokenizer
 
+import wandb
 
 if __name__ == "__main__":
     # Example usage
-    # wandb.init(project="hmbGPT", config={
-    #     "learning_rate": 0.001,
-    #     "batch_size": 32,
-    #     "epochs": 10,
-    #     "scheduler_interval": 100
-    # })
+    wandb.login()
+    run = wandb.init(
+        mode="disabled", # comment this out to enable wandb logging
+        entity="kevinkaiwen-chen-vector",
+        project="hmbGPT",
+        config={
+            "learning_rate": 0.001,
+            "batch_size": 32,
+            "epochs": 25,
+            "scheduler_interval": 100
+        }
+    )
 
     data_dir = "/home/kchen/microbiome/gut_microbiome_GPT/datasets"
     hmc_table_path = os.path.join(data_dir, "taxonomy_table_512.npy")
-    hmc_npy = np.load(hmc_table_path)
+    hmc_npy = np.load(hmc_table_path)[:64,:,:] # shape (num_samples, num_taxa, 2) where (:,:,0) is taxa_id and (:,:,1) is counts
 
-    taxa_path = os.path.join(data_dir, "taxonomy_table_512_taxa.json")
-    with open(taxa_path, "r") as f:
-        taxa_list = json.load(f)
+    # taxa_path = os.path.join(data_dir, "taxonomy_table_512_taxa.json")
+    # with open(taxa_path, "r") as f:
+    #     taxa_list = json.load(f)
 
+    # we don't have a taxa list for now. just use enumerate max for taxa list
+    max_taxa_index = int(np.max(hmc_npy[:,:,0]))
+    taxa_list = [str(i) for i in range(max_taxa_index + 1)]
 
-    # config = wandb.config
-    config = {
-        "learning_rate": 0.001,
-        "batch_size": 32,
-        "epochs": 1,
-        "scheduler_interval": 100
-    }
+    config = wandb.config
+    # config = {
+    #     "learning_rate": 0.001,
+    #     "batch_size": 32,
+    #     "epochs": 1,
+    #     "scheduler_interval": 100
+    # }
 
     learning_rate = config["learning_rate"]
     batch_size = config["batch_size"]
     epochs = config["epochs"]
-    save_dir = "./model_checkpoints"
+    save_dir = os.path.join("./model_checkpoints", f"run_{wandb.run.id}")
+    os.makedirs(save_dir, exist_ok=True)
+    patience = 5
 
     log_interval = 1
-    save_interval = 1
 
     preprocessor = Preprocessor(
         binning=10,
     )
 
-    binned_data, bin_edges = preprocessor.process_from_np(hmc_npy)
+    _, _ = preprocessor.process_from_np(hmc_npy)
 
     vocab = MicrobiomeVocab(taxa_list)  # Replace with your vocab
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -66,7 +77,7 @@ if __name__ == "__main__":
 
     # create tokenizer
     tokenizer = Tokenizer(vocab)
-    data_dict = tokenizer.tokenize_and_pad_batch()
+    data_dict = tokenizer.tokenize_and_pad_batch(hmc_npy)
     # Assuming data_dict is a dictionary with keys 'taxa_ids' and 'values'
 
     # train and validation split
@@ -126,6 +137,7 @@ if __name__ == "__main__":
     scaler = torch.amp.GradScaler(device)
 
     best_val_loss = float("inf")
+    patience_counter = 0
     logger.info("Starting training for one epoch")
 
     for epoch in range(epochs):
@@ -133,11 +145,11 @@ if __name__ == "__main__":
         logger.info("Training...")
 
         # Train the model
-        best_val_loss = pretrain(
+        val_loss, val_mre = pretrain(
             model=model,
             train_loader=train_loader,
             valid_loader=valid_loader,
-            epoch=0,
+            epoch=epoch,
             log_interval=log_interval,
             vocab=vocab,
             enable_fp16=False,
@@ -145,11 +157,28 @@ if __name__ == "__main__":
             scaler=scaler,
             optimizer=optimizer,
             scheduler=scheduler,
-            save_interval=save_interval,
             save_dir=save_dir,
             device=device,
             logger=logger,
             best_val_loss=best_val_loss,
         )
 
+        # Log metrics to wandb
+        wandb.log({
+            "val_loss": val_loss,
+            "val_mre": val_mre,
+            "learning_rate": scheduler.get_last_lr()[0] if hasattr(scheduler, "get_last_lr") else learning_rate,
+        })
+
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            logger.info(f"New best validation loss: {best_val_loss:.4f}")
+            patience_counter = 0
+        else:
+            patience_counter += 1
+        if patience_counter >= patience:
+            logger.info("Early stopping triggered. Stopping training.")
+            break
+
     logger.info("Training complete with best validation loss: {:.4f}".format(best_val_loss))
+    wandb.finish()

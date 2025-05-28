@@ -182,9 +182,8 @@ class Preprocessor:
             binned_rows.append(binned_row)
             bin_edges.append(np.concatenate([[0], bins]))
                 
-        # Update the original DataFrame with binned data (only numeric columns)
-        numeric_cols = unprocessed_data.select_dtypes(include=[np.number]).columns
-        unprocessed_data.loc[:, numeric_cols] = np.stack(binned_rows)
+        # update original array
+        unprocessed_data[:,:,1] = np.stack(binned_rows)
         return np.stack(binned_rows), np.stack(bin_edges)
         
 

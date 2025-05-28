@@ -27,10 +27,10 @@ def pretrain(
         scaler,
         optimizer,
         scheduler,
-        save_interval: int,
         save_dir: str,
         device: str,
         logger,
+        save_interval: int = -1,
         best_val_loss: float = float("inf"),
 
     ) -> None:
@@ -47,6 +47,9 @@ def pretrain(
     start_time = time.time()
 
     num_batches = len(train_loader)
+    val_losses = []
+    val_mres = []
+
     for batch, data_dict in enumerate(train_loader):
         global_iter = epoch * num_batches + batch
 
@@ -228,7 +231,7 @@ def pretrain(
         # immediately eval and save
         # if batch % save_interval == 0 and batch > 0:
 
-        best_val_loss = eval_and_save(
+        val_loss, val_mre = eval_and_save(
             model=model,
             valid_loader=valid_loader,
             iter_or_epoch=global_iter,
@@ -240,11 +243,16 @@ def pretrain(
             best_val_loss=best_val_loss,
             enable_fp16=enable_fp16,
             is_epoch=False,
-            save=True,
+            save=(save_interval > 0 and batch % save_interval == 0),
         )
         model.train()  # important, reset to train mode
+        val_losses.append(val_loss)
+        val_mres.append(val_mre)
 
-        return best_val_loss
+    epoch_val_loss = np.mean(val_losses)
+    epoch_val_mre = np.mean(val_mres)
+
+    return epoch_val_loss, epoch_val_mre
 
 
 def eval_and_save(
@@ -290,7 +298,6 @@ def eval_and_save(
         # writer.add_scalar("valid/mre", val_mre, iter_or_epoch)
 
     if val_loss < best_val_loss:
-        best_val_loss = val_loss
         # save the best model
         logger.info(f"Saving the best model to {save_dir}")
         torch.save(
@@ -317,7 +324,7 @@ def eval_and_save(
     # if IS_DATA_PARALLEL:
     #     torch.distributed.barrier()
 
-    return best_val_loss
+    return val_loss, val_mre
 
 
 

@@ -83,8 +83,8 @@ class Tokenizer:
                 values = sample[:, 1]
                 taxa_ids = sample[:, 0]
             else:
-                idx = np.nonzero(sample)[:, 1]
-                values = sample[idx, 1]
+                idx = np.nonzero(sample[:, 1])
+                values = sample[:, 1][idx]
                 taxa_ids = sample[:, 0][idx]
 
             if prepend_cls:
@@ -215,6 +215,7 @@ class Tokenizer:
 
     def tokenize_and_pad_batch(
         self,
+        data: np.ndarray,
         prepend_cls: bool = True,
         include_zero_count: bool = False,
         return_pt: bool = True,
@@ -224,9 +225,12 @@ class Tokenizer:
         Tokenize and pad a batch of data. Returns a dict with padded taxa ids and values.
 
         Args:
+            data (:class:`np.ndarray`):
+            The binned data. size (num_samples, num_taxa, 2), {:,:, 0} is the taxa id, {:,:, 1} is the bin
             max_len (Optional[int]): The maximum length to pad/truncate to. If None, uses the max length in the batch.
         """
         tokenized_data = self.tokenize_batch(
+            data=data,
             return_pt=return_pt,
             prepend_cls=prepend_cls,
             include_zero_count=include_zero_count,
