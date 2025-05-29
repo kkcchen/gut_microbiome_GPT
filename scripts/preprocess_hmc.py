@@ -3,6 +3,7 @@ import pandas as pd
 import os
 # import fasttext
 import json
+import argparse
 # os.environ["GOOGLE_API_KEY"] = "AIzaSyB41iEts_InBYR3sHz1bywFYN2JjxlBTJ0"
 # GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 # if not GOOGLE_API_KEY:
@@ -133,6 +134,8 @@ def split_dataframe_by_samples(df, sample_col="sample", remove_agp=True, split_r
     study_counts = df["study_id"].value_counts().to_dict()
 
     # check if remove american gut project
+    remove_count = study_counts.get("PRJEB11419", 0)
+    print(f"Removing {remove_count} samples due to being in American Gut Project (PRJEB11419).")
     if remove_agp:
         del study_counts["PRJEB11419"]
     # Sort studies by sample count descending.
@@ -166,9 +169,7 @@ def read_taxonomic_table(file_path, df1_save_path, df2_save_path, split_ratio=0.
     - a list of column names (bacteria names)
     - a list of row names (sample names)
     """
-    # Read the CSV in chunks and concatenate to avoid memory issues
-    chunks = pd.read_csv(file_path, index_col=0, chunksize=10000)
-    df = pd.concat(chunks, ignore_index=True)
+    df = pd.read_csv(file_path, index_col=0)
     col_names = df.columns.tolist()
     # 1. shuffle the dataframe
     df_shuffled = df.sample(frac=1, random_state=42).reset_index(drop=True)
@@ -224,19 +225,28 @@ def read_taxonomic_table(file_path, df1_save_path, df2_save_path, split_ratio=0.
 
 
 if __name__ == '__main__':
-    taxonomic_table_path = "/home/kchen/microbiome/gut_microbiome_GPT/datasets/taxonomic_table.csv"
-    pretrain_save_dir = "/home/kchen/microbiome/gut_microbiome_GPT/datasets/new_split/pretrain_data"
-    finetune_save_dir = "/home/kchen/microbiome/gut_microbiome_GPT/datasets/new_split/finetune_data"
-    npy_pretrain_path = "/home/kchen/microbiome/gut_microbiome_GPT/datasets/new_split/pretrain_data/taxonomy_table_pretrain.npy"
-    npy_finetune_path = "/home/kchen/microbiome/gut_microbiome_GPT/datasets/new_split/finetune_data/taxonomy_table_finetune.npy"
+    parser = argparse.ArgumentParser(description="Preprocess HMC taxonomic table.")
+    parser.add_argument('--taxonomic_table_path', type=str, required=True, help='Path to the taxonomic table CSV file.')
+    parser.add_argument('--pretrain_save_dir', type=str, required=True, help='Directory to save pretrain data.')
+    parser.add_argument('--finetune_save_dir', type=str, required=True, help='Directory to save finetune data.')
+    parser.add_argument('--npy_pretrain_file', type=str, default="taxonomy_table_pretrain.npy", help='Pretrain .npy file name.')
+    parser.add_argument('--npy_finetune_file', type=str, default="taxonomy_table_finetune.npy", help='Finetune .npy file name.')
+
+    args = parser.parse_args()
+
+    taxonomic_table_path = args.taxonomic_table_path
+    pretrain_save_dir = args.pretrain_save_dir
+    finetune_save_dir = args.finetune_save_dir
+    npy_pretrain_file = args.npy_pretrain_file
+    npy_finetune_file = args.npy_finetune_file
 
     # npy1_512_path = "/home/kchen/microbiome/gut_microbiome_GPT/datasets/hmc/electra/transformer/taxonomy_table_512.npy"
 
     col_names = read_taxonomic_table(taxonomic_table_path, pretrain_save_dir, finetune_save_dir, split_ratio=0.75)
     # vocab_embeddings = create_vocab_embeddings_biowordvec(col_names, npy_save_dir)
-    # get_top_k_npy(npy1_path, df1_save_dir)
-    # get_top_k_npy(npy2_path, df2_save_dir)
-    train_test_split(npy_pretrain_path, pretrain_save_dir)
+    get_top_k_npy(os.path.join(pretrain_save_dir, npy_pretrain_file), pretrain_save_dir)
+    get_top_k_npy(os.path.join(finetune_save_dir, npy_finetune_file), finetune_save_dir)
+    train_test_split(os.path.join(pretrain_save_dir, npy_pretrain_file), pretrain_save_dir)
 
     # rf_sample_list_path = "/home/kevin/Desktop/gut_microbiome/dataset/hmc/electra/random_forest/sample_list.json"
     # sample_metadata_path = "/home/kevin/Desktop/gut_microbiome/dataset/hmc/sample_metadata.tsv"
