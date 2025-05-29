@@ -45,6 +45,8 @@ def train_test_split(npy_file_path, save_path, test_size=0.2, random_state=42):
     if random_state is not None:
         np.random.seed(random_state)
     arr = np.load(npy_file_path)
+
+    print('Original shape: {}'.format(arr.shape))
     # Shuffle the row indices
     indices = np.arange(arr.shape[0])
     np.random.shuffle(indices)
@@ -83,6 +85,8 @@ def get_top_k_npy(npy_file_path, npy_save_path, k=512):
     np.save(file_name, top_rows)
     print(f"Saved {file_name}")
     print(f"top {k} columns for each row, represents {small_table_populated / total_populated} of original data")
+
+    return file_name
 
 
 
@@ -161,7 +165,7 @@ def split_dataframe_by_samples(df, sample_col="sample", remove_agp=True, split_r
     return df_group1, df_group2, group1_studies, group2_studies
 
 
-def read_taxonomic_table(file_path, df1_save_path, df2_save_path, split_ratio=0.5):
+def read_taxonomic_table(file_path, df1_save_path, df2_save_path, nrows = None, split_ratio=0.5):
     """takes a file path of a csv file containing the hmc taxonomic table
     returns:
     - a numpy array of data of shape (n_rows, n_cols, 2) where [:, :, 0] represents the index of column and [:, :, 1]
@@ -169,7 +173,7 @@ def read_taxonomic_table(file_path, df1_save_path, df2_save_path, split_ratio=0.
     - a list of column names (bacteria names)
     - a list of row names (sample names)
     """
-    df = pd.read_csv(file_path, index_col=0)
+    df = pd.read_csv(file_path, index_col=0, nrows=nrows)
     col_names = df.columns.tolist()
     # 1. shuffle the dataframe
     df_shuffled = df.sample(frac=1, random_state=42).reset_index(drop=True)
@@ -231,7 +235,8 @@ if __name__ == '__main__':
     parser.add_argument('--finetune_save_dir', type=str, required=True, help='Directory to save finetune data.')
     parser.add_argument('--npy_pretrain_file', type=str, default="taxonomy_table_pretrain.npy", help='Pretrain .npy file name.')
     parser.add_argument('--npy_finetune_file', type=str, default="taxonomy_table_finetune.npy", help='Finetune .npy file name.')
-
+    parser.add_argument('--split_ratio', type=float, default=0.75, help='Ratio for splitting the dataset into pretrain and finetune sets.')
+    parser.add_argument('--nrows', type=int, default=None, help='Number of rows to read from the taxonomic table CSV file.')
     args = parser.parse_args()
 
     taxonomic_table_path = args.taxonomic_table_path
@@ -239,14 +244,16 @@ if __name__ == '__main__':
     finetune_save_dir = args.finetune_save_dir
     npy_pretrain_file = args.npy_pretrain_file
     npy_finetune_file = args.npy_finetune_file
+    nrows = args.nrows
+    split_ratio = args.split_ratio
 
     # npy1_512_path = "/home/kchen/microbiome/gut_microbiome_GPT/datasets/hmc/electra/transformer/taxonomy_table_512.npy"
 
-    col_names = read_taxonomic_table(taxonomic_table_path, pretrain_save_dir, finetune_save_dir, split_ratio=0.75)
+    col_names = read_taxonomic_table(taxonomic_table_path, pretrain_save_dir, finetune_save_dir, nrows=nrows, split_ratio=split_ratio)
     # vocab_embeddings = create_vocab_embeddings_biowordvec(col_names, npy_save_dir)
-    get_top_k_npy(os.path.join(pretrain_save_dir, npy_pretrain_file), pretrain_save_dir)
-    get_top_k_npy(os.path.join(finetune_save_dir, npy_finetune_file), finetune_save_dir)
-    train_test_split(os.path.join(pretrain_save_dir, npy_pretrain_file), pretrain_save_dir)
+    top_512_pretrain = get_top_k_npy(os.path.join(pretrain_save_dir, npy_pretrain_file), pretrain_save_dir)
+    top_512_finetune = get_top_k_npy(os.path.join(finetune_save_dir, npy_finetune_file), finetune_save_dir)
+    train_test_split(top_512_pretrain, pretrain_save_dir)
 
     # rf_sample_list_path = "/home/kevin/Desktop/gut_microbiome/dataset/hmc/electra/random_forest/sample_list.json"
     # sample_metadata_path = "/home/kevin/Desktop/gut_microbiome/dataset/hmc/sample_metadata.tsv"
