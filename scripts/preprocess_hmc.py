@@ -184,7 +184,7 @@ def read_taxonomic_table(file_path, df1_save_path, df2_save_path, nrows = None, 
     if not os.path.exists(df1_save_path):
         os.makedirs(df1_save_path)
     # save taxonomy table
-    save_taxonomy_table(df1, df1_save_path, "taxonomy_table_pretrain", ['sample', 'study_id'])
+    save_taxonomy_table(df1, df1_save_path, "taxonomic_table_pretrain", ['sample', 'study_id'])
     # save study id list into json
     with open(f"{df1_save_path}/studies_list.json", "w") as f1:
         json.dump(df1_studies, f1)
@@ -193,7 +193,7 @@ def read_taxonomic_table(file_path, df1_save_path, df2_save_path, nrows = None, 
     if not os.path.exists(df2_save_path):
         os.makedirs(df2_save_path)
     # save taxonomy table
-    save_taxonomy_table(df2, df2_save_path, "taxonomy_table_finetune", ['sample', 'study_id'])
+    save_taxonomy_table(df2, df2_save_path, "taxonomic_table_finetune", ['sample', 'study_id'])
     # save study id list into json
     with open(f"{df2_save_path}/studies_list.json", "w") as f2:
         json.dump(df2_studies, f2)
@@ -249,6 +249,7 @@ if __name__ == '__main__':
 
     # npy1_512_path = "/home/kchen/microbiome/gut_microbiome_GPT/datasets/hmc/electra/transformer/taxonomy_table_512.npy"
 
+    print(f"Reading taxonomic table from {taxonomic_table_path} with nrows={nrows} and split_ratio={split_ratio}")
     col_names = read_taxonomic_table(taxonomic_table_path, pretrain_save_dir, finetune_save_dir, nrows=nrows, split_ratio=split_ratio)
     # vocab_embeddings = create_vocab_embeddings_biowordvec(col_names, npy_save_dir)
     top_512_pretrain = get_top_k_npy(os.path.join(pretrain_save_dir, npy_pretrain_file), pretrain_save_dir)
