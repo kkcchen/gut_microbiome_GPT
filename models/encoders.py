@@ -50,7 +50,7 @@ class ContinuousValueEncoder(nn.Module):
         x = x.unsqueeze(-1)
         # # clip x to [-inf, max_value]
         # x = torch.clamp(x, max=self.max_value)
-        assert torch.max(x) <= self.max_value, "Input values exceed max_value"
+        assert torch.max(x) <= self.max_value, "Input values exceed max_value. too many bins?"
         x = self.activation(self.linear1(x))
         x = self.linear2(x)
         x = self.norm(x)

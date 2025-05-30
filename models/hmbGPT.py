@@ -1,7 +1,5 @@
 # TODO: do proper attribution from scGPT
 
-import gc
-import math
 from typing import Dict, Mapping, Optional, Tuple, Any, Union
 
 import torch

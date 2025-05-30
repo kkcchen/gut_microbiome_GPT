@@ -4,7 +4,17 @@ import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
-# import wandb
+from models import TransformerModel
+import os
+import json
+
+from data_utils.preprocessor import Preprocessor
+from data_utils.dataloader import prepare_dataloader
+from data_utils.tokenizer import Tokenizer
+
+from sklearn.model_selection import train_test_split
+
+import wandb
 
 from .custom_losses import (
     masked_relative_error,
@@ -30,7 +40,7 @@ def pretrain(
         save_dir: str,
         device: str,
         logger,
-        save_interval: int = -1,
+        # save_interval: int = -1,
         best_val_loss: float = float("inf"),
 
     ) -> None:
@@ -243,7 +253,7 @@ def pretrain(
             best_val_loss=best_val_loss,
             enable_fp16=enable_fp16,
             is_epoch=False,
-            save=(save_interval > 0 and batch % save_interval == 0),
+            # save=(save_interval > 0 and batch % save_interval == 0),
         )
         model.train()  # important, reset to train mode
         val_losses.append(val_loss)
@@ -253,6 +263,177 @@ def pretrain(
     epoch_val_mre = np.mean(val_mres)
 
     return epoch_val_loss, epoch_val_mre
+
+# we need to be careful when saving checkpoints since preemption can also
+# occur during checkpointing. Therefore, we need to make sure the checkpoint
+# file is either kept untouched or successfully updated during this process.
+def commit_state(model, optimizer, scheduler, grad_scaler, rng, cuda_rng, epoch, best_val_loss, patience_counter, checkpoint_path):
+
+    temp_path = os.path.join(os.path.dirname(checkpoint_path), "temp.pt")
+
+    training_state = {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "scheduler": scheduler.state_dict(),
+        "grad_scaler": grad_scaler.state_dict() if grad_scaler else None,
+        "rng": rng,
+        "cuda_rng": cuda_rng,
+        "epoch": epoch,
+        "best_val_loss": best_val_loss,
+        "patience_counter": patience_counter,
+    }
+
+    # first save to temp file
+    torch.save(training_state, temp_path)
+    # according to the GNU spec of rename, the state of checkpoint_path
+    # is atomic, i.e. it will either be modified or not modified, but not in
+    # between, during a system crash (i.e. preemtion)
+    os.replace(temp_path, checkpoint_path)
+    logger.info("Training state committed to {} at time {}".format(checkpoint_path, time.ctime(time.time())))
+
+def create_or_restore_data_state_and_wandb(hmc_table_path, taxa_path, wandb_enabled, wandb_entity, wandb_project, init_lr, batch_size, max_epochs, scheduler_interval, binning, data_restore_path, nrows=None):
+    if os.path.exists(data_restore_path):
+        # load the data state from the file
+        with open(data_restore_path, 'rb') as f:
+            data_state = torch.load(f, weights_only=False)
+        logger.info("Data state restored from {}".format(data_restore_path))
+        train_data_dict = data_state["train_data_dict"]
+        valid_data_dict = data_state["valid_data_dict"]
+        vocab = data_state["vocab"]
+
+        run = wandb.init(
+            id=data_state["wandb_run_id"],
+            resume="must",
+            mode="online" if wandb_enabled else "disabled",
+            entity=wandb_entity,
+            config={
+                "learning_rate": init_lr,
+                "batch_size": batch_size,
+                "max_epochs": max_epochs,
+                "scheduler_interval": scheduler_interval,
+                "binning": binning
+            },
+            project=wandb_project,
+        )
+
+    else:
+        run = wandb.init(
+            mode="online" if wandb_enabled else "disabled",
+            entity=wandb_entity,
+            project=wandb_project,
+            config={
+                "learning_rate": init_lr,
+                "batch_size": batch_size,
+                "max_epochs": max_epochs,
+                "scheduler_interval": scheduler_interval,
+                "binning": binning
+            },
+            resume="allow"
+        )
+
+        if nrows:
+            hmc_npy = np.load(hmc_table_path)[:nrows,:,:] # shape (num_samples, num_taxa, 2) where (:,:,0) is taxa_id and (:,:,1) is counts
+        else:
+            hmc_npy = np.load(hmc_table_path)
+
+        with open(taxa_path, "r") as f:
+            taxa_list = json.load(f)
+
+        preprocessor = Preprocessor(
+            binning=wandb.config["binning"],
+        )
+
+        _, _ = preprocessor.process_from_np(hmc_npy)
+
+        vocab = MicrobiomeVocab(taxa_list)  # Replace with your vocab
+
+        # create tokenizer
+        tokenizer = Tokenizer(vocab)
+        data_dict = tokenizer.tokenize_and_pad_batch(hmc_npy)
+        # Assuming data_dict is a dictionary with keys 'taxa_ids' and 'values'
+
+        # train and validation split
+        (
+            train_taxa_ids,
+            valid_taxa_ids,
+            train_values,
+            valid_values
+        ) = train_test_split(
+            data_dict["taxa_ids"],
+            data_dict["values"],
+            test_size=0.2,
+            shuffle=True
+        )
+
+        train_data_dict = {
+            "taxa_ids": train_taxa_ids,
+            "values": train_values
+        }
+        valid_data_dict = {
+            "taxa_ids": valid_taxa_ids,
+            "values": valid_values
+        }
+
+        # save the train and validation dataloaders
+        data_state = {
+            "train_data_dict": train_data_dict,
+            "valid_data_dict": valid_data_dict,
+            "vocab": vocab,
+            "wandb_run_id": run.id if wandb_enabled else None,
+        }
+
+        # save the data state to the file
+        torch.save(data_state, data_restore_path)
+        logger.info("Data state saved to {}".format(data_restore_path))
+
+    return train_data_dict, valid_data_dict, vocab, run
+
+
+def create_or_restore_training_state(vocab, init_lr, scheduler_interval, device, checkpoint_path):
+    # initial configuration of the model
+    model = TransformerModel(
+        d_model=512,
+        nhead=8,
+        d_hid=2048,
+        nlayers=6,
+        vocab=vocab,
+        dropout=0.1,
+        use_generative_training=True,
+    )
+
+    model.to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=init_lr)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=scheduler_interval, gamma=0.1)
+    scaler = torch.amp.GradScaler(device)
+    # dataloader = DataLoader(dataset, shuffle=False, batch_size=batch_size,
+    #                         sampler=StatefulSampler(dataset, shuffle=True),
+    #                         num_workers=0)
+    epoch = 0
+    best_val_loss = float("inf")
+    patience_counter = 0
+    # restore training state if checkpoint exists
+    if os.path.exists(checkpoint_path):
+        training_state = torch.load(checkpoint_path, weights_only=False)
+
+        model.load_state_dict(training_state['model'])
+        optimizer.load_state_dict(training_state['optimizer'])
+        scheduler.load_state_dict(training_state['scheduler'])
+        scaler.load_state_dict(training_state['grad_scaler'])
+        rng = training_state['rng']
+        torch.random.set_rng_state(rng)
+        cuda_rng = training_state['cuda_rng']
+        if cuda_rng is not None and device == 'cuda':
+            torch.cuda.set_rng_state(cuda_rng)
+        epoch = training_state['epoch']
+        best_val_loss = training_state['best_val_loss']
+        patience_counter = training_state['patience_counter']
+        logger.info(f"training state restored at beginning of epoch {epoch + 1}")
+
+    else:
+        logger.info("No checkpoint detected, starting from initial state")
+
+    return model, optimizer, scaler, scheduler, epoch, best_val_loss, patience_counter
+
 
 
 def eval_and_save(
@@ -267,7 +448,7 @@ def eval_and_save(
     best_val_loss: float,
     enable_fp16: bool = False,
     is_epoch: bool = False,
-    save: bool = True,
+    # save: bool = True,
 ) -> None:
     # perform evaluation in distributed data parallel
     val_loss, val_mre = evaluate(model, valid_loader, vocab, enable_fp16, device).values()
@@ -310,16 +491,16 @@ def eval_and_save(
             save_dir + "/best_model.pt",
         )
 
-    if save:
-        torch.save(
-            # model.module.state_dict()
-            # if isinstance(
-            #     model, (nn.DataParallel, nn.parallel.DistributedDataParallel)
-            # )
-            # else model.state_dict(),
-            model.state_dict(),
-            save_dir + f"/model-{'ep' if is_epoch else ''}{iter_or_epoch}.pt",
-        )
+    # if save:
+    #     torch.save(
+    #         # model.module.state_dict()
+    #         # if isinstance(
+    #         #     model, (nn.DataParallel, nn.parallel.DistributedDataParallel)
+    #         # )
+    #         # else model.state_dict(),
+    #         model.state_dict(),
+    #         save_dir + f"/model-{'ep' if is_epoch else ''}{iter_or_epoch}.pt",
+    #     )
 
     # if IS_DATA_PARALLEL:
     #     torch.distributed.barrier()

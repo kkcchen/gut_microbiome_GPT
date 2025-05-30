@@ -11,7 +11,7 @@ from data_utils.dataloader import prepare_dataloader
 from sklearn.model_selection import train_test_split
 
 from trainers.train_functions import (
-    pretrain
+    pretrain, commit_state, create_or_restore_data_state_and_wandb, create_or_restore_training_state
 )
 from trainers import logger
 
@@ -19,88 +19,70 @@ from models import TransformerModel
 from data_utils.tokenizer import MicrobiomeVocab, Tokenizer
 
 import wandb
+import argparse
 
 if __name__ == "__main__":
-    # Example usage
-    wandb.login()
-    run = wandb.init(
-        mode="disabled", # comment this out to enable wandb logging
-        entity="kevinkaiwen-chen-vector",
-        project="hmbGPT",
-        config={
-            "learning_rate": 0.001,
-            "batch_size": 32,
-            "epochs": 25,
-            "scheduler_interval": 100
-        }
-    )
 
-    data_dir = "/home/kchen/microbiome/gut_microbiome_GPT/datasets"
-    hmc_table_path = os.path.join(data_dir, "taxonomy_table_512.npy")
-    hmc_npy = np.load(hmc_table_path)[:64,:,:] # shape (num_samples, num_taxa, 2) where (:,:,0) is taxa_id and (:,:,1) is counts
+    parser = argparse.ArgumentParser(description="Train TransformerModel on microbiome data")
+    parser.add_argument("--hmc_table_path", type=str, required=True, help="Path to HMC table file")
+    parser.add_argument("--taxa_path", type=str, required=True, help="Path to taxa file")
+    parser.add_argument("--save_dir", type=str, required=True, help="Directory to save models")
+    parser.add_argument("--checkpoint_path", type=str, required=True, help="Directory to save checkpoints for preemption")
+    parser.add_argument("--data_restore_path", type=str, default=None, help="Path to restore data state")
 
-    # taxa_path = os.path.join(data_dir, "taxonomy_table_512_taxa.json")
-    # with open(taxa_path, "r") as f:
-    #     taxa_list = json.load(f)
+    parser.add_argument("--wandb_enabled", action="store_true", help="Enable Weights & Biases logging")
+    parser.add_argument("--wandb_entity", type=str, default=None, help="wandb entity name")
+    parser.add_argument("--wandb_project", type=str, default=None, help="wandb project name")
 
-    # we don't have a taxa list for now. just use enumerate max for taxa list
-    max_taxa_index = int(np.max(hmc_npy[:,:,0]))
-    taxa_list = [str(i) for i in range(max_taxa_index + 1)]
+    parser.add_argument("--init_lr", type=float, default=1e-3, help="Initial learning rate")
+    parser.add_argument("--batch_size", type=int, default=32, help="Batch size for training")
+    parser.add_argument("--max_epochs", type=int, default=25, help="Maximum number of epochs")
+    parser.add_argument("--scheduler_interval", type=int, default=25, help="Scheduler step interval")
+    parser.add_argument("--num_bins", type=int, default=10, help="Number of bins for binning")
+    parser.add_argument("--log_interval", type=int, default=10, help="Interval for logging")
+    parser.add_argument("--patience", type=int, default=5, help="Patience for early stopping")
 
-    config = wandb.config
-    # config = {
-    #     "learning_rate": 0.001,
-    #     "batch_size": 32,
-    #     "epochs": 1,
-    #     "scheduler_interval": 100
-    # }
+    parser.add_argument("--nrows", type=int, default=None, help="For debugging to limit number of samples in set")
 
-    learning_rate = config["learning_rate"]
-    batch_size = config["batch_size"]
-    epochs = config["epochs"]
-    save_dir = os.path.join("./model_checkpoints", f"run_{wandb.run.id}")
+    args = parser.parse_args()
+
+    hmc_table_path = args.hmc_table_path
+    taxa_path = args.taxa_path
+    save_dir = args.save_dir
+    checkpoint_path = args.checkpoint_path
+    data_restore_path = args.data_restore_path
+
+    # Create directories if they don't exist
     os.makedirs(save_dir, exist_ok=True)
-    patience = 5
+    os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+    if data_restore_path is not None:
+        os.makedirs(os.path.dirname(data_restore_path), exist_ok=True)
 
-    log_interval = 1
+    wandb_enabled = args.wandb_enabled
+    wandb_entity = args.wandb_entity
+    wandb_project = args.wandb_project
 
-    preprocessor = Preprocessor(
-        binning=10,
-    )
+    init_lr = args.init_lr
+    batch_size = args.batch_size
+    max_epochs = args.max_epochs
+    scheduler_interval = args.scheduler_interval
+    num_bins = args.num_bins
+    log_interval = args.log_interval
+    patience = args.patience
 
-    _, _ = preprocessor.process_from_np(hmc_npy)
+    nrows = args.nrows
 
-    vocab = MicrobiomeVocab(taxa_list)  # Replace with your vocab
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    logger.info(f"Using device: {device}")
-
-    # create tokenizer
-    tokenizer = Tokenizer(vocab)
-    data_dict = tokenizer.tokenize_and_pad_batch(hmc_npy)
-    # Assuming data_dict is a dictionary with keys 'taxa_ids' and 'values'
-
-    # train and validation split
-    (
-        train_taxa_ids,
-        valid_taxa_ids,
-        train_values,
-        valid_values
-    ) = train_test_split(
-        data_dict["taxa_ids"],
-        data_dict["values"],
-        test_size=0.2,
-        shuffle=True
+    # Create or restore data state and wandb
+    train_data_dict, valid_data_dict, vocab, run = create_or_restore_data_state_and_wandb(
+        hmc_table_path, taxa_path, wandb_enabled, wandb_entity, wandb_project, init_lr, batch_size, max_epochs, scheduler_interval, num_bins, data_restore_path, nrows
     )
 
-    train_data_dict = {
-        "taxa_ids": train_taxa_ids,
-        "values": train_values
-    }
-    valid_data_dict = {
-        "taxa_ids": valid_taxa_ids,
-        "values": valid_values
-    }
+    # Create or restore training state
+    model, optimizer, scaler, scheduler, epoch, best_val_loss, patience_counter = create_or_restore_training_state(
+        vocab, init_lr, scheduler_interval, device, checkpoint_path
+    )
 
     logger.info("Preparing dataloaders...")
     train_loader = prepare_dataloader(
@@ -116,33 +98,12 @@ if __name__ == "__main__":
         shuffle=False,
     )
 
-    model = TransformerModel(
-        d_model=512,
-        nhead=8,
-        d_hid=2048,
-        nlayers=6,
-        vocab=vocab,
-        dropout=0.1,
-        use_generative_training=True,
-    )
-
-    model.to(device)
-
-    logger.info("model")
-
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-
-    # can add warmup after
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=config["scheduler_interval"], gamma=0.1)
-    scaler = torch.amp.GradScaler(device)
-
-    best_val_loss = float("inf")
-    patience_counter = 0
-    logger.info("Starting training for one epoch")
-
-    for epoch in range(epochs):
-        logger.info(f"Epoch {epoch + 1}/{epochs}")
+    while epoch < max_epochs:
+        logger.info(f"Epoch {epoch + 1}/{max_epochs}")
         logger.info("Training...")
+
+        rng = torch.get_rng_state()
+        cuda_rng = torch.cuda.get_rng_state() if device == "cuda" else None
 
         # Train the model
         val_loss, val_mre = pretrain(
@@ -167,7 +128,7 @@ if __name__ == "__main__":
         wandb.log({
             "val_loss": val_loss,
             "val_mre": val_mre,
-            "learning_rate": scheduler.get_last_lr()[0] if hasattr(scheduler, "get_last_lr") else learning_rate,
+            "learning_rate": scheduler.get_last_lr()[0] if hasattr(scheduler, "get_last_lr") else init_lr,
         })
 
         if val_loss < best_val_loss:
@@ -179,6 +140,8 @@ if __name__ == "__main__":
         if patience_counter >= patience:
             logger.info("Early stopping triggered. Stopping training.")
             break
+
+        commit_state(model, optimizer, scheduler, scaler, rng, cuda_rng, epoch, best_val_loss, patience_counter, checkpoint_path)
 
     logger.info("Training complete with best validation loss: {:.4f}".format(best_val_loss))
     wandb.finish()

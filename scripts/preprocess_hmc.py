@@ -91,7 +91,7 @@ def get_top_k_npy(npy_file_path, npy_save_path, k=512):
 
 
 
-def save_taxonomy_table(df_to_save, save_path, save_name, cols_to_drop):
+def save_taxonomy_table(df_to_save, save_path, save_name_npy, save_name_cols, cols_to_drop):
     sample_list = df_to_save["sample"]
     with open(f"{save_path}/sample_list.json", "w") as f1:
         json.dump(sample_list.tolist(), f1)
@@ -103,17 +103,17 @@ def save_taxonomy_table(df_to_save, save_path, save_name, cols_to_drop):
 
     # Save column names
     col_names = df.columns.tolist()
-    with open(os.path.join(save_path, f"{save_name}_colnames.json"), "w") as f2:
+    with open(os.path.join(save_path, f"{save_name_cols}.json"), "w") as f2:
         json.dump(col_names, f2)
 
     # Stack the column indices and data along a new third axis.
     stacked_data = np.stack((col_indices, data), axis=2)
     if not os.path.exists(save_path):
         os.makedirs(save_path)
-    file_name = os.path.join(save_path, f"{save_name}.npy")
+    file_name = os.path.join(save_path, f"{save_name_npy}.npy")
     np.save(file_name, stacked_data)
     print(f"Saved {file_name}")
-    print(f"Saved column names to {save_name}_colnames.json")
+    print(f"Saved column names to {save_name_cols}.json")
     print(f"saved numpy array has shape {stacked_data.shape}")
 
 
@@ -184,7 +184,7 @@ def read_taxonomic_table(file_path, df1_save_path, df2_save_path, nrows = None, 
     if not os.path.exists(df1_save_path):
         os.makedirs(df1_save_path)
     # save taxonomy table
-    save_taxonomy_table(df1, df1_save_path, "taxonomic_table_pretrain", ['sample', 'study_id'])
+    save_taxonomy_table(df1, df1_save_path, "taxonomy_table_pretrain", "pretrain_cols", ['sample', 'study_id'])
     # save study id list into json
     with open(f"{df1_save_path}/studies_list.json", "w") as f1:
         json.dump(df1_studies, f1)
@@ -193,7 +193,7 @@ def read_taxonomic_table(file_path, df1_save_path, df2_save_path, nrows = None, 
     if not os.path.exists(df2_save_path):
         os.makedirs(df2_save_path)
     # save taxonomy table
-    save_taxonomy_table(df2, df2_save_path, "taxonomic_table_finetune", ['sample', 'study_id'])
+    save_taxonomy_table(df2, df2_save_path, "taxonomy_table_finetune", "finetune_cols", ['sample', 'study_id'])
     # save study id list into json
     with open(f"{df2_save_path}/studies_list.json", "w") as f2:
         json.dump(df2_studies, f2)
@@ -233,9 +233,9 @@ if __name__ == '__main__':
     parser.add_argument('--taxonomic_table_path', type=str, required=True, help='Path to the taxonomic table CSV file.')
     parser.add_argument('--pretrain_save_dir', type=str, required=True, help='Directory to save pretrain data.')
     parser.add_argument('--finetune_save_dir', type=str, required=True, help='Directory to save finetune data.')
-    parser.add_argument('--npy_pretrain_file', type=str, default="taxonomy_table_pretrain.npy", help='Pretrain .npy file name.')
-    parser.add_argument('--npy_finetune_file', type=str, default="taxonomy_table_finetune.npy", help='Finetune .npy file name.')
-    parser.add_argument('--split_ratio', type=float, default=0.75, help='Ratio for splitting the dataset into pretrain and finetune sets.')
+    parser.add_argument('--npy_pretrain_file', type=str, default="taxonomy_table_pretrain", help='Pretrain .npy file name.')
+    parser.add_argument('--npy_finetune_file', type=str, default="taxonomy_table_finetune", help='Finetune .npy file name.')
+    parser.add_argument('--split_ratio', type=float, default=0.8, help='Ratio for splitting the dataset into pretrain and finetune sets.')
     parser.add_argument('--nrows', type=int, default=None, help='Number of rows to read from the taxonomic table CSV file.')
     args = parser.parse_args()
 
@@ -252,8 +252,8 @@ if __name__ == '__main__':
     print(f"Reading taxonomic table from {taxonomic_table_path} with nrows={nrows} and split_ratio={split_ratio}")
     col_names = read_taxonomic_table(taxonomic_table_path, pretrain_save_dir, finetune_save_dir, nrows=nrows, split_ratio=split_ratio)
     # vocab_embeddings = create_vocab_embeddings_biowordvec(col_names, npy_save_dir)
-    top_512_pretrain = get_top_k_npy(os.path.join(pretrain_save_dir, npy_pretrain_file), pretrain_save_dir)
-    top_512_finetune = get_top_k_npy(os.path.join(finetune_save_dir, npy_finetune_file), finetune_save_dir)
+    top_512_pretrain = get_top_k_npy(os.path.join(pretrain_save_dir, npy_pretrain_file + ".npy"), pretrain_save_dir)
+    top_512_finetune = get_top_k_npy(os.path.join(finetune_save_dir, npy_finetune_file + ".npy"), finetune_save_dir)
     train_test_split(top_512_pretrain, pretrain_save_dir)
 
     # rf_sample_list_path = "/home/kevin/Desktop/gut_microbiome/dataset/hmc/electra/random_forest/sample_list.json"
