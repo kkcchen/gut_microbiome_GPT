@@ -39,7 +39,7 @@ if __name__ == "__main__":
     parser.add_argument("--init_lr", type=float, default=1e-3, help="Initial learning rate")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size for training")
     parser.add_argument("--max_epochs", type=int, default=25, help="Maximum number of epochs")
-    parser.add_argument("--scheduler_interval", type=int, default=25, help="Scheduler step interval")
+    parser.add_argument("--cosine_warmup_ratio", type=float, default=0.1, help="Scheduler warmup ratio")
     parser.add_argument("--num_bins", type=int, default=10, help="Number of bins for binning")
     parser.add_argument("--log_interval", type=int, default=10, help="Interval for logging")
     parser.add_argument("--patience", type=int, default=None, help="Patience for early stopping")
@@ -70,7 +70,7 @@ if __name__ == "__main__":
     init_lr = args.init_lr
     batch_size = args.batch_size
     max_epochs = args.max_epochs
-    scheduler_interval = args.scheduler_interval
+    cosine_warmup_ratio = args.cosine_warmup_ratio
     num_bins = args.num_bins
     log_interval = args.log_interval
     patience = args.patience if args.patience else max_epochs
@@ -91,12 +91,7 @@ if __name__ == "__main__":
 
     # Create or restore data state and wandb
     train_data_dict, valid_data_dict, vocab, run = create_or_restore_data_state_and_wandb(
-        hmc_table_path, taxa_path, wandb_enabled, wandb_entity, wandb_project, init_lr, batch_size, max_epochs, scheduler_interval, num_bins, data_restore_path, nrows
-    )
-
-    # Create or restore training state
-    model, optimizer, scaler, scheduler, epoch, best_val_loss, patience_counter = create_or_restore_training_state(
-        vocab, init_lr, scheduler_interval, device, checkpoint_path
+        hmc_table_path, taxa_path, wandb_enabled, wandb_entity, wandb_project, init_lr, batch_size, max_epochs, cosine_warmup_ratio, num_bins, data_restore_path, nrows
     )
 
     logger.info("Preparing dataloaders...")
@@ -111,6 +106,11 @@ if __name__ == "__main__":
         vocab=vocab,
         batch_size=batch_size,
         shuffle=False,
+    )
+
+    # Create or restore training state
+    model, optimizer, scaler, scheduler, epoch, best_val_loss, patience_counter = create_or_restore_training_state(
+        vocab, init_lr, cosine_warmup_ratio, max_epochs, len(train_loader), device, checkpoint_path
     )
 
     while epoch < max_epochs:

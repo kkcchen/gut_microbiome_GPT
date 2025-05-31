@@ -13,6 +13,7 @@ from data_utils.dataloader import prepare_dataloader
 from data_utils.tokenizer import Tokenizer
 
 from sklearn.model_selection import train_test_split
+import transformers
 
 import wandb
 
@@ -295,7 +296,7 @@ def commit_state(model, optimizer, scheduler, grad_scaler, rng, cuda_rng, epoch,
     os.replace(temp_path, checkpoint_path)
     logger.info("Training state committed to {} at time {}".format(checkpoint_path, time.ctime(time.time())))
 
-def create_or_restore_data_state_and_wandb(hmc_table_path, taxa_path, wandb_enabled, wandb_entity, wandb_project, init_lr, batch_size, max_epochs, scheduler_interval, binning, data_restore_path, nrows=None):
+def create_or_restore_data_state_and_wandb(hmc_table_path, taxa_path, wandb_enabled, wandb_entity, wandb_project, init_lr, batch_size, max_epochs, cosine_warmup_ratio, binning, data_restore_path, nrows=None):
     if os.path.exists(data_restore_path):
         # load the data state from the file
         with open(data_restore_path, 'rb') as f:
@@ -314,7 +315,7 @@ def create_or_restore_data_state_and_wandb(hmc_table_path, taxa_path, wandb_enab
                 "learning_rate": init_lr,
                 "batch_size": batch_size,
                 "max_epochs": max_epochs,
-                "scheduler_interval": scheduler_interval,
+                "cosine_warmup_ratio": cosine_warmup_ratio,
                 "binning": binning
             },
             project=wandb_project,
@@ -329,7 +330,7 @@ def create_or_restore_data_state_and_wandb(hmc_table_path, taxa_path, wandb_enab
                 "learning_rate": init_lr,
                 "batch_size": batch_size,
                 "max_epochs": max_epochs,
-                "scheduler_interval": scheduler_interval,
+                "cosine_warmup_ratio": cosine_warmup_ratio,
                 "binning": binning
             },
             resume="allow"
@@ -393,7 +394,7 @@ def create_or_restore_data_state_and_wandb(hmc_table_path, taxa_path, wandb_enab
     return train_data_dict, valid_data_dict, vocab, run
 
 
-def create_or_restore_training_state(vocab, init_lr, scheduler_interval, device, checkpoint_path):
+def create_or_restore_training_state(vocab, init_lr, warmup_ratio_or_step, total_epochs, trainloader_length, device, checkpoint_path):
     # initial configuration of the model
     model = TransformerModel(
         d_model=512,
@@ -407,7 +408,26 @@ def create_or_restore_training_state(vocab, init_lr, scheduler_interval, device,
 
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=init_lr)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=scheduler_interval, gamma=0.1)
+    # setup scheduler
+    # if warmup_ratio_or_step > 0:
+    assert warmup_ratio_or_step >= 0, "Warmup ratio or step must be non-negative"
+    total_num_batches = trainloader_length * total_epochs
+
+    warmup_steps = (
+        int(total_num_batches * warmup_ratio_or_step)
+        if warmup_ratio_or_step < 1
+        else int(warmup_ratio_or_step)
+    )
+    scheduler = transformers.get_cosine_schedule_with_warmup(
+        optimizer,
+        num_warmup_steps=warmup_steps,
+        num_training_steps=total_num_batches,
+    )
+
+    # else:
+    #     scheduler = torch.optim.lr_scheduler.StepLR(
+    #         optimizer, scheduler_interval, gamma=args.scheduler_factor
+    #     )
     scaler = torch.amp.GradScaler(device)
     # dataloader = DataLoader(dataset, shuffle=False, batch_size=batch_size,
     #                         sampler=StatefulSampler(dataset, shuffle=True),
