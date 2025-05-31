@@ -15,7 +15,7 @@ cd ~/gut_microbiome_GPT
 source ~/hmbenv/bin/activate
 
 # put your command here
-DATA_DIR="/home/kchen/microbiome/gut_microbiome_GPT/datasets"
+DATA_DIR="./datasets"
 HMC_TABLE_PATH="$DATA_DIR/pretrain/taxonomy_table_512_train.npy"
 TAXA_JSON_PATH="$DATA_DIR/pretrain/pretrain_cols.json"
 SAVE_DIR="./model_checkpoints"
