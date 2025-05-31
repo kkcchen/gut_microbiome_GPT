@@ -40,6 +40,7 @@ def pretrain(
         save_dir: str,
         device: str,
         logger,
+        epoch_start_time: float,
         # save_interval: int = -1,
         best_val_loss: float = float("inf"),
 
@@ -54,7 +55,6 @@ def pretrain(
     total_gen = 0.0
     # total_mvc = 0.0
     total_error = 0.0
-    start_time = time.time()
 
     num_batches = len(train_loader)
     val_losses = []
@@ -95,7 +95,8 @@ def pretrain(
             loss = loss_mse = masked_mse_loss(
                 gen_expr_preds, gen_expr_target, positions_to_match
             )
-            # writer.add_scalar("train/mse", loss_mse, global_iter)
+            # wandb.log({"train/mse": loss_mse.item()}, step=global_iter)
+
             # if use_mvc:
             #     loss_mvc = criterion(
             #         output_dict["mvc_output"][:, pcpt_gene.shape[1] :],
@@ -142,7 +143,7 @@ def pretrain(
 
 
             # convert to wandb here too!!!
-            # writer.add_scalar("train/loss", loss, global_iter)
+            wandb.log({"train/loss_pcpt": loss.item()}, step=global_iter)
 
             # if USE_GENERATIVE_TRAINING and global_iter > 1000:
             previous_cell_embs = output_dict["cell_emb"].detach()
@@ -159,7 +160,7 @@ def pretrain(
             )["gen_preds"]
             loss_gen = masked_mse_loss(preds, gen_expr_target, positions_to_match)
             loss = loss + loss_gen
-                # writer.add_scalar("train/gen", loss_gen, global_iter)
+            wandb.log({"train/loss_gen": loss_gen.item()}, step=global_iter)
 
                 # TODO: try this choice of using a separate backprop
                 # # this part is for the choice of using a separate backprop
@@ -194,7 +195,7 @@ def pretrain(
             mre = masked_relative_error(
                 output_values, target_values, positions_to_match
             )
-            # writer.add_scalar("train/mre", mre, global_iter)
+            wandb.log({"train/mre": mre.item()}, step=global_iter)
 
         total_loss += loss.item()
         total_mse += loss_mse.item()
@@ -212,7 +213,7 @@ def pretrain(
 
             # Log scalar values
             lr = scheduler.get_last_lr()[0]
-            ms_per_batch = (time.time() - start_time) * 1000 / log_interval
+            ms_per_batch = (time.time() - epoch_start_time) * 1000 / log_interval
             cur_loss = total_loss / log_interval
             cur_mse = total_mse / log_interval
             # cur_cls = total_cls / log_interval if USE_CLS else 0.0
@@ -221,14 +222,17 @@ def pretrain(
             cur_error = total_error / log_interval
             # ppl = math.exp(cur_loss)
             logger.info(
-                f"| epoch {epoch:3d} | {batch:3d}/{num_batches:3d} batches | "
-                f"lr {lr:05.4f} | ms/batch {ms_per_batch:5.2f} | "
+                f"| epoch {epoch+1:3d} | {batch:3d}/{num_batches:3d} batches | "
+                f"lr {lr:05.8f} | ms/batch {ms_per_batch:5.2f} | "
                 f"loss {cur_loss:5.2f} | mse {cur_mse:5.2f} | mre {cur_error:5.2f} |"
                 # + (f"cls {cur_cls:5.2f} | " if USE_CLS else "")
                 + (f"gen {cur_gen:5.2f} |" if "loss_gen" in locals() else "")
                 # + (f"mvc {cur_mvc:5.2f} |" if MVC else "")
             )
-            # writer.add_scalar("lr", lr, global_iter)
+
+            wandb.log({
+                "learning_rate": scheduler.get_last_lr()[0] if hasattr(scheduler, "get_last_lr") else 0.0,
+            }, step=global_iter)
 
             total_loss = 0
             total_mse = 0
@@ -236,7 +240,6 @@ def pretrain(
             total_gen = 0
             # total_mvc = 0
             total_error = 0
-            start_time = time.time()
 
         # immediately eval and save
         # if batch % save_interval == 0 and batch > 0:
@@ -244,17 +247,18 @@ def pretrain(
         val_loss, val_mre = eval_and_save(
             model=model,
             valid_loader=valid_loader,
-            iter_or_epoch=global_iter,
             save_dir=save_dir,
-            epoch_start_time=start_time,
             logger=logger,
             vocab=vocab,
             device=device,
             best_val_loss=best_val_loss,
             enable_fp16=enable_fp16,
-            is_epoch=False,
+            global_iter=global_iter,
             # save=(save_interval > 0 and batch % save_interval == 0),
         )
+
+        best_val_loss = min(best_val_loss, val_loss)
+
         model.train()  # important, reset to train mode
         val_losses.append(val_loss)
         val_mres.append(val_mre)
@@ -439,15 +443,13 @@ def create_or_restore_training_state(vocab, init_lr, scheduler_interval, device,
 def eval_and_save(
     model: nn.Module,
     valid_loader: DataLoader,
-    iter_or_epoch: int,
     save_dir: str,
-    epoch_start_time: float,
     logger,
     vocab: MicrobiomeVocab,
     device: str,
     best_val_loss: float,
+    global_iter: int,
     enable_fp16: bool = False,
-    is_epoch: bool = False,
     # save: bool = True,
 ) -> None:
     # perform evaluation in distributed data parallel
@@ -462,21 +464,11 @@ def eval_and_save(
     #     val_mre = torch.mean(torch.stack(val_mre_list))
     val_loss, val_mre = val_loss.item(), val_mre.item()
 
-    # if args.local_rank in [0, -1]:
-    if is_epoch:
-        elapsed = time.time() - epoch_start_time
-        logger.info("-" * 89)
-        logger.info(
-            f"| end of epoch {iter_or_epoch:3d} | time: {elapsed:5.2f}s | "
-            f"valid loss/mse {val_loss:5.4f} | mre {val_mre:5.4f}"
-        )
-        logger.info(f"{'-' * 89}\n")
-        # writer.add_scalar("valid/mse", val_loss, iter_or_epoch * len(valid_loader))
-        # writer.add_scalar("valid/mre", val_mre, iter_or_epoch * len(valid_loader))
-    else:
-        logger.info(f"valid loss/mse {val_loss:5.4f} | mre {val_mre:5.4f}")
-        # writer.add_scalar("valid/mse", val_loss, iter_or_epoch)
-        # writer.add_scalar("valid/mre", val_mre, iter_or_epoch)
+    logger.info(f"valid loss/mse {val_loss:5.4f} | mre {val_mre:5.4f}")
+    wandb.log({
+        "val/val_loss": val_loss,
+        "val/val_mre": val_mre,
+    }, step=global_iter)
 
     if val_loss < best_val_loss:
         # save the best model
@@ -508,6 +500,16 @@ def eval_and_save(
     return val_loss, val_mre
 
 
+def epoch_end_logs(epoch_start_time, epoch, val_loss, val_mre):
+    elapsed = time.time() - epoch_start_time
+    logger.info("-" * 89)
+    logger.info(
+        f"| end of epoch {epoch + 1:3d} | time: {elapsed:5.2f}s | "
+        f"valid loss/mse {val_loss:5.4f} | mre {val_mre:5.4f}"
+    )
+    logger.info(f"{'-' * 89}\n")
+    # writer.add_scalar("valid/mse", val_loss, iter_or_epoch * len(valid_loader))
+    # writer.add_scalar("valid/mre", val_mre, iter_or_epoch * len(valid_loader))
 
 def evaluate(
         model: nn.Module,

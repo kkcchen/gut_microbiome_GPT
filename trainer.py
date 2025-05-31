@@ -3,7 +3,7 @@ import torch
 
 import os
 import numpy as np
-import json
+import time
 
 from data_utils.preprocessor import Preprocessor
 from data_utils.dataloader import prepare_dataloader
@@ -11,7 +11,7 @@ from data_utils.dataloader import prepare_dataloader
 from sklearn.model_selection import train_test_split
 
 from trainers.train_functions import (
-    pretrain, commit_state, create_or_restore_data_state_and_wandb, create_or_restore_training_state
+    pretrain, commit_state, create_or_restore_data_state_and_wandb, create_or_restore_training_state, epoch_end_logs
 )
 from trainers import logger
 
@@ -30,19 +30,24 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint_path", type=str, required=True, help="Directory to save checkpoints for preemption")
     parser.add_argument("--data_restore_path", type=str, default=None, help="Path to restore data state")
 
+    # wandb
     parser.add_argument("--wandb_enabled", action="store_true", help="Enable Weights & Biases logging")
     parser.add_argument("--wandb_entity", type=str, default=None, help="wandb entity name")
     parser.add_argument("--wandb_project", type=str, default=None, help="wandb project name")
 
+    # optional
     parser.add_argument("--init_lr", type=float, default=1e-3, help="Initial learning rate")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size for training")
     parser.add_argument("--max_epochs", type=int, default=25, help="Maximum number of epochs")
     parser.add_argument("--scheduler_interval", type=int, default=25, help="Scheduler step interval")
     parser.add_argument("--num_bins", type=int, default=10, help="Number of bins for binning")
     parser.add_argument("--log_interval", type=int, default=10, help="Interval for logging")
-    parser.add_argument("--patience", type=int, default=5, help="Patience for early stopping")
+    parser.add_argument("--patience", type=int, default=None, help="Patience for early stopping")
 
+    # for debugging
     parser.add_argument("--nrows", type=int, default=None, help="For debugging to limit number of samples in set")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    parser.add_argument("--start_over", action="store_true", help="Start over from scratch, ignoring existing data and checkpoints")
 
     args = parser.parse_args()
 
@@ -68,9 +73,19 @@ if __name__ == "__main__":
     scheduler_interval = args.scheduler_interval
     num_bins = args.num_bins
     log_interval = args.log_interval
-    patience = args.patience
+    patience = args.patience if args.patience else max_epochs
 
     nrows = args.nrows
+    # Set random seed for reproducibility
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+
+    if args.start_over:
+        logger.info("Starting over from scratch, ignoring existing data and checkpoints.")
+        if os.path.exists(data_restore_path):
+            os.remove(data_restore_path)
+        if os.path.exists(checkpoint_path):
+            os.remove(checkpoint_path)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -100,8 +115,7 @@ if __name__ == "__main__":
 
     while epoch < max_epochs:
         logger.info(f"Epoch {epoch + 1}/{max_epochs}")
-        logger.info("Training...")
-
+        epoch_start_time = time.time()
         rng = torch.get_rng_state()
         cuda_rng = torch.cuda.get_rng_state() if device == "cuda" else None
 
@@ -121,15 +135,12 @@ if __name__ == "__main__":
             save_dir=save_dir,
             device=device,
             logger=logger,
+            epoch_start_time=epoch_start_time,
             best_val_loss=best_val_loss,
         )
 
         # Log metrics to wandb
-        wandb.log({
-            "val_loss": val_loss,
-            "val_mre": val_mre,
-            "learning_rate": scheduler.get_last_lr()[0] if hasattr(scheduler, "get_last_lr") else init_lr,
-        })
+        epoch_end_logs(epoch_start_time, epoch, val_loss, val_mre)
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -142,6 +153,8 @@ if __name__ == "__main__":
             break
 
         commit_state(model, optimizer, scheduler, scaler, rng, cuda_rng, epoch, best_val_loss, patience_counter, checkpoint_path)
+
+        epoch += 1
 
     logger.info("Training complete with best validation loss: {:.4f}".format(best_val_loss))
     wandb.finish()

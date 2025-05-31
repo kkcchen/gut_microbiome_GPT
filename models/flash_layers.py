@@ -26,7 +26,7 @@ from .layers import MultiheadAttention
 
 class FlashscGPTMHA(nn.Module):
     """
-    Custom MHA layer for scGPT. This takes two separate forward passes on the pect
+    Custom MHA layer for scGPT. This takes two separate forward passes on the pcpt
     genes, and on the gen genes.
     """
 
