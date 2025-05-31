@@ -1,0 +1,34 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: trainer",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "trainer.py",
+            "cwd": "${workspaceFolder}",
+            "args": [
+            "--hmc-table-path", "datasets/pretrain/taxonomy_table_512_test.npy",
+            "--taxa-path", "datasets/pretrain/pretrain_cols.json",
+            "--save-dir", "model_checkpoints",
+            "--checkpoint-path", "model_checkpoints/current_checkpoints/preempt_model.pt",
+            "--data-restore-path", "model_checkpoints/data/data_state.pt",
+
+            "--batch-size", "1",
+            "--log-interval", "5",
+            "--cosine-warmup-ratio", "0.1",
+            "--nrows", "10",
+            "--seed", "42",
+
+            "--start-over",
+
+            "--wandb-enabled",
+            "--wandb-entity", "kevinkaiwen-chen-vector",
+            "--wandb-project", "hmb_testproject",
+            ]
+        }
+    ]
+}

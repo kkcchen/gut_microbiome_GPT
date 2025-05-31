@@ -237,6 +237,7 @@ if __name__ == '__main__':
     parser.add_argument('--npy_finetune_file', type=str, default="taxonomy_table_finetune", help='Finetune .npy file name.')
     parser.add_argument('--split_ratio', type=float, default=0.8, help='Ratio for splitting the dataset into pretrain and finetune sets.')
     parser.add_argument('--nrows', type=int, default=None, help='Number of rows to read from the taxonomic table CSV file.')
+    parser.add_argument('--seed', type=int, default=None, help='Random seed for reproducibility.')
     args = parser.parse_args()
 
     taxonomic_table_path = args.taxonomic_table_path
@@ -246,7 +247,11 @@ if __name__ == '__main__':
     npy_finetune_file = args.npy_finetune_file
     nrows = args.nrows
     split_ratio = args.split_ratio
-
+    
+    if args.seed is not None:
+        np.random.seed(args.seed)
+        print(f"Setting random seed to {args.seed} for reproducibility.")
+        
     # npy1_512_path = "/home/kchen/microbiome/gut_microbiome_GPT/datasets/hmc/electra/transformer/taxonomy_table_512.npy"
 
     print(f"Reading taxonomic table from {taxonomic_table_path} with nrows={nrows} and split_ratio={split_ratio}")

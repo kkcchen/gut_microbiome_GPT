@@ -9,21 +9,15 @@
 #SBATCH --qos=cpu_qos
 #SBATCH --partition=cpu
 
-# Load any required modules
-module purge
-module load python/3.10.12
-
 # Activate your virtual environment
 source ~/hmbenv/bin/activate
-
-python -c "import sys; print(sys.version)"
 
 # Arguments
 TAXONOMIC_TABLE_PATH="$HOME/datasets/taxonomic_table.csv"
 PRETRAIN_SAVE_DIR="$HOME/gut_microbiome_GPT/datasets/pretrain"
 FINETUNE_SAVE_DIR="$HOME/gut_microbiome_GPT/datasets/finetune"
-NPY_PRETRAIN_FILE="taxonomic_table_pretrain.npy"
-NPY_FINETUNE_FILE="taxonomic_table_finetune.npy"
+NPY_PRETRAIN_FILE="taxonomy_table_pretrain"
+NPY_FINETUNE_FILE="taxonomy_table_finetune"
 
 # Run the script
 echo starting now

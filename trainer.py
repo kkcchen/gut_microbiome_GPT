@@ -24,30 +24,30 @@ import argparse
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Train TransformerModel on microbiome data")
-    parser.add_argument("--hmc_table_path", type=str, required=True, help="Path to HMC table file")
-    parser.add_argument("--taxa_path", type=str, required=True, help="Path to taxa file")
-    parser.add_argument("--save_dir", type=str, required=True, help="Directory to save models")
-    parser.add_argument("--checkpoint_path", type=str, required=True, help="Directory to save checkpoints for preemption")
-    parser.add_argument("--data_restore_path", type=str, default=None, help="Path to restore data state")
+    parser.add_argument("--hmc-table-path", type=str, required=True, help="Path to HMC table file")
+    parser.add_argument("--taxa-path", type=str, required=True, help="Path to taxa file")
+    parser.add_argument("--save-dir", type=str, required=True, help="Directory to save models")
+    parser.add_argument("--checkpoint-path", type=str, required=True, help="Directory to save checkpoints for preemption")
+    parser.add_argument("--data-restore-path", type=str, required=True, help="Path to restore data state")
 
     # wandb
-    parser.add_argument("--wandb_enabled", action="store_true", help="Enable Weights & Biases logging")
-    parser.add_argument("--wandb_entity", type=str, default=None, help="wandb entity name")
-    parser.add_argument("--wandb_project", type=str, default=None, help="wandb project name")
+    parser.add_argument("--wandb-enabled", action="store_true", help="Enable Weights & Biases logging")
+    parser.add_argument("--wandb-entity", type=str, default=None, help="wandb entity name")
+    parser.add_argument("--wandb-project", type=str, default=None, help="wandb project name")
 
     # optional
-    parser.add_argument("--init_lr", type=float, default=1e-3, help="Initial learning rate")
-    parser.add_argument("--batch_size", type=int, default=32, help="Batch size for training")
-    parser.add_argument("--max_epochs", type=int, default=25, help="Maximum number of epochs")
-    parser.add_argument("--cosine_warmup_ratio", type=float, default=0.1, help="Scheduler warmup ratio")
-    parser.add_argument("--num_bins", type=int, default=10, help="Number of bins for binning")
-    parser.add_argument("--log_interval", type=int, default=10, help="Interval for logging")
+    parser.add_argument("--init-lr", type=float, default=1e-3, help="Initial learning rate")
+    parser.add_argument("--batch-size", type=int, default=32, help="Batch size for training")
+    parser.add_argument("--max-epochs", type=int, default=25, help="Maximum number of epochs")
+    parser.add_argument("--cosine-warmup-ratio", type=float, default=0.1, help="Scheduler warmup ratio")
+    parser.add_argument("--num-bins", type=int, default=10, help="Number of bins for binning")
+    parser.add_argument("--log-interval", type=int, default=10, help="Interval for logging")
     parser.add_argument("--patience", type=int, default=None, help="Patience for early stopping")
 
     # for debugging
     parser.add_argument("--nrows", type=int, default=None, help="For debugging to limit number of samples in set")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
-    parser.add_argument("--start_over", action="store_true", help="Start over from scratch, ignoring existing data and checkpoints")
+    parser.add_argument("--start-over", action="store_true", help="Start over from scratch, ignoring existing data and checkpoints")
 
     args = parser.parse_args()
 
