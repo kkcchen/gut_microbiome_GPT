@@ -3,7 +3,7 @@
 #SBATCH --ntasks=1
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=8
-#SBATCH --partition=normal
+#SBATCH --partition=rtx6000
 #SBATCH --qos=normal
 #SBATCH --time=6:00:00
 #SBATCH --output=logs/train_hmc/%j.out
@@ -24,7 +24,7 @@ DATA_RESTORE_PATH="$SAVE_DIR/preemption_checkpoints/preempt_data.pt"
 
 python -m wandb login 7559085cf6a63fa75982fe12e737bdd576c4fc62
 
-python train.py \
+python trainer.py \
     --hmc-table-path "$HMC_TABLE_PATH" \
     --taxa-path "$TAXA_JSON_PATH" \
     --save-dir "$SAVE_DIR" \

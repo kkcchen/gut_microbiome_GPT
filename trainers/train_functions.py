@@ -141,9 +141,6 @@ def pretrain(
             #         loss = loss + loss_mvc
             #         writer.add_scalar("train/mvc", loss_mvc, global_iter)
 
-
-
-            # convert to wandb here too!!!
             wandb.log({"train/loss_pcpt": loss.item()}, step=global_iter)
 
             # if USE_GENERATIVE_TRAINING and global_iter > 1000:
