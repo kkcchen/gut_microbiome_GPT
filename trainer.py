@@ -15,10 +15,8 @@ from trainers.train_functions import (
 )
 from trainers import logger
 
-from models import TransformerModel
-from data_utils.tokenizer import MicrobiomeVocab, Tokenizer
+from accelerate import Accelerator
 
-import wandb
 import argparse
 
 if __name__ == "__main__":
@@ -43,6 +41,8 @@ if __name__ == "__main__":
     parser.add_argument("--num-bins", type=int, default=10, help="Number of bins for binning")
     parser.add_argument("--log-interval", type=int, default=10, help="Interval for logging")
     parser.add_argument("--patience", type=int, default=None, help="Patience for early stopping")
+    parser.add_argument("--grad-accumulation-steps", type=int, default=1, help="Number of gradient accumulation steps")
+    parser.add_argument("--enable-fp16", action="store_true", help="Enable mixed precision training (FP16)")
 
     # for debugging
     parser.add_argument("--nrows", type=int, default=None, help="For debugging to limit number of samples in set")
@@ -74,6 +74,8 @@ if __name__ == "__main__":
     num_bins = args.num_bins
     log_interval = args.log_interval
     patience = args.patience if args.patience else max_epochs
+    grad_accumulation_steps = args.grad_accumulation_steps
+    enable_fp16 = args.enable_fp16
 
     nrows = args.nrows
     # Set random seed for reproducibility
@@ -87,11 +89,11 @@ if __name__ == "__main__":
         if os.path.exists(checkpoint_path):
             os.remove(checkpoint_path)
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    accelerator = Accelerator(gradient_accumulation_steps=grad_accumulation_steps, mixed_precision="fp16" if enable_fp16 else "no", log_with="wandb" if wandb_enabled else None)
 
     # Create or restore data state and wandb
     train_data_dict, valid_data_dict, vocab, run = create_or_restore_data_state_and_wandb(
-        hmc_table_path, taxa_path, wandb_enabled, wandb_entity, wandb_project, init_lr, batch_size, max_epochs, cosine_warmup_ratio, num_bins, data_restore_path, nrows
+        hmc_table_path, taxa_path, wandb_enabled, wandb_entity, wandb_project, init_lr, batch_size, max_epochs, cosine_warmup_ratio, num_bins, data_restore_path, accelerator, nrows
     )
 
     logger.info("Preparing dataloaders...")
@@ -109,15 +111,17 @@ if __name__ == "__main__":
     )
 
     # Create or restore training state
-    model, optimizer, scaler, scheduler, epoch, best_val_loss, patience_counter = create_or_restore_training_state(
-        vocab, init_lr, cosine_warmup_ratio, max_epochs, len(train_loader), device, checkpoint_path
+    model, optimizer, scheduler, epoch, best_val_loss, patience_counter = create_or_restore_training_state(
+        vocab, init_lr, cosine_warmup_ratio, max_epochs, len(train_loader), checkpoint_path, accelerator
+    )
+
+    train_loader, valid_loader, model, optimizer, scheduler = accelerator.prepare(
+        train_loader, valid_loader, model, optimizer, scheduler
     )
 
     while epoch < max_epochs:
         logger.info(f"Epoch {epoch + 1}/{max_epochs}")
         epoch_start_time = time.time()
-        rng = torch.get_rng_state()
-        cuda_rng = torch.cuda.get_rng_state() if device == "cuda" else None
 
         # Train the model
         val_loss, val_mre = pretrain(
@@ -127,13 +131,10 @@ if __name__ == "__main__":
             epoch=epoch,
             log_interval=log_interval,
             vocab=vocab,
-            enable_fp16=False,
-            grad_accu_steps=1,
-            scaler=scaler,
+            accelerator=accelerator,
             optimizer=optimizer,
             scheduler=scheduler,
             save_dir=save_dir,
-            device=device,
             logger=logger,
             epoch_start_time=epoch_start_time,
             best_val_loss=best_val_loss,
@@ -152,9 +153,9 @@ if __name__ == "__main__":
             logger.info("Early stopping triggered. Stopping training.")
             break
 
-        commit_state(model, optimizer, scheduler, scaler, rng, cuda_rng, epoch, best_val_loss, patience_counter, checkpoint_path)
+        commit_state(model, optimizer, scheduler, epoch, best_val_loss, patience_counter, checkpoint_path, accelerator)
 
         epoch += 1
 
     logger.info("Training complete with best validation loss: {:.4f}".format(best_val_loss))
-    wandb.finish()
+    accelerator.end_training()

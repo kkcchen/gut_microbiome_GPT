@@ -13,7 +13,9 @@ from data_utils.dataloader import prepare_dataloader
 from data_utils.tokenizer import Tokenizer
 
 from sklearn.model_selection import train_test_split
+from accelerate import Accelerator
 import transformers
+
 
 import wandb
 
@@ -25,7 +27,18 @@ from .custom_losses import (
 from data_utils import MicrobiomeVocab
 from trainers import logger
 
-# to do: convert tensorboard writer to wandb
+# Define a simple state wrapper for the model to use with Accelerator
+class DictStateWrapper:
+    def __init__(self, data=None):
+        self.data = data or {}
+
+    def state_dict(self):
+        return self.data
+
+    def load_state_dict(self, state):
+        self.data = state
+
+
 def pretrain(
         model: nn.Module, 
         train_loader: DataLoader,
@@ -33,13 +46,10 @@ def pretrain(
         epoch: int,
         log_interval: int,
         vocab: MicrobiomeVocab,
-        enable_fp16: bool,
-        grad_accu_steps: int,
-        scaler,
+        accelerator: Accelerator,
         optimizer,
         scheduler,
         save_dir: str,
-        device: str,
         logger,
         epoch_start_time: float,
         # save_interval: int = -1,
@@ -64,136 +74,128 @@ def pretrain(
     for batch, data_dict in enumerate(train_loader):
         global_iter = epoch * num_batches + batch
 
-        data_dict = {k: v.to(device) for k, v in data_dict.items()}
-        # if USE_GENERATIVE_TRAINING:
-        pcpt_gene = data_dict["pcpt_ids"]
-        pcpt_expr = data_dict["pcpt_values"]
-        pcpt_key_padding_mask = pcpt_gene.eq(vocab.pad_index)
-        gen_gene = data_dict["gen_ids"]
-        gen_expr_target = target_values = data_dict["gen_values"]
-        gen_key_padding_mask = gen_gene.eq(vocab.pad_index)
-        # else:
-        #     input_gene_ids = data_dict["gene"]
-        #     input_values = data_dict["masked_expr"]
-        #     target_values = data_dict["expr"]
-        #     src_key_padding_mask = input_gene_ids.eq(vocab[args.pad_token])
-
-        with torch.amp.autocast(device, enabled=enable_fp16):
+        with accelerator.accumulate(model):
             # if USE_GENERATIVE_TRAINING:
-            output_dict = model(
-                pcpt_gene,
-                pcpt_expr,
-                pcpt_key_padding_mask,
-                gen_gene,
-                gen_key_padding_mask,
-                # CLS=use_cls,
-                # MVC=use_mvc,
-                # generative_training=True,
-            )
-            gen_expr_preds = output_values = output_dict["gen_preds"]
-
-            positions_to_match = ~gen_key_padding_mask
-            loss = loss_mse = masked_mse_loss(
-                gen_expr_preds, gen_expr_target, positions_to_match
-            )
-            # wandb.log({"train/mse": loss_mse.item()}, step=global_iter)
-
-            # if use_mvc:
-            #     loss_mvc = criterion(
-            #         output_dict["mvc_output"][:, pcpt_gene.shape[1] :],
-            #         gen_expr_target,
-            #         positions_to_match,
-            #     )
-            #     loss = loss + loss_mvc
-            #     writer.add_scalar("train/mvc", loss_mvc, global_iter)
+            pcpt_gene = data_dict["pcpt_ids"]
+            pcpt_expr = data_dict["pcpt_values"]
+            pcpt_key_padding_mask = pcpt_gene.eq(vocab.pad_index)
+            gen_gene = data_dict["gen_ids"]
+            gen_expr_target = target_values = data_dict["gen_values"]
+            gen_key_padding_mask = gen_gene.eq(vocab.pad_index)
             # else:
-            #     output_dict = model(
-            #         input_gene_ids,
-            #         input_values,
-            #         src_key_padding_mask=src_key_padding_mask,
-            #         CLS=USE_CLS,
-            #         CCE=USE_CCE,  # TODO: move these flags to model's attributes
-            #         MVC=MVC,
-            #         generative_training=False,
-            #     )
-            #     output_values = output_dict["mlm_output"]
+            #     input_gene_ids = data_dict["gene"]
+            #     input_values = data_dict["masked_expr"]
+            #     target_values = data_dict["expr"]
+            #     src_key_padding_mask = input_gene_ids.eq(vocab[args.pad_token])
 
-            #     positions_to_match = input_values.eq(
-            #         args.mask_value
-            #     )  # the postions to predict
-            #     loss = loss_mse = criterion(
-            #         output_values, target_values, positions_to_match
-            #     )
-            #     writer.add_scalar("train/mse", loss_mse, global_iter)
-            #     if USE_CLS:
-            #         target_labels = data_dict["celltypes"]
-            #         loss_cls = criterion_cls(output_dict["cls_output"], target_labels)
-            #         loss = loss + loss_cls
-            #         writer.add_scalar("train/cls", loss_cls, global_iter)
-            #     if USE_CCE:
-            #         loss_cce = 10 * output_dict["loss_cce"]
-            #         loss = loss + loss_cce
-            #         writer.add_scalar("train/cce", loss_cce, global_iter)
-            #     if MVC:
-            #         loss_mvc = criterion(
-            #             output_dict["mvc_output"], target_values, positions_to_match
-            #         )
-            #         loss = loss + loss_mvc
-            #         writer.add_scalar("train/mvc", loss_mvc, global_iter)
+            with accelerator.autocast():
+                # if USE_GENERATIVE_TRAINING:
+                output_dict = model(
+                    pcpt_gene,
+                    pcpt_expr,
+                    pcpt_key_padding_mask,
+                    gen_gene,
+                    gen_key_padding_mask,
+                    # CLS=use_cls,
+                    # MVC=use_mvc,
+                    # generative_training=True,
+                )
+                gen_expr_preds = output_values = output_dict["gen_preds"]
 
-            wandb.log({"train/loss_pcpt": loss.item()}, step=global_iter)
+                positions_to_match = ~gen_key_padding_mask
+                loss = loss_mse = masked_mse_loss(
+                    gen_expr_preds, gen_expr_target, positions_to_match
+                )
+                # accelerate.log({"train/mse": loss_mse.item()}, step=global_iter)
 
-            # if USE_GENERATIVE_TRAINING and global_iter > 1000:
-            previous_cell_embs = output_dict["cell_emb"].detach()
-            preds = model(
-                pcpt_gene,
-                pcpt_expr,
-                pcpt_key_padding_mask,
-                gen_gene,
-                gen_key_padding_mask,
-                # CLS=False,
-                # MVC=False,
-                input_cell_emb=previous_cell_embs,
-                # generative_training=True,
-            )["gen_preds"]
-            loss_gen = masked_mse_loss(preds, gen_expr_target, positions_to_match)
-            loss = loss + loss_gen
-            wandb.log({"train/loss_gen": loss_gen.item()}, step=global_iter)
+                # if use_mvc:
+                #     loss_mvc = criterion(
+                #         output_dict["mvc_output"][:, pcpt_gene.shape[1] :],
+                #         gen_expr_target,
+                #         positions_to_match,
+                #     )
+                #     loss = loss + loss_mvc
+                #     writer.add_scalar("train/mvc", loss_mvc, global_iter)
+                # else:
+                #     output_dict = model(
+                #         input_gene_ids,
+                #         input_values,
+                #         src_key_padding_mask=src_key_padding_mask,
+                #         CLS=USE_CLS,
+                #         CCE=USE_CCE,  # TODO: move these flags to model's attributes
+                #         MVC=MVC,
+                #         generative_training=False,
+                #     )
+                #     output_values = output_dict["mlm_output"]
 
-                # TODO: try this choice of using a separate backprop
-                # # this part is for the choice of using a separate backprop
-                # model.zero_grad()
-                # scaler.scale(loss_gen).backward()
-                # scaler.unscale_(optimizer)
-                # torch.nn.utils.clip_grad_norm_(
-                #     model.parameters(),
-                #     1.0,
-                #     error_if_nonfinite=False if scaler.is_enabled() else True,
-                # )
-                # scaler.step(optimizer)
-                # scaler.update()
+                #     positions_to_match = input_values.eq(
+                #         args.mask_value
+                #     )  # the postions to predict
+                #     loss = loss_mse = criterion(
+                #         output_values, target_values, positions_to_match
+                #     )
+                #     writer.add_scalar("train/mse", loss_mse, global_iter)
+                #     if USE_CLS:
+                #         target_labels = data_dict["celltypes"]
+                #         loss_cls = criterion_cls(output_dict["cls_output"], target_labels)
+                #         loss = loss + loss_cls
+                #         writer.add_scalar("train/cls", loss_cls, global_iter)
+                #     if USE_CCE:
+                #         loss_cce = 10 * output_dict["loss_cce"]
+                #         loss = loss + loss_cce
+                #         writer.add_scalar("train/cce", loss_cce, global_iter)
+                #     if MVC:
+                #         loss_mvc = criterion(
+                #             output_dict["mvc_output"], target_values, positions_to_match
+                #         )
+                #         loss = loss + loss_mvc
+                #         writer.add_scalar("train/mvc", loss_mvc, global_iter)
 
-        if grad_accu_steps > 1:
-            loss = loss / grad_accu_steps
-        scaler.scale(loss).backward()
-        scaler.unscale_(optimizer)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        scaler.step(optimizer)
-        scaler.update()
+                accelerator.log({"train/loss_pcpt": loss.item()}, step=global_iter)
 
-        if grad_accu_steps > 1:
-            if batch % grad_accu_steps == 0 or batch == num_batches - 1:
+                # if USE_GENERATIVE_TRAINING and global_iter > 1000:
+                if global_iter > 1000:
+                    previous_cell_embs = output_dict["cell_emb"].detach()
+                    preds = model(
+                        pcpt_gene,
+                        pcpt_expr,
+                        pcpt_key_padding_mask,
+                        gen_gene,
+                        gen_key_padding_mask,
+                        # CLS=False,
+                        # MVC=False,
+                        input_cell_emb=previous_cell_embs,
+                        # generative_training=True,
+                    )["gen_preds"]
+                    loss_gen = masked_mse_loss(preds, gen_expr_target, positions_to_match)
+                    loss = loss + loss_gen
+                    accelerator.log({"train/loss_gen": loss_gen.item()}, step=global_iter)
+
+            # TODO: try this choice of using a separate backprop
+            # # this part is for the choice of using a separate backprop
+            # model.zero_grad()
+            # scaler.scale(loss_gen).backward()
+            # scaler.unscale_(optimizer)
+            # torch.nn.utils.clip_grad_norm_(
+            #     model.parameters(),
+            #     1.0,
+            #     error_if_nonfinite=False if scaler.is_enabled() else True,
+            # )
+            # scaler.step(optimizer)
+            # scaler.update()
+
+            accelerator.backward(loss)
+            if accelerator.sync_gradients:
+                accelerator.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
                 scheduler.step()
                 optimizer.zero_grad()
-        else:
-            scheduler.step()
-            optimizer.zero_grad()
 
         with torch.no_grad():
             mre = masked_relative_error(
                 output_values, target_values, positions_to_match
             )
-            wandb.log({"train/mre": mre.item()}, step=global_iter)
+            accelerator.log({"train/mre": mre.item()}, step=global_iter)
 
         total_loss += loss.item()
         total_mse += loss_mse.item()
@@ -228,7 +230,7 @@ def pretrain(
                 # + (f"mvc {cur_mvc:5.2f} |" if MVC else "")
             )
 
-            wandb.log({
+            accelerator.log({
                 "learning_rate": scheduler.get_last_lr()[0] if hasattr(scheduler, "get_last_lr") else 0.0,
             }, step=global_iter)
 
@@ -248,10 +250,9 @@ def pretrain(
             save_dir=save_dir,
             logger=logger,
             vocab=vocab,
-            device=device,
             best_val_loss=best_val_loss,
-            enable_fp16=enable_fp16,
             global_iter=global_iter,
+            accelerator=accelerator,
             # save=(save_interval > 0 and batch % save_interval == 0),
         )
 
@@ -266,34 +267,154 @@ def pretrain(
 
     return epoch_val_loss, epoch_val_mre
 
+
+def eval_and_save(
+    model: nn.Module,
+    valid_loader: DataLoader,
+    save_dir: str,
+    logger,
+    vocab: MicrobiomeVocab,
+    best_val_loss: float,
+    global_iter: int,
+    accelerator: Accelerator,
+    # save: bool = True,
+) -> None:
+    # perform evaluation in distributed data parallel
+    val_loss, val_mre = evaluate(model, valid_loader, vocab, accelerator).values()
+    val_loss, val_mre = val_loss.item(), val_mre.item()
+
+    logger.info(f"valid loss/mse {val_loss:5.4f} | mre {val_mre:5.4f}")
+    accelerator.log({
+        "val/val_loss": val_loss,
+        "val/val_mre": val_mre,
+    }, step=global_iter)
+
+    if val_loss < best_val_loss:
+        # save the best model
+        logger.info(f"Saving the best model to {save_dir}")
+        accelerator.wait_for_everyone()  # wait for all processes to finish
+        accelerator.save_model(model, os.path.join(save_dir, "best_model.pt"))
+
+    # if save:
+    #     torch.save(
+    #         # model.module.state_dict()
+    #         # if isinstance(
+    #         #     model, (nn.DataParallel, nn.parallel.DistributedDataParallel)
+    #         # )
+    #         # else model.state_dict(),
+    #         model.state_dict(),
+    #         save_dir + f"/model-{'ep' if is_epoch else ''}{iter_or_epoch}.pt",
+    #     )
+
+    # if IS_DATA_PARALLEL:
+    #     torch.distributed.barrier()
+
+    return val_loss, val_mre
+
+
+def evaluate(
+        model: nn.Module,
+        valid_loader: DataLoader,
+        vocab: MicrobiomeVocab,
+        accelerator: Accelerator,
+        ) -> Dict[str, torch.Tensor]:
+    """
+    Evaluate the model on the evaluation data.
+    """
+    model.eval()
+    total_loss = 0.0
+    total_error = 0.0
+    with torch.no_grad():
+        for data_dict in valid_loader:
+            # if USE_GENERATIVE_TRAINING:
+            pcpt_ids = data_dict["pcpt_ids"]
+            pcpt_values = data_dict["pcpt_values"]
+            pcpt_key_padding_mask = pcpt_ids.eq(vocab.pad_index)
+            gen_ids = data_dict["gen_ids"]
+            gen_values = data_dict["gen_values"]
+            gen_key_padding_mask = gen_ids.eq(vocab.pad_index)
+            # else:
+            #     input_gene_ids = data_dict["gene"]
+            #     input_values = data_dict["masked_expr"]
+            #     target_values = data_dict["expr"]
+            #     src_key_padding_mask = input_gene_ids.eq(vocab[args.pad_token])
+
+            with accelerator.autocast():
+                # if USE_GENERATIVE_TRAINING:
+                output_dict = model(
+                    pcpt_ids,
+                    pcpt_values,
+                    pcpt_key_padding_mask,
+                    gen_ids,
+                    gen_key_padding_mask,
+                    # CLS=False,
+                    # MVC=False,
+                    # generative_training=True,
+                )
+                gen_expr_preds = output_values = output_dict["gen_preds"]
+
+                positions_to_match = ~gen_key_padding_mask
+                # else:
+                #     output_dict = model(
+                #         input_gene_ids,
+                #         input_values,
+                #         src_key_padding_mask=src_key_padding_mask,
+                #         CLS=False,  # evaluation does not need CLS or CCE
+                #         CCE=False,
+                #         MVC=False,
+                #         generative_training=False,
+                #     )
+                #     output_values = output_dict["mlm_output"]
+                #     positions_to_match = input_values.eq(args.mask_value)
+
+            loss = masked_mse_loss(output_values, gen_values, positions_to_match)
+            total_loss += loss.item()
+            total_error += masked_relative_error(
+                output_values, gen_values, positions_to_match
+            ).item()
+
+    total_loss = total_loss / len(valid_loader)
+    total_error = total_error / len(valid_loader)
+    return {
+        "mse": torch.tensor(total_loss, dtype=torch.float),
+        "mre": torch.tensor(total_error, dtype=torch.float),
+    }
+
+
+def epoch_end_logs(epoch_start_time, epoch, val_loss, val_mre):
+    elapsed = time.time() - epoch_start_time
+    logger.info("-" * 89)
+    logger.info(
+        f"| end of epoch {epoch + 1:3d} | time: {elapsed:5.2f}s | "
+        f"valid loss/mse {val_loss:5.4f} | mre {val_mre:5.4f}"
+    )
+    logger.info(f"{'-' * 89}\n")
+    # writer.add_scalar("valid/mse", val_loss, iter_or_epoch * len(valid_loader))
+    # writer.add_scalar("valid/mre", val_mre, iter_or_epoch * len(valid_loader))
+
+
 # we need to be careful when saving checkpoints since preemption can also
 # occur during checkpointing. Therefore, we need to make sure the checkpoint
 # file is either kept untouched or successfully updated during this process.
-def commit_state(model, optimizer, scheduler, grad_scaler, rng, cuda_rng, epoch, best_val_loss, patience_counter, checkpoint_path):
-
-    temp_path = os.path.join(os.path.dirname(checkpoint_path), "temp.pt")
-
-    training_state = {
-        "model": model.state_dict(),
-        "optimizer": optimizer.state_dict(),
-        "scheduler": scheduler.state_dict(),
-        "grad_scaler": grad_scaler.state_dict() if grad_scaler else None,
-        "rng": rng,
-        "cuda_rng": cuda_rng,
+def commit_state(model, optimizer, scheduler, epoch, best_val_loss, patience_counter, checkpoint_path, accelerator: Accelerator):
+    extra_state = DictStateWrapper({
         "epoch": epoch,
         "best_val_loss": best_val_loss,
         "patience_counter": patience_counter,
-    }
+    })
 
-    # first save to temp file
-    torch.save(training_state, temp_path)
+    temp_path = os.path.join(os.path.dirname(checkpoint_path), "temp.pt")
+    accelerator.register_for_checkpointing(model, optimizer, scheduler, extra_state)
+    accelerator.save_state(temp_path)
+
     # according to the GNU spec of rename, the state of checkpoint_path
     # is atomic, i.e. it will either be modified or not modified, but not in
     # between, during a system crash (i.e. preemtion)
     os.replace(temp_path, checkpoint_path)
     logger.info("Training state committed to {} at time {}".format(checkpoint_path, time.ctime(time.time())))
 
-def create_or_restore_data_state_and_wandb(hmc_table_path, taxa_path, wandb_enabled, wandb_entity, wandb_project, init_lr, batch_size, max_epochs, cosine_warmup_ratio, binning, data_restore_path, nrows=None):
+
+def create_or_restore_data_state_and_wandb(hmc_table_path, taxa_path, wandb_enabled, wandb_entity, wandb_project, init_lr, batch_size, max_epochs, cosine_warmup_ratio, binning, data_restore_path, accelerator: Accelerator, nrows=None):
     if os.path.exists(data_restore_path):
         # load the data state from the file
         with open(data_restore_path, 'rb') as f:
@@ -387,11 +508,12 @@ def create_or_restore_data_state_and_wandb(hmc_table_path, taxa_path, wandb_enab
         # save the data state to the file
         torch.save(data_state, data_restore_path)
         logger.info("Data state saved to {}".format(data_restore_path))
+        accelerator.init_trackers(wandb_project)
 
     return train_data_dict, valid_data_dict, vocab, run
 
 
-def create_or_restore_training_state(vocab, init_lr, warmup_ratio_or_step, total_epochs, trainloader_length, device, checkpoint_path):
+def create_or_restore_training_state(vocab, init_lr, warmup_ratio_or_step, total_epochs, trainloader_length, checkpoint_path, accelerator: Accelerator):
     # initial configuration of the model
     model = TransformerModel(
         d_model=512,
@@ -403,7 +525,6 @@ def create_or_restore_training_state(vocab, init_lr, warmup_ratio_or_step, total
         use_generative_training=True,
     )
 
-    model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=init_lr)
     # setup scheduler
     # if warmup_ratio_or_step > 0:
@@ -425,176 +546,26 @@ def create_or_restore_training_state(vocab, init_lr, warmup_ratio_or_step, total
     #     scheduler = torch.optim.lr_scheduler.StepLR(
     #         optimizer, scheduler_interval, gamma=args.scheduler_factor
     #     )
-    scaler = torch.amp.GradScaler(device)
     # dataloader = DataLoader(dataset, shuffle=False, batch_size=batch_size,
     #                         sampler=StatefulSampler(dataset, shuffle=True),
     #                         num_workers=0)
     epoch = 0
     best_val_loss = float("inf")
     patience_counter = 0
+
     # restore training state if checkpoint exists
     if os.path.exists(checkpoint_path):
-        training_state = torch.load(checkpoint_path, weights_only=False)
+        training_state_dict = DictStateWrapper()
+        accelerator.register_for_checkpointing(model, optimizer, scheduler, training_state_dict)
+        accelerator.load_state(checkpoint_path)
 
-        model.load_state_dict(training_state['model'])
-        optimizer.load_state_dict(training_state['optimizer'])
-        scheduler.load_state_dict(training_state['scheduler'])
-        scaler.load_state_dict(training_state['grad_scaler'])
-        rng = training_state['rng']
-        torch.random.set_rng_state(rng)
-        cuda_rng = training_state['cuda_rng']
-        if cuda_rng is not None and device == 'cuda':
-            torch.cuda.set_rng_state(cuda_rng)
-        epoch = training_state['epoch']
-        best_val_loss = training_state['best_val_loss']
-        patience_counter = training_state['patience_counter']
+        epoch = training_state_dict['epoch']
+        best_val_loss = training_state_dict['best_val_loss']
+        patience_counter = training_state_dict['patience_counter']
         logger.info(f"training state restored at beginning of epoch {epoch + 1}")
 
     else:
         logger.info("No checkpoint detected, starting from initial state")
 
-    return model, optimizer, scaler, scheduler, epoch, best_val_loss, patience_counter
+    return model, optimizer, scheduler, epoch, best_val_loss, patience_counter
 
-
-
-def eval_and_save(
-    model: nn.Module,
-    valid_loader: DataLoader,
-    save_dir: str,
-    logger,
-    vocab: MicrobiomeVocab,
-    device: str,
-    best_val_loss: float,
-    global_iter: int,
-    enable_fp16: bool = False,
-    # save: bool = True,
-) -> None:
-    # perform evaluation in distributed data parallel
-    val_loss, val_mre = evaluate(model, valid_loader, vocab, enable_fp16, device).values()
-    # if IS_DATA_PARALLEL:
-    #     # gather the results from all the processes
-    #     val_loss_list = [torch.zeros_like(val_loss) for _ in range(world_size)]
-    #     val_mre_list = [torch.zeros_like(val_mre) for _ in range(world_size)]
-    #     torch.distributed.all_gather(val_loss_list, val_loss)
-    #     torch.distributed.all_gather(val_mre_list, val_mre)
-    #     val_loss = torch.mean(torch.stack(val_loss_list))
-    #     val_mre = torch.mean(torch.stack(val_mre_list))
-    val_loss, val_mre = val_loss.item(), val_mre.item()
-
-    logger.info(f"valid loss/mse {val_loss:5.4f} | mre {val_mre:5.4f}")
-    wandb.log({
-        "val/val_loss": val_loss,
-        "val/val_mre": val_mre,
-    }, step=global_iter)
-
-    if val_loss < best_val_loss:
-        # save the best model
-        logger.info(f"Saving the best model to {save_dir}")
-        torch.save(
-            # model.module.state_dict()
-            # if isinstance(
-            #     model, (nn.DataParallel, nn.parallel.DistributedDataParallel)
-            # )
-            # else model.state_dict(),
-            model.state_dict(),
-            save_dir + "/best_model.pt",
-        )
-
-    # if save:
-    #     torch.save(
-    #         # model.module.state_dict()
-    #         # if isinstance(
-    #         #     model, (nn.DataParallel, nn.parallel.DistributedDataParallel)
-    #         # )
-    #         # else model.state_dict(),
-    #         model.state_dict(),
-    #         save_dir + f"/model-{'ep' if is_epoch else ''}{iter_or_epoch}.pt",
-    #     )
-
-    # if IS_DATA_PARALLEL:
-    #     torch.distributed.barrier()
-
-    return val_loss, val_mre
-
-
-def epoch_end_logs(epoch_start_time, epoch, val_loss, val_mre):
-    elapsed = time.time() - epoch_start_time
-    logger.info("-" * 89)
-    logger.info(
-        f"| end of epoch {epoch + 1:3d} | time: {elapsed:5.2f}s | "
-        f"valid loss/mse {val_loss:5.4f} | mre {val_mre:5.4f}"
-    )
-    logger.info(f"{'-' * 89}\n")
-    # writer.add_scalar("valid/mse", val_loss, iter_or_epoch * len(valid_loader))
-    # writer.add_scalar("valid/mre", val_mre, iter_or_epoch * len(valid_loader))
-
-def evaluate(
-        model: nn.Module,
-        valid_loader: DataLoader,
-        vocab: MicrobiomeVocab,
-        enable_fp16: bool,
-        device: str,
-        ) -> Dict[str, torch.Tensor]:
-    """
-    Evaluate the model on the evaluation data.
-    """
-    model.eval()
-    total_loss = 0.0
-    total_error = 0.0
-    with torch.no_grad():
-        for data_dict in valid_loader:
-
-            data_dict = {k: v.to(device) for k, v in data_dict.items()}
-            # if USE_GENERATIVE_TRAINING:
-            pcpt_ids = data_dict["pcpt_ids"]
-            pcpt_values = data_dict["pcpt_values"]
-            pcpt_key_padding_mask = pcpt_ids.eq(vocab.pad_index)
-            gen_ids = data_dict["gen_ids"]
-            gen_values = data_dict["gen_values"]
-            gen_key_padding_mask = gen_ids.eq(vocab.pad_index)
-            # else:
-            #     input_gene_ids = data_dict["gene"]
-            #     input_values = data_dict["masked_expr"]
-            #     target_values = data_dict["expr"]
-            #     src_key_padding_mask = input_gene_ids.eq(vocab[args.pad_token])
-
-            with torch.amp.autocast(device, enabled=enable_fp16):
-                # if USE_GENERATIVE_TRAINING:
-                output_dict = model(
-                    pcpt_ids,
-                    pcpt_values,
-                    pcpt_key_padding_mask,
-                    gen_ids,
-                    gen_key_padding_mask,
-                    # CLS=False,
-                    # MVC=False,
-                    # generative_training=True,
-                )
-                gen_expr_preds = output_values = output_dict["gen_preds"]
-
-                positions_to_match = ~gen_key_padding_mask
-                # else:
-                #     output_dict = model(
-                #         input_gene_ids,
-                #         input_values,
-                #         src_key_padding_mask=src_key_padding_mask,
-                #         CLS=False,  # evaluation does not need CLS or CCE
-                #         CCE=False,
-                #         MVC=False,
-                #         generative_training=False,
-                #     )
-                #     output_values = output_dict["mlm_output"]
-                #     positions_to_match = input_values.eq(args.mask_value)
-
-                loss = masked_mse_loss(output_values, gen_values, positions_to_match)
-            total_loss += loss.item()
-            total_error += masked_relative_error(
-                output_values, gen_values, positions_to_match
-            ).item()
-
-    total_loss = total_loss / len(valid_loader)
-    total_error = total_error / len(valid_loader)
-    return {
-        "mse": torch.tensor(total_loss, device=device, dtype=torch.float),
-        "mre": torch.tensor(total_error, device=device, dtype=torch.float),
-    }
