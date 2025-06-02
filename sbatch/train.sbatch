@@ -14,8 +14,10 @@
 cd ~/gut_microbiome_GPT
 source ~/hmbenv/bin/activate
 
+python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not available. Exiting.'" || exit 1
+
 # put your command here
-DATA_DIR="./datasets"
+DATA_DIR="$HOME/datasets"
 HMC_TABLE_PATH="$DATA_DIR/pretrain/taxonomy_table_512_train.npy"
 TAXA_JSON_PATH="$DATA_DIR/pretrain/pretrain_cols.json"
 SAVE_DIR="./model_checkpoints"
