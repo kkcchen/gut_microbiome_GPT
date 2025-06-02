@@ -6,11 +6,6 @@ import shutil
 import numpy as np
 import time
 
-from data_utils.preprocessor import Preprocessor
-from data_utils.dataloader import prepare_dataloader
-
-from sklearn.model_selection import train_test_split
-
 from trainers.train_functions import (
     pretrain, commit_state, create_or_restore_data_state_and_wandb, create_or_restore_training_state, epoch_end_logs
 )
@@ -41,6 +36,7 @@ if __name__ == "__main__":
     parser.add_argument("--cosine-warmup-ratio-or-step", type=float, default=0.1, help="Scheduler warmup ratio or step")
     parser.add_argument("--num-bins", type=int, default=10, help="Number of bins for binning")
     parser.add_argument("--log-interval", type=int, default=10, help="Interval for logging")
+    parser.add_argument("--save-interval", type=int, default=100, help="Interval for saving checkpoints")
     parser.add_argument("--patience", type=int, default=None, help="Patience for early stopping")
     parser.add_argument("--grad-accumulation-steps", type=int, default=1, help="Number of gradient accumulation steps")
     parser.add_argument("--enable-fp16", action="store_true", help="Enable mixed precision training (FP16)")
@@ -73,6 +69,7 @@ if __name__ == "__main__":
     cosine_warmup_ratio_or_step = args.cosine_warmup_ratio_or_step
     num_bins = args.num_bins
     log_interval = args.log_interval
+    save_interval = args.save_interval
     patience = args.patience if args.patience else max_epochs
     grad_accumulation_steps = args.grad_accumulation_steps
     enable_fp16 = args.enable_fp16
@@ -82,6 +79,8 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
+    accelerator = Accelerator(gradient_accumulation_steps=grad_accumulation_steps, mixed_precision="fp16" if enable_fp16 else "no", log_with="wandb" if wandb_enabled else None)
+
     if args.start_over:
         logger.info("Starting over from scratch, deleting existing training state.")
         if os.path.exists(data_restore_path):
@@ -89,45 +88,51 @@ if __name__ == "__main__":
         if os.path.exists(checkpoint_dir):
             shutil.rmtree(checkpoint_dir)
 
-    accelerator = Accelerator(gradient_accumulation_steps=grad_accumulation_steps, mixed_precision="fp16" if enable_fp16 else "no", log_with="wandb" if wandb_enabled else None)
 
     # Create or restore data state and wandb
     train_data_dict, valid_data_dict, vocab = create_or_restore_data_state_and_wandb(
         hmc_table_path, taxa_path, wandb_enabled, wandb_entity, wandb_project, init_lr, batch_size, max_epochs, cosine_warmup_ratio_or_step, num_bins, data_restore_path, accelerator, nrows
     )
 
-    logger.info("Preparing dataloaders...")
-    train_loader = prepare_dataloader(
+    # Create or restore training state, dataloaders
+    (
+        model,
+        optimizer,
+        scheduler,
+        train_sampler,
+        train_loader,
+        val_loader,
+        epoch,
+        best_val_loss,
+        patience_counter,
+        extra_state_dict
+    ) = create_or_restore_training_state(
+        vocab,
         train_data_dict,
-        vocab=vocab,
-        batch_size=batch_size,
-        shuffle=True,
-    )
-    valid_loader = prepare_dataloader(
         valid_data_dict,
-        vocab=vocab,
+        checkpoint_dir,
         batch_size=batch_size,
-        shuffle=False,
+        init_lr=init_lr,
+        warmup_ratio_or_step=cosine_warmup_ratio_or_step,
+        total_epochs=max_epochs,
+        accelerator=accelerator,
     )
 
-    # Create or restore training state
-    model, optimizer, scheduler, epoch, best_val_loss, patience_counter = create_or_restore_training_state(
-        vocab, init_lr, cosine_warmup_ratio_or_step, max_epochs, len(train_loader), checkpoint_dir, accelerator
+    train_loader, val_loader, model, optimizer, scheduler = accelerator.prepare(
+        train_loader, val_loader, model, optimizer, scheduler
     )
-
-    train_loader, valid_loader, model, optimizer, scheduler = accelerator.prepare(
-        train_loader, valid_loader, model, optimizer, scheduler
-    )
+    
 
     while epoch < max_epochs:
         logger.info(f"Epoch {epoch + 1}/{max_epochs}")
         epoch_start_time = time.time()
+        train_sampler.set_epoch(epoch)
 
         # Train the model
         val_loss, val_mre = pretrain(
             model=model,
             train_loader=train_loader,
-            valid_loader=valid_loader,
+            val_loader=val_loader,
             epoch=epoch,
             log_interval=log_interval,
             vocab=vocab,
@@ -136,6 +141,10 @@ if __name__ == "__main__":
             scheduler=scheduler,
             best_dir=best_dir,
             best_val_loss=best_val_loss,
+            save_interval=save_interval,
+            patience_counter=patience_counter,
+            checkpoint_dir=checkpoint_dir,
+            extra_state_dict=extra_state_dict
         )
 
         # Log metrics to wandb
@@ -152,7 +161,7 @@ if __name__ == "__main__":
             break
 
         epoch += 1
-        commit_state(model, optimizer, scheduler, epoch, best_val_loss, patience_counter, checkpoint_dir, accelerator)
+        commit_state(epoch, best_val_loss, patience_counter, extra_state_dict, checkpoint_dir, accelerator)
 
     logger.info("Training complete with best validation loss: {:.4f}".format(best_val_loss))
     accelerator.end_training()

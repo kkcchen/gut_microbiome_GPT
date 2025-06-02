@@ -20,8 +20,9 @@
 
             "--batch-size", "1",
             "--log-interval", "5",
+            "--save-interval", "1",
             "--cosine-warmup-ratio-or-step", "0.1",
-            "--nrows", "10",
+            "--nrows", "30",
             "--seed", "42",
 
             // "--start-over",

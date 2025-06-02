@@ -1,7 +1,6 @@
-from typing import List, Dict, Any
-import numpy as np
+from typing import Dict
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 
 from data_utils.tokenizer import MicrobiomeVocab
 
@@ -77,49 +76,3 @@ class SeqDataset(Dataset):
             "gen_ids": gen_ids,
             "gen_values": gen_values
         }
-
-
-def prepare_dataloader(
-    data_pt: Dict[str, torch.Tensor],
-    batch_size: int,
-    vocab: MicrobiomeVocab,
-    shuffle: bool = False,
-    gen_percent: float = 0.15,
-    # intra_domain_shuffle: bool = False,
-    drop_last: bool = False,
-    num_workers: int = 0,
-    # per_seq_batch_sample: bool = False,
-) -> DataLoader:
-    dataset = SeqDataset(data_pt, vocab, gen_percent=gen_percent)
-
-    # # if per_seq_batch_sample, each batch will contain samples from the same experiment. Comment out for now because idk if we need this
-    # if per_seq_batch_sample:
-    #     # find the indices of samples in each seq batch
-    #     subsets = []
-    #     batch_labels_array = data_pt["batch_labels"].numpy()
-    #     for batch_label in np.unique(batch_labels_array):
-    #         batch_indices = np.where(batch_labels_array == batch_label)[0].tolist()
-    #         subsets.append(batch_indices)
-    #     data_loader = DataLoader(
-    #         dataset=dataset,
-    #         batch_sampler=SubsetsBatchSampler(
-    #             subsets,
-    #             batch_size,
-    #             intra_subset_shuffle=intra_domain_shuffle,
-    #             inter_subset_shuffle=shuffle,
-    #             drop_last=drop_last,
-    #         ),
-    #         num_workers=num_workers,
-    #         pin_memory=True,
-    #     )
-    #     return data_loader
-
-    data_loader = DataLoader(
-        dataset=dataset,
-        batch_size=batch_size,
-        shuffle=shuffle,
-        drop_last=drop_last,
-        num_workers=num_workers,
-        pin_memory=True,
-    )
-    return data_loader

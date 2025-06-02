@@ -10,17 +10,18 @@ import shutil
 import json
 
 from data_utils.preprocessor import Preprocessor
-from data_utils.dataloader import prepare_dataloader
 from data_utils.tokenizer import Tokenizer
+from utils.dist_state_sampler import DistributedSaveableSampler
 
 from sklearn.model_selection import train_test_split
 from accelerate import Accelerator
 import transformers
 
+from data_utils.seq_dataset import SeqDataset
 
 import wandb
 
-from .custom_losses import (
+from utils.custom_losses import (
     masked_relative_error,
     masked_mse_loss,
 )
@@ -43,15 +44,18 @@ class DictStateWrapper:
 def pretrain(
         model: nn.Module, 
         train_loader: DataLoader,
-        valid_loader: DataLoader,
+        val_loader: DataLoader,
         epoch: int,
         log_interval: int,
         vocab: MicrobiomeVocab,
         accelerator: Accelerator,
         optimizer,
         scheduler,
+        save_interval: int,
+        extra_state_dict: DictStateWrapper,
+        patience_counter: int,
+        checkpoint_dir: str,
         best_dir: str,
-        # save_interval: int = -1,
         best_val_loss: float = float("inf"),
 
     ) -> None:
@@ -243,12 +247,14 @@ def pretrain(
             # total_mvc = 0
             total_error = 0
 
-        # immediately eval and save
-        # if batch % save_interval == 0 and batch > 0:
+        if batch % save_interval == 0 and batch > 0:
+            # Save the model checkpoint
+            logger.info(f"Saving model checkpoint to {best_dir} for preemption on step {global_iter}")
+            commit_state(epoch, best_val_loss, patience_counter, extra_state_dict, checkpoint_dir, accelerator)
 
         val_loss, val_mre = eval_and_save(
             model=model,
-            valid_loader=valid_loader,
+            val_loader=val_loader,
             best_dir=best_dir,
             vocab=vocab,
             best_val_loss=best_val_loss,
@@ -271,7 +277,7 @@ def pretrain(
 
 def eval_and_save(
     model: nn.Module,
-    valid_loader: DataLoader,
+    val_loader: DataLoader,
     best_dir: str,
     vocab: MicrobiomeVocab,
     best_val_loss: float,
@@ -280,7 +286,7 @@ def eval_and_save(
     # save: bool = True,
 ) -> None:
     # perform evaluation in distributed data parallel
-    val_loss, val_mre = evaluate(model, valid_loader, vocab, accelerator).values()
+    val_loss, val_mre = evaluate(model, val_loader, vocab, accelerator).values()
     val_loss, val_mre = val_loss.item(), val_mre.item()
 
     logger.info(f"valid loss/mse {val_loss:5.4f} | mre {val_mre:5.4f}")
@@ -299,7 +305,7 @@ def eval_and_save(
 
 def evaluate(
         model: nn.Module,
-        valid_loader: DataLoader,
+        val_loader: DataLoader,
         vocab: MicrobiomeVocab,
         accelerator: Accelerator,
         ) -> Dict[str, torch.Tensor]:
@@ -310,7 +316,7 @@ def evaluate(
     total_loss = 0.0
     total_error = 0.0
     with torch.no_grad():
-        for data_dict in valid_loader:
+        for data_dict in val_loader:
             # if USE_GENERATIVE_TRAINING:
             pcpt_ids = data_dict["pcpt_ids"]
             pcpt_values = data_dict["pcpt_values"]
@@ -358,8 +364,8 @@ def evaluate(
                 output_values, gen_values, positions_to_match
             ).item()
 
-    total_loss = total_loss / len(valid_loader)
-    total_error = total_error / len(valid_loader)
+    total_loss = total_loss / len(val_loader)
+    total_error = total_error / len(val_loader)
     return {
         "mse": torch.tensor(total_loss, dtype=torch.float),
         "mre": torch.tensor(total_error, dtype=torch.float),
@@ -374,26 +380,24 @@ def epoch_end_logs(epoch_start_time, epoch, val_loss, val_mre):
         f"valid loss/mse {val_loss:5.4f} | mre {val_mre:5.4f}"
     )
     logger.info(f"{'-' * 89}\n")
-    # writer.add_scalar("valid/mse", val_loss, iter_or_epoch * len(valid_loader))
-    # writer.add_scalar("valid/mre", val_mre, iter_or_epoch * len(valid_loader))
+    # writer.add_scalar("valid/mse", val_loss, iter_or_epoch * len(val_loader))
+    # writer.add_scalar("valid/mre", val_mre, iter_or_epoch * len(val_loader))
 
 
 # we need to be careful when saving checkpoints since preemption can also
 # occur during checkpointing. Therefore, we need to make sure the checkpoint
 # file is either kept untouched or successfully updated during this process.
-def commit_state(model, optimizer, scheduler, epoch, best_val_loss, patience_counter, checkpoint_dir, accelerator: Accelerator):
-    extra_state = DictStateWrapper({
-        "epoch": epoch,
-        "best_val_loss": best_val_loss,
-        "patience_counter": patience_counter,
-    })
-
+def commit_state(epoch, best_val_loss, patience_counter, extra_state_dict: DictStateWrapper, checkpoint_dir, accelerator: Accelerator):
     new_checkpoint_dir = os.path.join(checkpoint_dir, "new_checkpoint")
     actual_checkpoint_dir = os.path.join(checkpoint_dir, "actual_checkpoint")
-    accelerator.register_for_checkpointing(model, optimizer, scheduler, extra_state)
+
+    extra_state_dict.data["epoch"] = epoch
+    extra_state_dict.data["best_val_loss"] = best_val_loss
+    extra_state_dict.data["patience_counter"] = patience_counter
 
     if os.path.exists(new_checkpoint_dir) and os.path.exists(actual_checkpoint_dir):
         shutil.rmtree(new_checkpoint_dir)
+
     accelerator.save_state(new_checkpoint_dir)
 
     # according to the GNU spec of rename, the state of checkpoint_dir
@@ -502,29 +506,53 @@ def create_or_restore_data_state_and_wandb(hmc_table_path, taxa_path, wandb_enab
             }
 
             # save the data state to the file
+            if not os.path.exists(os.path.dirname(data_restore_path)):
+                os.makedirs(os.path.dirname(data_restore_path))
             torch.save(data_state, data_restore_path)
             logger.info("Data state saved to {}".format(data_restore_path))
 
     return train_data_dict, valid_data_dict, vocab
 
 
-def create_or_restore_training_state(vocab, init_lr, warmup_ratio_or_step, total_epochs, trainloader_length, checkpoint_dir, accelerator: Accelerator):
+def create_or_restore_training_state(
+    vocab,
+    train_data_pt,
+    val_data_pt,
+    checkpoint_dir,
+    batch_size,
+    gen_percent=0.15,
+    train_shuffle=True,
+    drop_last=False,
+    num_workers=0,
+    init_lr=1e-3,
+    warmup_ratio_or_step=0.1,
+    total_epochs=10,
+    accelerator: Accelerator = None,
+):
+    assert num_workers == 0, "num_workers must be 0 for distributed training for now"
     # initial configuration of the model
     model = TransformerModel(
-        d_model=512,
-        nhead=8,
-        d_hid=2048,
-        nlayers=6,
+        d_model=256,
+        nhead=4,
+        d_hid=512,
+        nlayers=3,
         vocab=vocab,
         dropout=0.1,
         use_generative_training=True,
     )
 
+    train_dataset = SeqDataset(train_data_pt, vocab, gen_percent=gen_percent)
+    train_sampler = DistributedSaveableSampler(
+        train_dataset,
+        shuffle=train_shuffle,
+        accelerator=accelerator,
+    )
+
+    val_dataset = SeqDataset(val_data_pt, vocab, gen_percent=gen_percent)
+
     optimizer = torch.optim.Adam(model.parameters(), lr=init_lr)
-    # setup scheduler
-    # if warmup_ratio_or_step > 0:
     assert warmup_ratio_or_step > 0, "Warmup ratio or step must be positive"
-    total_num_batches = trainloader_length * total_epochs
+    total_num_batches = (len(train_dataset) // batch_size + int(len(train_dataset) % batch_size != 0)) * total_epochs
 
     warmup_steps = (
         int(total_num_batches * warmup_ratio_or_step)
@@ -537,36 +565,69 @@ def create_or_restore_training_state(vocab, init_lr, warmup_ratio_or_step, total
         num_training_steps=total_num_batches,
     )
 
-    # else:
-    #     scheduler = torch.optim.lr_scheduler.StepLR(
-    #         optimizer, scheduler_interval, gamma=args.scheduler_factor
-    #     )
-    # dataloader = DataLoader(dataset, shuffle=False, batch_size=batch_size,
-    #                         sampler=StatefulSampler(dataset, shuffle=True),
-    #                         num_workers=0)
     epoch = 0
     best_val_loss = float("inf")
     patience_counter = 0
 
+    training_state = DictStateWrapper({
+        "epoch": epoch,
+        "best_val_loss": best_val_loss,
+        "patience_counter": patience_counter,
+    })
+
     # restore training state if checkpoint exists
-    # need to be careful about temp/actual and preemption possibilities
     new_checkpoint_dir = os.path.join(checkpoint_dir, "new_checkpoint")
     actual_checkpoint_dir = os.path.join(checkpoint_dir, "actual_checkpoint")
     if not os.path.exists(new_checkpoint_dir) and not os.path.exists(actual_checkpoint_dir):
         logger.info("No checkpoint detected, starting from initial state")
+        accelerator.register_for_checkpointing(model, optimizer, scheduler, train_sampler, training_state)
+
     else:
         if os.path.exists(new_checkpoint_dir):
             if os.path.exists(actual_checkpoint_dir):
-                shutil.rmtree(actual_checkpoint_dir)
-            os.replace(new_checkpoint_dir, actual_checkpoint_dir)
+                shutil.rmtree(new_checkpoint_dir)
+            else:
+                os.replace(new_checkpoint_dir, actual_checkpoint_dir)
+                logger.info(f"potentially corrupted checkpoint {new_checkpoint_dir}")
 
-        training_state = DictStateWrapper()
-        accelerator.register_for_checkpointing(model, optimizer, scheduler, training_state)
+        accelerator.register_for_checkpointing(model, optimizer, scheduler, train_sampler, training_state)
         accelerator.load_state(actual_checkpoint_dir)
         epoch = training_state.data.get('epoch', 0)
         best_val_loss = training_state.data.get('best_val_loss', float("inf"))
         patience_counter = training_state.data.get('patience_counter', 0)
-        logger.info(f"Training state restored from actual_checkpoint at beginning of epoch {epoch + 1}")
+        logger.info(
+            f"Training state restored from actual_checkpoint at epoch {epoch + 1}"
+        )
 
-    return model, optimizer, scheduler, epoch, best_val_loss, patience_counter
+    # need to wait until sampler is restored to create the dataloaders
+    train_loader = DataLoader(
+        dataset=train_dataset,
+        batch_size=batch_size,
+        sampler=train_sampler,
+        drop_last=drop_last,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+
+    val_loader = DataLoader(
+        dataset=val_dataset,
+        batch_size=batch_size,
+        shuffle=False,  # validation should not be shuffled
+        drop_last=drop_last,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+
+    return (
+        model,
+        optimizer,
+        scheduler,
+        train_sampler,
+        train_loader,
+        val_loader,
+        epoch,
+        best_val_loss,
+        patience_counter,
+        training_state
+    )
 
