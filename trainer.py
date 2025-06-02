@@ -111,7 +111,7 @@ if __name__ == "__main__":
     )
 
     # Create or restore training state
-    model, optimizer, scheduler, epoch, best_val_loss, patience_counter = create_or_restore_training_state(
+    model, optimizer, scheduler, epoch, best_val_loss, patience_counter, extra_state = create_or_restore_training_state(
         vocab, init_lr, cosine_warmup_ratio_or_step, max_epochs, len(train_loader), checkpoint_dir, accelerator
     )
 
@@ -152,7 +152,7 @@ if __name__ == "__main__":
             break
 
         epoch += 1
-        commit_state(model, optimizer, scheduler, epoch, best_val_loss, patience_counter, checkpoint_dir, accelerator)
+        commit_state(extra_state, model, optimizer, scheduler, epoch, best_val_loss, patience_counter, checkpoint_dir, accelerator)
 
     logger.info("Training complete with best validation loss: {:.4f}".format(best_val_loss))
     accelerator.end_training()

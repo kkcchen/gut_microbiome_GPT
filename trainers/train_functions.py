@@ -381,16 +381,12 @@ def epoch_end_logs(epoch_start_time, epoch, val_loss, val_mre):
 # we need to be careful when saving checkpoints since preemption can also
 # occur during checkpointing. Therefore, we need to make sure the checkpoint
 # file is either kept untouched or successfully updated during this process.
-def commit_state(model, optimizer, scheduler, epoch, best_val_loss, patience_counter, checkpoint_dir, accelerator: Accelerator):
-    extra_state = DictStateWrapper({
-        "epoch": epoch,
-        "best_val_loss": best_val_loss,
-        "patience_counter": patience_counter,
-    })
-
+def commit_state(extra_state, epoch, best_val_loss, patience_counter, checkpoint_dir, accelerator: Accelerator):
     new_checkpoint_dir = os.path.join(checkpoint_dir, "new_checkpoint")
     actual_checkpoint_dir = os.path.join(checkpoint_dir, "actual_checkpoint")
-    accelerator.register_for_checkpointing(model, optimizer, scheduler, extra_state)
+    extra_state.data["epoch"] = epoch
+    extra_state.data["best_val_loss"] = best_val_loss
+    extra_state.data["patience_counter"] = patience_counter
 
     if os.path.exists(new_checkpoint_dir) and os.path.exists(actual_checkpoint_dir):
         shutil.rmtree(new_checkpoint_dir)
@@ -510,11 +506,21 @@ def create_or_restore_data_state_and_wandb(hmc_table_path, taxa_path, wandb_enab
 
 def create_or_restore_training_state(vocab, init_lr, warmup_ratio_or_step, total_epochs, trainloader_length, checkpoint_dir, accelerator: Accelerator):
     # initial configuration of the model
+    # model = TransformerModel(
+    #     d_model=512,
+    #     nhead=8,
+    #     d_hid=2048,
+    #     nlayers=6,
+    #     vocab=vocab,
+    #     dropout=0.1,
+    #     use_generative_training=True,
+    # )
+
     model = TransformerModel(
-        d_model=512,
-        nhead=8,
-        d_hid=2048,
-        nlayers=6,
+        d_model=128,
+        nhead=4,
+        d_hid=512,
+        nlayers=3,
         vocab=vocab,
         dropout=0.1,
         use_generative_training=True,
@@ -548,6 +554,13 @@ def create_or_restore_training_state(vocab, init_lr, warmup_ratio_or_step, total
     best_val_loss = float("inf")
     patience_counter = 0
 
+    extra_state = DictStateWrapper({
+        "epoch": epoch,
+        "best_val_loss": best_val_loss,
+        "patience_counter": patience_counter,
+    })
+    accelerator.register_for_checkpointing(model, optimizer, scheduler, extra_state)
+
     # restore training state if checkpoint exists
     # need to be careful about temp/actual and preemption possibilities
     new_checkpoint_dir = os.path.join(checkpoint_dir, "new_checkpoint")
@@ -560,13 +573,12 @@ def create_or_restore_training_state(vocab, init_lr, warmup_ratio_or_step, total
                 shutil.rmtree(actual_checkpoint_dir)
             os.replace(new_checkpoint_dir, actual_checkpoint_dir)
 
-        training_state = DictStateWrapper()
-        accelerator.register_for_checkpointing(model, optimizer, scheduler, training_state)
+        accelerator.register_for_checkpointing(model, optimizer, scheduler, extra_state)
         accelerator.load_state(actual_checkpoint_dir)
-        epoch = training_state.data.get('epoch', 0)
-        best_val_loss = training_state.data.get('best_val_loss', float("inf"))
-        patience_counter = training_state.data.get('patience_counter', 0)
+        epoch = extra_state.data.get('epoch', 0)
+        best_val_loss = extra_state.data.get('best_val_loss', float("inf"))
+        patience_counter = extra_state.data.get('patience_counter', 0)
         logger.info(f"Training state restored from actual_checkpoint at beginning of epoch {epoch + 1}")
 
-    return model, optimizer, scheduler, epoch, best_val_loss, patience_counter
+    return model, optimizer, scheduler, epoch, best_val_loss, patience_counter, extra_state
 
