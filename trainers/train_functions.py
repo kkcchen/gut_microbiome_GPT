@@ -419,35 +419,39 @@ def create_or_restore_data_state_and_wandb(hmc_table_path, taxa_path, wandb_enab
         valid_data_dict = data_state["valid_data_dict"]
         vocab = data_state["vocab"]
 
-        run = wandb.init(
-            id=data_state["wandb_run_id"],
-            resume="must",
-            mode="online" if wandb_enabled else "disabled",
-            entity=wandb_entity,
-            config={
-                "learning_rate": init_lr,
-                "batch_size": batch_size,
-                "max_epochs": max_epochs,
-                "cosine_warmup_ratio_or_step": cosine_warmup_ratio_or_step,
-                "binning": binning
-            },
-            project=wandb_project,
-        )
+        if accelerator.is_main_process:
+            run = wandb.init(
+                id=data_state["wandb_run_id"],
+                resume="must",
+                mode="online" if wandb_enabled else "disabled",
+                entity=wandb_entity,
+                config={
+                    "learning_rate": init_lr,
+                    "batch_size": batch_size,
+                    "max_epochs": max_epochs,
+                    "cosine_warmup_ratio_or_step": cosine_warmup_ratio_or_step,
+                    "binning": binning
+                },
+                project=wandb_project,
+            )
+        accelerator.init_trackers(wandb_project)
 
     else:
-        run = wandb.init(
-            mode="online" if wandb_enabled else "disabled",
-            entity=wandb_entity,
-            project=wandb_project,
-            config={
-                "learning_rate": init_lr,
-                "batch_size": batch_size,
-                "max_epochs": max_epochs,
-                "cosine_warmup_ratio_or_step": cosine_warmup_ratio_or_step,
-                "binning": binning
-            },
-            resume="allow"
-        )
+        if accelerator.is_main_process:
+            run = wandb.init(
+                mode="online" if wandb_enabled else "disabled",
+                entity=wandb_entity,
+                project=wandb_project,
+                config={
+                    "learning_rate": init_lr,
+                    "batch_size": batch_size,
+                    "max_epochs": max_epochs,
+                    "cosine_warmup_ratio_or_step": cosine_warmup_ratio_or_step,
+                    "binning": binning
+                },
+                resume="allow"
+            )
+        accelerator.init_trackers(wandb_project)
 
         if nrows:
             hmc_npy = np.load(hmc_table_path)[:nrows,:,:] # shape (num_samples, num_taxa, 2) where (:,:,0) is taxa_id and (:,:,1) is counts
@@ -458,7 +462,7 @@ def create_or_restore_data_state_and_wandb(hmc_table_path, taxa_path, wandb_enab
             taxa_list = json.load(f)
 
         preprocessor = Preprocessor(
-            binning=wandb.config["binning"],
+            binning=binning,
         )
 
         _, _ = preprocessor.process_from_np(hmc_npy)
@@ -503,7 +507,6 @@ def create_or_restore_data_state_and_wandb(hmc_table_path, taxa_path, wandb_enab
         # save the data state to the file
         torch.save(data_state, data_restore_path)
         logger.info("Data state saved to {}".format(data_restore_path))
-        accelerator.init_trackers(wandb_project)
 
     return train_data_dict, valid_data_dict, vocab, run
 
