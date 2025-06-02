@@ -6,6 +6,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 from models import TransformerModel
 import os
+import shutil
 import json
 
 from data_utils.preprocessor import Preprocessor
@@ -49,7 +50,7 @@ def pretrain(
         accelerator: Accelerator,
         optimizer,
         scheduler,
-        save_dir: str,
+        best_dir: str,
         logger,
         epoch_start_time: float,
         # save_interval: int = -1,
@@ -247,7 +248,7 @@ def pretrain(
         val_loss, val_mre = eval_and_save(
             model=model,
             valid_loader=valid_loader,
-            save_dir=save_dir,
+            best_dir=best_dir,
             logger=logger,
             vocab=vocab,
             best_val_loss=best_val_loss,
@@ -271,7 +272,7 @@ def pretrain(
 def eval_and_save(
     model: nn.Module,
     valid_loader: DataLoader,
-    save_dir: str,
+    best_dir: str,
     logger,
     vocab: MicrobiomeVocab,
     best_val_loss: float,
@@ -291,23 +292,9 @@ def eval_and_save(
 
     if val_loss < best_val_loss:
         # save the best model
-        logger.info(f"Saving the best model to {save_dir}")
+        logger.info(f"Saving the best model to {best_dir}")
         accelerator.wait_for_everyone()  # wait for all processes to finish
-        accelerator.save_model(model, os.path.join(save_dir, "best_model.pt"))
-
-    # if save:
-    #     torch.save(
-    #         # model.module.state_dict()
-    #         # if isinstance(
-    #         #     model, (nn.DataParallel, nn.parallel.DistributedDataParallel)
-    #         # )
-    #         # else model.state_dict(),
-    #         model.state_dict(),
-    #         save_dir + f"/model-{'ep' if is_epoch else ''}{iter_or_epoch}.pt",
-    #     )
-
-    # if IS_DATA_PARALLEL:
-    #     torch.distributed.barrier()
+        accelerator.save_model(model, best_dir)
 
     return val_loss, val_mre
 
@@ -396,25 +383,31 @@ def epoch_end_logs(epoch_start_time, epoch, val_loss, val_mre):
 # we need to be careful when saving checkpoints since preemption can also
 # occur during checkpointing. Therefore, we need to make sure the checkpoint
 # file is either kept untouched or successfully updated during this process.
-def commit_state(model, optimizer, scheduler, epoch, best_val_loss, patience_counter, checkpoint_path, accelerator: Accelerator):
+def commit_state(model, optimizer, scheduler, epoch, best_val_loss, patience_counter, checkpoint_dir, accelerator: Accelerator):
     extra_state = DictStateWrapper({
         "epoch": epoch,
         "best_val_loss": best_val_loss,
         "patience_counter": patience_counter,
     })
 
-    temp_path = os.path.join(os.path.dirname(checkpoint_path), "temp.pt")
+    new_checkpoint_dir = os.path.join(checkpoint_dir, "new_checkpoint")
+    actual_checkpoint_dir = os.path.join(checkpoint_dir, "actual_checkpoint")
     accelerator.register_for_checkpointing(model, optimizer, scheduler, extra_state)
-    accelerator.save_state(temp_path)
 
-    # according to the GNU spec of rename, the state of checkpoint_path
+    if os.path.exists(new_checkpoint_dir) and os.path.exists(actual_checkpoint_dir):
+        shutil.rmtree(new_checkpoint_dir)
+    accelerator.save_state(new_checkpoint_dir)
+
+    # according to the GNU spec of rename, the state of checkpoint_dir
     # is atomic, i.e. it will either be modified or not modified, but not in
     # between, during a system crash (i.e. preemtion)
-    os.replace(temp_path, checkpoint_path)
-    logger.info("Training state committed to {} at time {}".format(checkpoint_path, time.ctime(time.time())))
+    if os.path.exists(actual_checkpoint_dir):
+        shutil.rmtree(actual_checkpoint_dir)
+    os.replace(new_checkpoint_dir, actual_checkpoint_dir)
+    logger.info("Training state committed to {} at time {}".format(actual_checkpoint_dir, time.ctime(time.time())))
 
 
-def create_or_restore_data_state_and_wandb(hmc_table_path, taxa_path, wandb_enabled, wandb_entity, wandb_project, init_lr, batch_size, max_epochs, cosine_warmup_ratio, binning, data_restore_path, accelerator: Accelerator, nrows=None):
+def create_or_restore_data_state_and_wandb(hmc_table_path, taxa_path, wandb_enabled, wandb_entity, wandb_project, init_lr, batch_size, max_epochs, cosine_warmup_ratio_or_step, binning, data_restore_path, accelerator: Accelerator, nrows=None):
     if os.path.exists(data_restore_path):
         # load the data state from the file
         with open(data_restore_path, 'rb') as f:
@@ -433,7 +426,7 @@ def create_or_restore_data_state_and_wandb(hmc_table_path, taxa_path, wandb_enab
                 "learning_rate": init_lr,
                 "batch_size": batch_size,
                 "max_epochs": max_epochs,
-                "cosine_warmup_ratio": cosine_warmup_ratio,
+                "cosine_warmup_ratio_or_step": cosine_warmup_ratio_or_step,
                 "binning": binning
             },
             project=wandb_project,
@@ -448,7 +441,7 @@ def create_or_restore_data_state_and_wandb(hmc_table_path, taxa_path, wandb_enab
                 "learning_rate": init_lr,
                 "batch_size": batch_size,
                 "max_epochs": max_epochs,
-                "cosine_warmup_ratio": cosine_warmup_ratio,
+                "cosine_warmup_ratio_or_step": cosine_warmup_ratio_or_step,
                 "binning": binning
             },
             resume="allow"
@@ -513,7 +506,7 @@ def create_or_restore_data_state_and_wandb(hmc_table_path, taxa_path, wandb_enab
     return train_data_dict, valid_data_dict, vocab, run
 
 
-def create_or_restore_training_state(vocab, init_lr, warmup_ratio_or_step, total_epochs, trainloader_length, checkpoint_path, accelerator: Accelerator):
+def create_or_restore_training_state(vocab, init_lr, warmup_ratio_or_step, total_epochs, trainloader_length, checkpoint_dir, accelerator: Accelerator):
     # initial configuration of the model
     model = TransformerModel(
         d_model=512,
@@ -528,7 +521,7 @@ def create_or_restore_training_state(vocab, init_lr, warmup_ratio_or_step, total
     optimizer = torch.optim.Adam(model.parameters(), lr=init_lr)
     # setup scheduler
     # if warmup_ratio_or_step > 0:
-    assert warmup_ratio_or_step >= 0, "Warmup ratio or step must be non-negative"
+    assert warmup_ratio_or_step > 0, "Warmup ratio or step must be positive"
     total_num_batches = trainloader_length * total_epochs
 
     warmup_steps = (
@@ -554,16 +547,22 @@ def create_or_restore_training_state(vocab, init_lr, warmup_ratio_or_step, total
     patience_counter = 0
 
     # restore training state if checkpoint exists
-    if os.path.exists(checkpoint_path):
-        training_state_dict = DictStateWrapper()
-        accelerator.register_for_checkpointing(model, optimizer, scheduler, training_state_dict)
-        accelerator.load_state(checkpoint_path)
+    # need to be careful about temp/actual and preemption possibilities
+    new_checkpoint_dir = os.path.join(checkpoint_dir, "new_checkpoint")
+    actual_checkpoint_dir = os.path.join(checkpoint_dir, "actual_checkpoint")
 
-        epoch = training_state_dict['epoch']
-        best_val_loss = training_state_dict['best_val_loss']
-        patience_counter = training_state_dict['patience_counter']
-        logger.info(f"training state restored at beginning of epoch {epoch + 1}")
+    if os.path.exists(new_checkpoint_dir):
+        if os.path.exists(actual_checkpoint_dir):
+            shutil.rmtree(actual_checkpoint_dir)
+        os.replace(new_checkpoint_dir, actual_checkpoint_dir)
 
+        training_state = DictStateWrapper()
+        accelerator.register_for_checkpointing(model, optimizer, scheduler, training_state)
+        accelerator.load_state(actual_checkpoint_dir)
+        epoch = training_state.data.get('epoch', 0)
+        best_val_loss = training_state.data.get('best_val_loss', float("inf"))
+        patience_counter = training_state.data.get('patience_counter', 0)
+        logger.info(f"Training state restored from actual_checkpoint at beginning of epoch {epoch + 1}")
     else:
         logger.info("No checkpoint detected, starting from initial state")
 
