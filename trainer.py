@@ -135,7 +135,6 @@ if __name__ == "__main__":
             optimizer=optimizer,
             scheduler=scheduler,
             best_dir=best_dir,
-            logger=logger,
             best_val_loss=best_val_loss,
         )
 

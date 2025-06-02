@@ -1,7 +1,9 @@
+from accelerate.logging import get_logger
 import logging
 import sys
 
-logger = logging.getLogger('trainers')
+logger = get_logger('trainers')
+
 # check if logger has been initialized
 if not logger.hasHandlers() or len(logger.handlers) == 0:
     logger.propagate = False

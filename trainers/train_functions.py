@@ -51,7 +51,6 @@ def pretrain(
         optimizer,
         scheduler,
         best_dir: str,
-        logger,
         # save_interval: int = -1,
         best_val_loss: float = float("inf"),
 
@@ -251,7 +250,6 @@ def pretrain(
             model=model,
             valid_loader=valid_loader,
             best_dir=best_dir,
-            logger=logger,
             vocab=vocab,
             best_val_loss=best_val_loss,
             global_iter=global_iter,
@@ -275,7 +273,6 @@ def eval_and_save(
     model: nn.Module,
     valid_loader: DataLoader,
     best_dir: str,
-    logger,
     vocab: MicrobiomeVocab,
     best_val_loss: float,
     global_iter: int,
