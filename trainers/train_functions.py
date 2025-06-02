@@ -292,7 +292,6 @@ def eval_and_save(
     if val_loss < best_val_loss:
         # save the best model
         logger.info(f"Saving the best model to {best_dir}")
-        accelerator.wait_for_everyone()  # wait for all processes to finish
         accelerator.save_model(model, best_dir)
 
     return val_loss, val_mre
