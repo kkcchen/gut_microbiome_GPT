@@ -92,7 +92,7 @@ if __name__ == "__main__":
     accelerator = Accelerator(gradient_accumulation_steps=grad_accumulation_steps, mixed_precision="fp16" if enable_fp16 else "no", log_with="wandb" if wandb_enabled else None)
 
     # Create or restore data state and wandb
-    train_data_dict, valid_data_dict, vocab, run = create_or_restore_data_state_and_wandb(
+    train_data_dict, valid_data_dict, vocab = create_or_restore_data_state_and_wandb(
         hmc_table_path, taxa_path, wandb_enabled, wandb_entity, wandb_project, init_lr, batch_size, max_epochs, cosine_warmup_ratio_or_step, num_bins, data_restore_path, accelerator, nrows
     )
 

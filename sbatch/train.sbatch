@@ -18,8 +18,8 @@ python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not availabl
 
 # put your command here
 DATA_DIR="$HOME/datasets"
-HMC_TABLE_PATH="$DATA_DIR/pretrain/taxonomy_table_512_train.npy"
-TAXA_JSON_PATH="$DATA_DIR/pretrain/pretrain_cols.json"
+HMC_TABLE_PATH="./datasets/pretrain/taxonomy_table_512_train.npy"
+TAXA_JSON_PATH="./datasets/pretrain/pretrain_cols.json"
 SAVE_DIR="./model_checkpoints"
 BEST_DIR="$SAVE_DIR/best_model"
 MODEL_CHECKPOINTS="$SAVE_DIR/current_checkpoints"
@@ -40,6 +40,7 @@ accelerate launch trainer.py \
     --batch-size 64 \
     --max-epochs 25 \
     --cosine-warmup-ratio-or-step 100 \
-    --num-bins 30 \
+    --num-bins 15 \
     --log-interval 10 \
+    --enable-fp16 \
     --seed 42

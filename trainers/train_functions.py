@@ -496,19 +496,20 @@ def create_or_restore_data_state_and_wandb(hmc_table_path, taxa_path, wandb_enab
             "values": valid_values
         }
 
-        # save the train and validation dataloaders
-        data_state = {
-            "train_data_dict": train_data_dict,
-            "valid_data_dict": valid_data_dict,
-            "vocab": vocab,
-            "wandb_run_id": run.id if wandb_enabled else None,
-        }
+        if accelerator.is_main_process:
+            # save the train and validation dataloaders
+            data_state = {
+                "train_data_dict": train_data_dict,
+                "valid_data_dict": valid_data_dict,
+                "vocab": vocab,
+                "wandb_run_id": run.id if wandb_enabled else None,
+            }
 
-        # save the data state to the file
-        torch.save(data_state, data_restore_path)
-        logger.info("Data state saved to {}".format(data_restore_path))
+            # save the data state to the file
+            torch.save(data_state, data_restore_path)
+            logger.info("Data state saved to {}".format(data_restore_path))
 
-    return train_data_dict, valid_data_dict, vocab, run
+    return train_data_dict, valid_data_dict, vocab
 
 
 def create_or_restore_training_state(vocab, init_lr, warmup_ratio_or_step, total_epochs, trainloader_length, checkpoint_dir, accelerator: Accelerator):
