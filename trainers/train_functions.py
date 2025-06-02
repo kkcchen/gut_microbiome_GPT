@@ -553,11 +553,13 @@ def create_or_restore_training_state(vocab, init_lr, warmup_ratio_or_step, total
     # need to be careful about temp/actual and preemption possibilities
     new_checkpoint_dir = os.path.join(checkpoint_dir, "new_checkpoint")
     actual_checkpoint_dir = os.path.join(checkpoint_dir, "actual_checkpoint")
-
-    if os.path.exists(new_checkpoint_dir):
-        if os.path.exists(actual_checkpoint_dir):
-            shutil.rmtree(actual_checkpoint_dir)
-        os.replace(new_checkpoint_dir, actual_checkpoint_dir)
+    if not os.path.exists(new_checkpoint_dir) and not os.path.exists(actual_checkpoint_dir):
+        logger.info("No checkpoint detected, starting from initial state")
+    else:
+        if os.path.exists(new_checkpoint_dir):
+            if os.path.exists(actual_checkpoint_dir):
+                shutil.rmtree(actual_checkpoint_dir)
+            os.replace(new_checkpoint_dir, actual_checkpoint_dir)
 
         training_state = DictStateWrapper()
         accelerator.register_for_checkpointing(model, optimizer, scheduler, training_state)
@@ -566,8 +568,6 @@ def create_or_restore_training_state(vocab, init_lr, warmup_ratio_or_step, total
         best_val_loss = training_state.data.get('best_val_loss', float("inf"))
         patience_counter = training_state.data.get('patience_counter', 0)
         logger.info(f"Training state restored from actual_checkpoint at beginning of epoch {epoch + 1}")
-    else:
-        logger.info("No checkpoint detected, starting from initial state")
 
     return model, optimizer, scheduler, epoch, best_val_loss, patience_counter
 
