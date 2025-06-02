@@ -52,7 +52,6 @@ def pretrain(
         scheduler,
         best_dir: str,
         logger,
-        epoch_start_time: float,
         # save_interval: int = -1,
         best_val_loss: float = float("inf"),
 
@@ -71,6 +70,8 @@ def pretrain(
     num_batches = len(train_loader)
     val_losses = []
     val_mres = []
+
+    log_batch_start_time = time.time()
 
     for batch, data_dict in enumerate(train_loader):
         global_iter = epoch * num_batches + batch
@@ -214,7 +215,8 @@ def pretrain(
 
             # Log scalar values
             lr = scheduler.get_last_lr()[0]
-            ms_per_batch = (time.time() - epoch_start_time) * 1000 / log_interval
+            ms_per_batch = (time.time() - log_batch_start_time) * 1000 / log_interval
+            log_batch_start_time = time.time()
             cur_loss = total_loss / log_interval
             cur_mse = total_mse / log_interval
             # cur_cls = total_cls / log_interval if USE_CLS else 0.0

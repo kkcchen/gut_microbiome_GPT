@@ -136,7 +136,6 @@ if __name__ == "__main__":
             scheduler=scheduler,
             best_dir=best_dir,
             logger=logger,
-            epoch_start_time=epoch_start_time,
             best_val_loss=best_val_loss,
         )
 
