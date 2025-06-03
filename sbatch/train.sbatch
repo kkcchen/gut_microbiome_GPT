@@ -32,7 +32,7 @@ accelerate launch trainer.py \
     --taxa-path "$TAXA_JSON_PATH" \
     --best-dir "$BEST_DIR" \
     --checkpoint-dir "$MODEL_CHECKPOINTS" \
-    --data-restore-path "$DATA_RESTORE_PATH" \
+    --data-restore-dir "$DATA_RESTORE_PATH" \
     --wandb-enabled \
     --wandb-entity "haoze-deng-university-of-toronto" \
     --wandb-project "hmbgpt_oncluster" \

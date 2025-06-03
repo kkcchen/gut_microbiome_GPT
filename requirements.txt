@@ -3,3 +3,7 @@ typing-extensions
 einops
 numpy
 pandas
+transformers
+scikit-learn
+accelerate
+safetensors

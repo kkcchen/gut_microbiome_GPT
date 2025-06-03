@@ -5,7 +5,7 @@ accelerate launch trainer.py \
     --taxa-path datasets/pretrain/pretrain_cols.json \
     --best-dir model_checkpoints/best \
     --checkpoint-dir model_checkpoints/current_checkpoints \
-    --data-restore-path model_checkpoints/data/data_state.pt \
+    --data-restore-dir model_checkpoints/data/data_state.pt \
     --batch-size 1 \
     --log-interval 4 \
     --cosine-warmup-ratio-or-step 0.1 \

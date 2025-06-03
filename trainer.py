@@ -27,7 +27,7 @@ if __name__ == "__main__":
     parser.add_argument("--taxa-path", type=str, required=True, help="Path to taxa file")
     parser.add_argument("--best-dir", type=str, required=True, help="Directory to save best model so far")
     parser.add_argument("--checkpoint-dir", type=str, required=True, help="Directory to save checkpoints for preemption")
-    parser.add_argument("--data-restore-path", type=str, required=True, help="Path to restore data state")
+    parser.add_argument("--data-restore-dir", type=str, required=True, help="Directory to restore data state")
 
     # wandb
     parser.add_argument("--wandb-enabled", action="store_true", help="Enable Weights & Biases logging")
@@ -56,12 +56,7 @@ if __name__ == "__main__":
     taxa_path = args.taxa_path
     best_dir = args.best_dir
     checkpoint_dir = args.checkpoint_dir
-    data_restore_path = args.data_restore_path
-
-    # Create directories if they don't exist
-    if data_restore_path is not None:
-        os.makedirs(os.path.dirname(data_restore_path), exist_ok=True)
-    # accelerator will create the checkpoint directory if it doesn't exist
+    data_restore_dir = args.data_restore_dir
 
     wandb_enabled = args.wandb_enabled
     wandb_entity = args.wandb_entity
@@ -94,14 +89,14 @@ if __name__ == "__main__":
 
     if args.start_over:
         logger.info("Starting over from scratch, deleting existing training state.")
-        if os.path.exists(data_restore_path):
-            os.remove(data_restore_path)
+        if os.path.exists(data_restore_dir):
+            shutil.rmtree(data_restore_dir)
         if os.path.exists(checkpoint_dir):
             shutil.rmtree(checkpoint_dir)
 
     # Create or restore data state and wandb
     train_data_dict, valid_data_dict, vocab = create_or_restore_data_state(
-        hmc_table_path, taxa_path, config, data_restore_path, accelerator, nrows
+        hmc_table_path, taxa_path, config, data_restore_dir, accelerator, nrows
     )
 
     logger.info("Preparing dataloaders...")

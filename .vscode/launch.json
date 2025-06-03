@@ -16,7 +16,7 @@
             "--taxa-path", "datasets/pretrain/pretrain_cols.json",
             "--best-dir", "model_checkpoints/best_model",
             "--checkpoint-dir", "model_checkpoints/current_checkpoints",
-            "--data-restore-path", "model_checkpoints/data_checkpoint/data_state.pt",
+            "--data-restore-dir", "model_checkpoints/data_checkpoint",
 
             "--batch-size", "1",
             "--log-interval", "5",

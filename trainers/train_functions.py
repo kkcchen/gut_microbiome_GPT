@@ -402,17 +402,20 @@ def commit_state(extra_state, epoch, best_val_loss, patience_counter, checkpoint
     logger.info("Training state committed to {} at time {}".format(actual_checkpoint_dir, time.ctime(time.time())))
 
 
-def create_or_restore_data_state(hmc_table_path, taxa_path, wandb_config, data_restore_path, accelerator: Accelerator, nrows=None):
-    if os.path.exists(data_restore_path):
+def create_or_restore_data_state(hmc_table_path, taxa_path, wandb_config, data_restore_dir, accelerator: Accelerator, nrows=None):
+    if os.path.exists(os.path.join(data_restore_dir, "data_state.pt")) and os.path.exists(os.path.join(data_restore_dir, "vocab.json")):
         # load the data state from the file
-        with open(data_restore_path, 'rb') as f:
+        with open(os.path.join(data_restore_dir, "data_state.pt"), 'rb') as f:
             data_state = torch.load(f, weights_only=False)
-        logger.info("Data state restored from {}".format(data_restore_path))
+        vocab = MicrobiomeVocab.get_vocab_from_json(os.path.join(data_restore_dir, "vocab.json"), os.path.join(data_restore_dir, "vocab_metadata.json"))
+        logger.info("Data state restored from {}".format(data_restore_dir))
+
         train_data_dict = data_state["train_data_dict"]
         valid_data_dict = data_state["valid_data_dict"]
-        vocab = data_state["vocab"]
-
     else:
+        if os.path.exists(data_restore_dir):
+            shutil.rmtree(data_restore_dir)
+        os.makedirs(data_restore_dir)
         if nrows:
             hmc_npy = np.load(hmc_table_path)[:nrows,:,:] # shape (num_samples, num_taxa, 2) where (:,:,0) is taxa_id and (:,:,1) is counts
         else:
@@ -461,12 +464,12 @@ def create_or_restore_data_state(hmc_table_path, taxa_path, wandb_config, data_r
             data_state = {
                 "train_data_dict": train_data_dict,
                 "valid_data_dict": valid_data_dict,
-                "vocab": vocab,
             }
 
             # save the data state to the file
-            torch.save(data_state, data_restore_path)
-            logger.info("Data state saved to {}".format(data_restore_path))
+            torch.save(data_state, os.path.join(data_restore_dir, "data_state.pt"))
+            vocab.save_vocab_json(os.path.join(data_restore_dir, "vocab.json"), os.path.join(data_restore_dir, "vocab_metadata.json"))
+            logger.info("Data state saved to {}".format(data_restore_dir))
 
     return train_data_dict, valid_data_dict, vocab
 
