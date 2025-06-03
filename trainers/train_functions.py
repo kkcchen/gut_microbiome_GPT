@@ -535,6 +535,7 @@ def create_or_restore_training_state_wandb(vocab, init_lr, warmup_ratio_or_step,
     actual_checkpoint_dir = os.path.join(checkpoint_dir, "actual_checkpoint")
     if not os.path.exists(new_checkpoint_dir) and not os.path.exists(actual_checkpoint_dir):
         logger.info("No checkpoint detected, starting from initial state")
+        run = None
         if accelerator.is_main_process:
             run = wandb.init(
                 mode="online" if wandb_enabled else "disabled",
@@ -544,7 +545,8 @@ def create_or_restore_training_state_wandb(vocab, init_lr, warmup_ratio_or_step,
                 resume="allow"
             )
         accelerator.init_trackers(wandb_project)
-        extra_state.data["wandb_id"] = run.id if wandb_enabled else None
+        if run:
+            extra_state.data["wandb_id"] = run.id if wandb_enabled else None
         accelerator.register_for_checkpointing(model, optimizer, scheduler, extra_state)
 
     else:
