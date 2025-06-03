@@ -155,7 +155,7 @@ def pretrain(
                 accelerator.log({"train/loss_pcpt": loss.item()}, step=global_iter)
 
                 # if USE_GENERATIVE_TRAINING and global_iter > 1000:
-                if global_iter > 1000:
+                if global_iter > 500:
                     previous_cell_embs = output_dict["cell_emb"].detach()
                     preds = model(
                         pcpt_gene,
@@ -402,7 +402,7 @@ def commit_state(extra_state, epoch, best_val_loss, patience_counter, checkpoint
     logger.info("Training state committed to {} at time {}".format(actual_checkpoint_dir, time.ctime(time.time())))
 
 
-def create_or_restore_data_state_and_wandb(hmc_table_path, taxa_path, wandb_enabled, wandb_entity, wandb_project, init_lr, batch_size, max_epochs, cosine_warmup_ratio_or_step, binning, data_restore_path, accelerator: Accelerator, nrows=None):
+def create_or_restore_data_state(hmc_table_path, taxa_path, wandb_config, data_restore_path, accelerator: Accelerator, nrows=None):
     if os.path.exists(data_restore_path):
         # load the data state from the file
         with open(data_restore_path, 'rb') as f:
@@ -412,40 +412,7 @@ def create_or_restore_data_state_and_wandb(hmc_table_path, taxa_path, wandb_enab
         valid_data_dict = data_state["valid_data_dict"]
         vocab = data_state["vocab"]
 
-        if accelerator.is_main_process:
-            run = wandb.init(
-                id=data_state["wandb_run_id"],
-                resume="must",
-                mode="online" if wandb_enabled else "disabled",
-                entity=wandb_entity,
-                config={
-                    "learning_rate": init_lr,
-                    "batch_size": batch_size,
-                    "max_epochs": max_epochs,
-                    "cosine_warmup_ratio_or_step": cosine_warmup_ratio_or_step,
-                    "binning": binning
-                },
-                project=wandb_project,
-            )
-        accelerator.init_trackers(wandb_project)
-
     else:
-        if accelerator.is_main_process:
-            run = wandb.init(
-                mode="online" if wandb_enabled else "disabled",
-                entity=wandb_entity,
-                project=wandb_project,
-                config={
-                    "learning_rate": init_lr,
-                    "batch_size": batch_size,
-                    "max_epochs": max_epochs,
-                    "cosine_warmup_ratio_or_step": cosine_warmup_ratio_or_step,
-                    "binning": binning
-                },
-                resume="allow"
-            )
-        accelerator.init_trackers(wandb_project)
-
         if nrows:
             hmc_npy = np.load(hmc_table_path)[:nrows,:,:] # shape (num_samples, num_taxa, 2) where (:,:,0) is taxa_id and (:,:,1) is counts
         else:
@@ -455,7 +422,7 @@ def create_or_restore_data_state_and_wandb(hmc_table_path, taxa_path, wandb_enab
             taxa_list = json.load(f)
 
         preprocessor = Preprocessor(
-            binning=binning,
+            binning=wandb_config["binning"],
         )
 
         _, _ = preprocessor.process_from_np(hmc_npy)
@@ -495,7 +462,6 @@ def create_or_restore_data_state_and_wandb(hmc_table_path, taxa_path, wandb_enab
                 "train_data_dict": train_data_dict,
                 "valid_data_dict": valid_data_dict,
                 "vocab": vocab,
-                "wandb_run_id": run.id if wandb_enabled else None,
             }
 
             # save the data state to the file
@@ -505,7 +471,7 @@ def create_or_restore_data_state_and_wandb(hmc_table_path, taxa_path, wandb_enab
     return train_data_dict, valid_data_dict, vocab
 
 
-def create_or_restore_training_state(vocab, init_lr, warmup_ratio_or_step, total_epochs, trainloader_length, checkpoint_dir, accelerator: Accelerator):
+def create_or_restore_training_state_wandb(vocab, init_lr, warmup_ratio_or_step, total_epochs, trainloader_length, checkpoint_dir, wandb_enabled, wandb_entity, wandb_project, wandb_config, accelerator: Accelerator):
     # initial configuration of the model
     # model = TransformerModel(
     #     d_model=512,
@@ -562,7 +528,6 @@ def create_or_restore_training_state(vocab, init_lr, warmup_ratio_or_step, total
         "best_val_loss": best_val_loss,
         "patience_counter": patience_counter,
     })
-    accelerator.register_for_checkpointing(model, optimizer, scheduler, extra_state)
 
     # restore training state if checkpoint exists
     # need to be careful about temp/actual and preemption possibilities
@@ -570,9 +535,21 @@ def create_or_restore_training_state(vocab, init_lr, warmup_ratio_or_step, total
     actual_checkpoint_dir = os.path.join(checkpoint_dir, "actual_checkpoint")
     if not os.path.exists(new_checkpoint_dir) and not os.path.exists(actual_checkpoint_dir):
         logger.info("No checkpoint detected, starting from initial state")
+        if accelerator.is_main_process:
+            run = wandb.init(
+                mode="online" if wandb_enabled else "disabled",
+                entity=wandb_entity,
+                project=wandb_project,
+                config=wandb_config,
+                resume="allow"
+            )
+        accelerator.init_trackers(wandb_project)
+        extra_state.data["wandb_id"] = run.id if wandb_enabled else None
+        accelerator.register_for_checkpointing(model, optimizer, scheduler, extra_state)
+
     else:
         if os.path.exists(new_checkpoint_dir):
-            if os.path.exists(actual_checkpoint_dir):
+            if os.path.exists(new_checkpoint_dir):
                 shutil.rmtree(actual_checkpoint_dir)
             os.replace(new_checkpoint_dir, actual_checkpoint_dir)
 
@@ -581,6 +558,18 @@ def create_or_restore_training_state(vocab, init_lr, warmup_ratio_or_step, total
         epoch = extra_state.data.get('epoch', 0)
         best_val_loss = extra_state.data.get('best_val_loss', float("inf"))
         patience_counter = extra_state.data.get('patience_counter', 0)
+        
+        if accelerator.is_main_process:
+            run_id = extra_state.data.get("wandb_id", None)
+            run = wandb.init(
+                id=run_id,
+                resume="must" if run_id else None,
+                mode="online" if wandb_enabled else "disabled",
+                entity=wandb_entity,
+                config=wandb_config,
+                project=wandb_project,
+            )
+        accelerator.init_trackers(wandb_project)
         logger.info(f"Training state restored from actual_checkpoint at beginning of epoch {epoch + 1}")
 
     return model, optimizer, scheduler, epoch, best_val_loss, patience_counter, extra_state

@@ -12,7 +12,7 @@ from data_utils.dataloader import prepare_dataloader
 from sklearn.model_selection import train_test_split
 
 from trainers.train_functions import (
-    pretrain, commit_state, create_or_restore_data_state_and_wandb, create_or_restore_training_state, epoch_end_logs
+    pretrain, commit_state, create_or_restore_data_state, create_or_restore_training_state_wandb, epoch_end_logs
 )
 from trainers import logger
 
@@ -81,6 +81,16 @@ if __name__ == "__main__":
     # Set random seed for reproducibility
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
+    
+    config={
+        "learning_rate": init_lr,
+        "batch_size": batch_size,
+        "max_epochs": max_epochs,
+        "cosine_warmup_ratio_or_step": cosine_warmup_ratio_or_step,
+        "binning": num_bins
+    }
+
+    accelerator = Accelerator(gradient_accumulation_steps=grad_accumulation_steps, mixed_precision="fp16" if enable_fp16 else "no", log_with="wandb" if wandb_enabled else None)
 
     if args.start_over:
         logger.info("Starting over from scratch, deleting existing training state.")
@@ -89,11 +99,9 @@ if __name__ == "__main__":
         if os.path.exists(checkpoint_dir):
             shutil.rmtree(checkpoint_dir)
 
-    accelerator = Accelerator(gradient_accumulation_steps=grad_accumulation_steps, mixed_precision="fp16" if enable_fp16 else "no", log_with="wandb" if wandb_enabled else None)
-
     # Create or restore data state and wandb
-    train_data_dict, valid_data_dict, vocab = create_or_restore_data_state_and_wandb(
-        hmc_table_path, taxa_path, wandb_enabled, wandb_entity, wandb_project, init_lr, batch_size, max_epochs, cosine_warmup_ratio_or_step, num_bins, data_restore_path, accelerator, nrows
+    train_data_dict, valid_data_dict, vocab = create_or_restore_data_state(
+        hmc_table_path, taxa_path, config, data_restore_path, accelerator, nrows
     )
 
     logger.info("Preparing dataloaders...")
@@ -111,8 +119,8 @@ if __name__ == "__main__":
     )
 
     # Create or restore training state
-    model, optimizer, scheduler, epoch, best_val_loss, patience_counter, extra_state = create_or_restore_training_state(
-        vocab, init_lr, cosine_warmup_ratio_or_step, max_epochs, len(train_loader), checkpoint_dir, accelerator
+    model, optimizer, scheduler, epoch, best_val_loss, patience_counter, extra_state = create_or_restore_training_state_wandb(
+        vocab, init_lr, cosine_warmup_ratio_or_step, max_epochs, len(train_loader), checkpoint_dir, wandb_enabled, wandb_entity, wandb_project, config, accelerator
     )
 
     train_loader, valid_loader, model, optimizer, scheduler = accelerator.prepare(
