@@ -526,6 +526,8 @@ def create_or_restore_training_state(vocab, init_lr, warmup_ratio_or_step, total
         dropout=0.1,
         use_generative_training=True,
     )
+    
+    params = model.transformer_encoder.layers[0].state_dict()
 
     optimizer = torch.optim.Adam(model.parameters(), lr=init_lr)
     # setup scheduler

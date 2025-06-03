@@ -8,7 +8,7 @@ from torch.nn.init import constant_, xavier_normal_, xavier_uniform_
 from torch.nn.parameter import Parameter
 
 
-class MultiheadAttention(Module):
+class IdentityMultiheadAttention(Module):
     r"""Allows the model to jointly attend to information
     from different representation subspaces as described in the paper:
     `Attention Is All You Need <https://arxiv.org/abs/1706.03762>`_.
@@ -28,7 +28,7 @@ class MultiheadAttention(Module):
         dtype=None,
     ) -> None:
         factory_kwargs = {"device": device, "dtype": dtype}
-        super(MultiheadAttention, self).__init__()
+        super(IdentityMultiheadAttention, self).__init__()
         self.embed_dim = embed_dim
         self._qkv_same_embed_dim = True
 
@@ -49,7 +49,7 @@ class MultiheadAttention(Module):
         if "_qkv_same_embed_dim" not in state:
             state["_qkv_same_embed_dim"] = True
 
-        super(MultiheadAttention, self).__setstate__(state)
+        super(IdentityMultiheadAttention, self).__setstate__(state)
 
     def _apply(self, fn):
         self.in_proj_weight = fn(self.in_proj_weight)
