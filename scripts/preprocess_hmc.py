@@ -94,7 +94,7 @@ def get_top_k_npy(npy_file_path, npy_save_path, k=512):
 def save_taxonomy_table(df_to_save, save_path, save_name_npy, save_name_cols, cols_to_drop):
     sample_list = df_to_save["sample"]
     with open(f"{save_path}/sample_list.json", "w") as f1:
-        json.dump(sample_list.tolist(), f1)
+        json.dump(sample_list.tolist(), f1, indent=4)
 
     df = df_to_save.drop(columns=cols_to_drop)
     data = df.to_numpy()
@@ -104,7 +104,7 @@ def save_taxonomy_table(df_to_save, save_path, save_name_npy, save_name_cols, co
     # Save column names
     col_names = df.columns.tolist()
     with open(os.path.join(save_path, f"{save_name_cols}.json"), "w") as f2:
-        json.dump(col_names, f2)
+        json.dump(col_names, f2, indent=4)
 
     # Stack the column indices and data along a new third axis.
     stacked_data = np.stack((col_indices, data), axis=2)
@@ -187,7 +187,7 @@ def read_taxonomic_table(file_path, df1_save_path, df2_save_path, nrows = None, 
     save_taxonomy_table(df1, df1_save_path, "taxonomy_table_pretrain", "pretrain_cols", ['sample', 'study_id'])
     # save study id list into json
     with open(f"{df1_save_path}/studies_list.json", "w") as f1:
-        json.dump(df1_studies, f1)
+        json.dump(df1_studies, f1, indent=4)
 
     # save df2
     if not os.path.exists(df2_save_path):
@@ -196,7 +196,7 @@ def read_taxonomic_table(file_path, df1_save_path, df2_save_path, nrows = None, 
     save_taxonomy_table(df2, df2_save_path, "taxonomy_table_finetune", "finetune_cols", ['sample', 'study_id'])
     # save study id list into json
     with open(f"{df2_save_path}/studies_list.json", "w") as f2:
-        json.dump(df2_studies, f2)
+        json.dump(df2_studies, f2, indent=4)
 
     return col_names
 
@@ -261,12 +261,12 @@ if __name__ == '__main__':
     top_512_finetune = get_top_k_npy(os.path.join(finetune_save_dir, npy_finetune_file + ".npy"), finetune_save_dir)
     train_test_split(top_512_pretrain, pretrain_save_dir)
 
-    # rf_sample_list_path = "/home/kevin/Desktop/gut_microbiome/dataset/hmc/electra/random_forest/sample_list.json"
-    # sample_metadata_path = "/home/kevin/Desktop/gut_microbiome/dataset/hmc/sample_metadata.tsv"
+    # rf_sample_list_path = "/home/kchen/microbiome/gut_microbiome_GPT/datasets/pretrain/sample_list.json"
+    # sample_metadata_path = "/home/kchen/microbiome/gut_microbiome_GPT/datasets/sample_metadata.tsv"
     # locations = get_loc_labels(rf_sample_list_path, sample_metadata_path)
-    # label_save_path = "/home/kevin/Desktop/gut_microbiome/dataset/hmc/electra/random_forest/labels.json"
+    # label_save_path = "/home/kchen/microbiome/gut_microbiome_GPT/datasets/pretrain/loc_labels.json"
     # with open(label_save_path, "w") as f1:
-    #     json.dump(locations, f1)
+    #     json.dump(locations, f1, indent=4)
 
     # rf_npy_path = "/home/kevin/Desktop/gut_microbiome/dataset/hmc/electra/random_forest/taxonomy_table.npy"
     # rf_save_path =

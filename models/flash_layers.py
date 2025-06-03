@@ -100,8 +100,8 @@ class FlashscGPTMHA(nn.Module):
         """
         pcpt_total_embs: (batch, pcpt_len, hidden_dim) (where hidden_dim = num heads * head dim)
         gen_total_embs: (batch, gen_len, hidden_dim)
-        pcpt_key_padding_mask: bool tensor of shape (batch, pcpt_len), 1 means valid and 0 means not valid.
-        gen_key_padding_mask: bool tensor of shape (batch, gen_len), 1 means valid and 0 means not valid.
+        pcpt_key_padding_mask: bool tensor of shape (batch, pcpt_len).
+        gen_key_padding_mask: bool tensor of shape (batch, gen_len).
         """
 
         # if self.flash_attn_available:
