@@ -152,7 +152,10 @@ if __name__ == "__main__":
             break
 
         epoch += 1
-        commit_state(extra_state, model, optimizer, scheduler, epoch, best_val_loss, patience_counter, checkpoint_dir, accelerator)
+        if accelerator.is_main_process:
+            commit_state(extra_state, epoch, best_val_loss, patience_counter, checkpoint_dir, accelerator)
+            
+        accelerator.wait_for_everyone()
 
     logger.info("Training complete with best validation loss: {:.4f}".format(best_val_loss))
     accelerator.end_training()

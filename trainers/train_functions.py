@@ -390,6 +390,7 @@ def commit_state(extra_state, epoch, best_val_loss, patience_counter, checkpoint
 
     if os.path.exists(new_checkpoint_dir) and os.path.exists(actual_checkpoint_dir):
         shutil.rmtree(new_checkpoint_dir)
+    os.makedirs(new_checkpoint_dir)
     accelerator.save_state(new_checkpoint_dir)
 
     # according to the GNU spec of rename, the state of checkpoint_dir
