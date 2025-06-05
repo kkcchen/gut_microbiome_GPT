@@ -5,3 +5,4 @@ model_checkpoints/*
 notebooks/**
 wandb
 logs/
+datasets_full

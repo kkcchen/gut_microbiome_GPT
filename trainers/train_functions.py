@@ -77,12 +77,12 @@ def pretrain(
 
         with accelerator.accumulate(model):
             # if USE_GENERATIVE_TRAINING:
-            pcpt_gene = data_dict["pcpt_ids"]
-            pcpt_expr = data_dict["pcpt_values"]
-            pcpt_key_padding_mask = pcpt_gene.eq(vocab.pad_index)
-            gen_gene = data_dict["gen_ids"]
-            gen_expr_target = target_values = data_dict["gen_values"]
-            gen_key_padding_mask = gen_gene.eq(vocab.pad_index)
+            pcpt_taxa = data_dict["pcpt_ids"]
+            pcpt_values = data_dict["pcpt_values"]
+            pcpt_key_padding_mask = pcpt_taxa.eq(vocab.pad_index)
+            gen_taxa = data_dict["gen_ids"]
+            gen_values_target = target_values = data_dict["gen_values"]
+            gen_key_padding_mask = gen_taxa.eq(vocab.pad_index)
             # else:
             #     input_gene_ids = data_dict["gene"]
             #     input_values = data_dict["masked_expr"]
@@ -92,27 +92,25 @@ def pretrain(
             with accelerator.autocast():
                 # if USE_GENERATIVE_TRAINING:
                 output_dict = model(
-                    pcpt_gene,
-                    pcpt_expr,
+                    pcpt_taxa,
+                    pcpt_values,
                     pcpt_key_padding_mask,
-                    gen_gene,
-                    gen_key_padding_mask,
-                    # CLS=use_cls,
-                    # MVC=use_mvc,
-                    # generative_training=True,
+                    gen_taxa=gen_taxa,
+                    gen_key_padding_mask=gen_key_padding_mask,
+                    pretraining=True,
                 )
                 gen_expr_preds = output_values = output_dict["gen_preds"]
 
                 positions_to_match = ~gen_key_padding_mask
                 loss = loss_mse = masked_mse_loss(
-                    gen_expr_preds, gen_expr_target, positions_to_match
+                    gen_expr_preds, gen_values_target, positions_to_match
                 )
                 # accelerate.log({"train/mse": loss_mse.item()}, step=global_iter)
 
                 # if use_mvc:
                 #     loss_mvc = criterion(
-                #         output_dict["mvc_output"][:, pcpt_gene.shape[1] :],
-                #         gen_expr_target,
+                #         output_dict["mvc_output"][:, pcpt_taxa.shape[1] :],
+                #         gen_values_target,
                 #         positions_to_match,
                 #     )
                 #     loss = loss + loss_mvc
@@ -158,17 +156,17 @@ def pretrain(
                 if global_iter > 500:
                     previous_cell_embs = output_dict["cell_emb"].detach()
                     preds = model(
-                        pcpt_gene,
-                        pcpt_expr,
+                        pcpt_taxa,
+                        pcpt_values,
                         pcpt_key_padding_mask,
-                        gen_gene,
+                        gen_taxa,
                         gen_key_padding_mask,
                         # CLS=False,
                         # MVC=False,
                         input_cell_emb=previous_cell_embs,
                         # generative_training=True,
                     )["gen_preds"]
-                    loss_gen = masked_mse_loss(preds, gen_expr_target, positions_to_match)
+                    loss_gen = masked_mse_loss(preds, gen_values_target, positions_to_match)
                     loss = loss + loss_gen
                     accelerator.log({"train/loss_gen": loss_gen.item()}, step=global_iter)
 

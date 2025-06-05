@@ -12,11 +12,12 @@ from torch.distributions import Bernoulli
 # from tqdm import trange
 
 from data_utils import MicrobiomeVocab
+from functools import lru_cache
 
-from .flash_layers import (
-    FlashscGPTLayer,
-    FlashscGPTGenerator,
-)
+# from .flash_layers import (
+#     FlashscGPTLayer,
+#     FlashscGPTGenerator,
+# )
 
 
 # from .dsbn import DomainSpecificBatchNorm1d
@@ -122,16 +123,16 @@ class TransformerModel(nn.Module):
         #     print("Using simple batchnorm instead of domain specific batchnorm")
         #     self.bn = nn.BatchNorm1d(d_model, eps=6.1e-5)
 
-        if use_generative_training:
-            encoder_layers = FlashscGPTLayer(
-                d_model,
-                nhead,
-                d_hid,
-                dropout,
-                batch_first=True,
-                norm_scheme=self.norm_scheme,
-            )
-            self.transformer_encoder = FlashscGPTGenerator(encoder_layers, nlayers)
+        # if use_generative_training:
+        #     encoder_layers = FlashscGPTLayer(
+        #         d_model,
+        #         nhead,
+        #         d_hid,
+        #         dropout,
+        #         batch_first=True,
+        #         norm_scheme=self.norm_scheme,
+        #     )
+        #     self.transformer_encoder = FlashscGPTGenerator(encoder_layers, nlayers)
         # elif use_fast_transformer:
         #     if fast_transformer_backend == "linear":
         #         self.transformer_encoder = FastTransformerEncoderWrapper(
@@ -147,16 +148,20 @@ class TransformerModel(nn.Module):
         #             norm_scheme=self.norm_scheme,
         #         )
         #         self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
-        else:
-            NotImplementedError(
-                "use_generative_training should be true!"
-            )
-            encoder_layers = TransformerEncoderLayer(
-                d_model, nhead, d_hid, dropout, batch_first=True
-            )
-            self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
-
-
+        # else:
+        #     NotImplementedError(
+        #         "use_generative_training should be true!"
+        #     )
+        #     encoder_layers = TransformerEncoderLayer(
+        #         d_model, nhead, d_hid, dropout, batch_first=True
+        #     )
+        #     self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
+        
+        # use unified TransformerEncoder
+        encoder_layers = TransformerEncoderLayer(
+            d_model, nhead, d_hid, dropout, batch_first=True
+        )
+        self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
 
         # MLP to get from abundance embedding (not just the <cls> token) to quantity prediction
         self.decoder = AbundanceDecoder(
@@ -190,38 +195,38 @@ class TransformerModel(nn.Module):
 
         self.init_weights()
 
-    # def _encode(
-    #     self,
-    #     src: Tensor,
-    #     values: Tensor,
-    #     src_key_padding_mask: Tensor,
-    #     batch_labels: Optional[Tensor] = None,  # (batch,)
-    # ) -> Tensor:
-    #     # self._check_batch_labels(batch_labels)
+    def _encode(
+        self,
+        src: Tensor,
+        values: Tensor,
+        src_key_padding_mask: Tensor,
+        # batch_labels: Optional[Tensor] = None,  # (batch,)
+    ) -> Tensor:
+        # self._check_batch_labels(batch_labels)
 
-    #     src = self.encoder(src)  # (batch, seq_len, embsize)
-    #     self.cur_gene_token_embs = src
+        src = self.encoder(src)  # (batch, seq_len, embsize)
+        self.cur_gene_token_embs = src
 
-    #     values = self.value_encoder(values)  # (batch, seq_len, embsize)
-    #     if self.input_emb_style == "scaling":
-    #         values = values.unsqueeze(2)
-    #         total_embs = src * values
-    #     else:
-    #         total_embs = src + values
+        values = self.value_encoder(values)  # (batch, seq_len, embsize)
+        if self.input_emb_style == "scaling":
+            values = values.unsqueeze(2)
+            total_embs = src * values
+        else:
+            total_embs = src + values
 
-    #     # to do with dsbn. ignore for now
-    #     # if getattr(self, "dsbn", None) is not None:
-    #     #     batch_label = int(batch_labels[0].item())
-    #     #     total_embs = self.dsbn(total_embs.permute(0, 2, 1), batch_label).permute(
-    #     #         0, 2, 1
-    #     #     )  # the batch norm always works on dim 1
-    #     # elif getattr(self, "bn", None) is not None:
-    #     #     total_embs = self.bn(total_embs.permute(0, 2, 1)).permute(0, 2, 1)
+        # to do with dsbn. ignore for now
+        # if getattr(self, "dsbn", None) is not None:
+        #     batch_label = int(batch_labels[0].item())
+        #     total_embs = self.dsbn(total_embs.permute(0, 2, 1), batch_label).permute(
+        #         0, 2, 1
+        #     )  # the batch norm always works on dim 1
+        # elif getattr(self, "bn", None) is not None:
+        #     total_embs = self.bn(total_embs.permute(0, 2, 1)).permute(0, 2, 1)
 
-    #     output = self.transformer_encoder(
-    #         total_embs, src_key_padding_mask=src_key_padding_mask
-    #     )
-    #     return output  # (batch, seq_len, embsize)
+        output = self.transformer_encoder(
+            total_embs, src_key_padding_mask=src_key_padding_mask
+        )
+        return output  # (batch, seq_len, embsize)
     
     # this only initializes the taxa embedding layer
     def init_weights(self) -> None:
@@ -255,6 +260,23 @@ class TransformerModel(nn.Module):
             cell_emb = F.normalize(cell_emb, p=2, dim=1)  # (batch, embsize)
 
         return cell_emb
+    
+    @lru_cache(maxsize=1)
+    @staticmethod
+    def make_mask(mask_len, seq_len, device):
+        assert mask_len <= seq_len, "mask_len should be less than or equal to seq_len"
+        attention_mask = torch.zeros((seq_len, seq_len), device=device, dtype=torch.bool)
+
+        split = seq_len - mask_len
+        # Top part: mask right mask_len columns
+        if split > 0:
+            attention_mask[:split, split:] = True
+
+        # Bottom mask_len x mask_len block: mask everything except diagonal
+        if mask_len > 0:
+            attention_mask[split:, split:] = ~torch.eye(mask_len, device=device, dtype=torch.bool)
+
+        return attention_mask
     
     def transformer_generate(
         self,
@@ -310,23 +332,42 @@ class TransformerModel(nn.Module):
         if input_cell_emb is not None:
             # this is for the second step of pretraining, where we replace the cls token with the cell embedding
             pcpt_total_embs[:, 0, :] = input_cell_emb
-
-        pcpt_output, gen_output = self.transformer_encoder(
-            pcpt_total_embs,
-            gen_total_embs,
-            pcpt_key_padding_mask=pcpt_key_padding_mask,
-            gen_key_padding_mask=gen_key_padding_mask,
+            
+        all_embs = torch.cat(
+            [pcpt_total_embs, gen_total_embs], dim=1
+        ) # (batch, pcpt_len + gen_len, embsize)
+        all_key_padding_mask = torch.cat(
+            [pcpt_key_padding_mask, gen_key_padding_mask], dim=1
         )
 
-        return pcpt_output, gen_output
+        attn_mask = TransformerModel.make_mask(gen_total_embs.shape[1], all_embs.shape[1], device=pcpt_total_embs.device)
+        
+        # pcpt_output, gen_output = self.transformer_encoder(
+        #     pcpt_total_embs,
+        #     gen_total_embs,
+        #     pcpt_key_padding_mask=pcpt_key_padding_mask,
+        #     gen_key_padding_mask=gen_key_padding_mask,
+        # )
+        
+        all_output = self.transformer_encoder(
+            all_embs,
+            src_key_padding_mask=all_key_padding_mask,
+            mask=attn_mask,
+        )
+        
+        # the first part of all_output refers to the perceptual part (pcpt_total_embs.shape[1])
+        # the rest of all_output refers to the generative part
+        
+        return all_output
     
     def forward(
         self,
         pcpt_taxa: Tensor,
         pcpt_values: Tensor,
         pcpt_key_padding_mask: Tensor,
-        gen_taxa: Tensor,
-        gen_key_padding_mask: Tensor,
+        pretraining: bool,
+        gen_taxa: Tensor = None,
+        gen_key_padding_mask: Tensor = None,
         # batch_labels: Optional[Tensor] = None,
         # CLS: bool = False,
         # CCE: bool = False,
@@ -362,20 +403,24 @@ class TransformerModel(nn.Module):
         Returns:
             dict of output Tensors.
         """
-        pcpt_output, gen_output = self.transformer_generate(
-            pcpt_taxa,
-            pcpt_values,
-            pcpt_key_padding_mask,
-            gen_taxa,
-            gen_key_padding_mask,
-            # batch_labels,
-            input_cell_emb=input_cell_emb,
-        )
-
-        if gen_output is None:
-            transformer_output = pcpt_output
+        if pretraining:
+            assert gen_taxa is not None and gen_key_padding_mask is not None, "gen_taxa and gen_key_padding_mask should not be None during pretraining"
+            transformer_output = self.transformer_generate(
+                pcpt_taxa,
+                pcpt_values,
+                pcpt_key_padding_mask,
+                gen_taxa,
+                gen_key_padding_mask,
+                # batch_labels,
+                input_cell_emb=input_cell_emb,
+            )
         else:
-            transformer_output = torch.cat([pcpt_output, gen_output], dim=1)
+            transformer_output = self._encode(
+                pcpt_taxa,
+                pcpt_values,
+                pcpt_key_padding_mask,
+                # batch_labels,
+            )
 
         output = {}
         decoder_output = self.decoder(
@@ -397,10 +442,11 @@ class TransformerModel(nn.Module):
         full_preds = decoder_output["pred"]  # (batch, seq_len)
 
         # separate pcpt and gen predictions
-        output["pcpt_preds"] = full_preds[:, : pcpt_taxa.shape[1]]
-        output["gen_preds"] = full_preds[:, pcpt_taxa.shape[1] :]
-        # if self.explicit_zero_prob:
-        #     output["mlm_zero_probs"] = mlm_output["zero_probs"]
+        if pretraining:
+            output["pcpt_preds"] = full_preds[:, : pcpt_taxa.shape[1]]
+            output["gen_preds"] = full_preds[:, pcpt_taxa.shape[1] :]
+            # if self.explicit_zero_prob:
+            #     output["mlm_zero_probs"] = mlm_output["zero_probs"]
 
         cell_emb = self._get_cell_emb_from_layer(transformer_output)
         output["cell_emb"] = cell_emb
