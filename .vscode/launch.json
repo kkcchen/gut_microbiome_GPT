@@ -12,13 +12,15 @@
             "cwd": "${workspaceFolder}",
             "args": [
             "trainer.py",
-            "--hmc-table-path", "datasets/pretrain/taxonomy_table_512_test.npy",
+            "--hmc-table-path", "datasets/pretrain/taxonomy_table_512.npy",
             "--taxa-path", "datasets/pretrain/pretrain_cols.json",
             "--best-dir", "model_checkpoints/best_model",
             "--checkpoint-dir", "model_checkpoints/current_checkpoints",
             "--data-restore-dir", "model_checkpoints/data_checkpoint",
+            "--experiments-path", "datasets/pretrain/sample_list.json",
+            "--use-batch-labels",
 
-            "--batch-size", "1",
+            "--batch-size", "3",
             "--log-interval", "5",
             "--cosine-warmup-ratio-or-step", "0.1",
             "--nrows", "10",

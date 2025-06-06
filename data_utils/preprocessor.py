@@ -2,31 +2,6 @@ import numpy as np
 from typing import Dict, Optional, Union, List
 from pandas import DataFrame as df
 
-class BatchVocab():
-    """
-    A class to represent the vocabulary of batches in the dataset.
-    """
-
-    def __init__(self, vocab: np.ndarray):
-        """
-        Initialize the vocabulary with taxa and special tokens.
-
-        Args:
-            vocab (np.ndarray): A numpy array containing batch names. 
-                The first column should be the sample names, and the rest are batch names
-        """
-        # get the unique batch names
-        self.vocab = vocab
-        self.itos = vocab[:].tolist()
-        self.stoi = {token: idx for idx, token in enumerate(self.itos)}
-
-        # make sure there are no duplicates in the batch names
-        if len(self.itos) != len(set(self.itos)):
-            raise ValueError("Duplicate batch names found in the DataFrame.")
-        
-    def __getitem__(self, item: str):
-        return self.stoi.get(item, None)
-
 class Preprocessor:
     """
     currently just bins. could do other preprocessing steps in the future. 
@@ -185,40 +160,22 @@ class Preprocessor:
         # update original array
         unprocessed_data[:,:,1] = np.stack(binned_rows)
         return np.stack(binned_rows), np.stack(bin_edges)
-        
-
-    def get_batch_labels(self, unprocessed_data: df) -> np.ndarray:
+    
+    @staticmethod
+    def get_studies_from_trials(trials: List["str"]) -> List[str]:
         """
-        Get the batch labels of the data.
+        Get the study from the trials list.
 
         Args:
-        unprocessed_data (:class:`df`):
-            The unprocessed data. There should be a column named "sample" in the data, with experiment_srr format
+        trials: list of trials. study path is "_" separated, e.g. "study1_experiment1"
 
         Returns:
-        :class:`np.ndarray`:
-            The batch labels.
+        :class:`List[str]`:
+            A list of study paths.
         """
-        if "sample" not in unprocessed_data.columns:
-            raise ValueError(
-                "The unprocessed data must have a column named 'sample' to get batch labels."
-            )
-        sample_srr = unprocessed_data['sample'].str.split('_', n=1, expand=True)
-
-        # make a list with no repeats
-        unique_samples = sample_srr[0].unique()
-
-        batch_vocab = BatchVocab(unique_samples)
-
-        # add a column to the unprocessed_data with the batch labels
-        unprocessed_data['batch'] = sample_srr[0]
-
-        # convert the batch labels to indices
-        unprocessed_data['batch'] = unprocessed_data['batch'].map(batch_vocab.__getitem__)
-        # move the batch column to the front
-        unprocessed_data = unprocessed_data[['batch'] + [col for col in unprocessed_data.columns if col != 'batch']]
-    
-        return BatchVocab(unique_samples).itos
+        # split the trials by "_"
+        studies = [trial.split("_")[0] for trial in trials]
+        return studies
 
 
 def _digitize(x: np.ndarray, bins: np.ndarray, side="both") -> np.ndarray:

@@ -11,7 +11,7 @@ from torch.nn import TransformerEncoder, TransformerEncoderLayer
 from torch.distributions import Bernoulli
 # from tqdm import trange
 
-from data_utils import MicrobiomeVocab
+from data_utils.vocab import MicrobiomeVocab
 from functools import lru_cache
 
 # from .flash_layers import (
@@ -47,33 +47,23 @@ class TransformerModel(nn.Module):
         # n_cls: int = 1,
         vocab: MicrobiomeVocab,
         dropout: float = 0.5,
-        do_mvc: bool = False,
-        do_dab: bool = False,
-        use_batch_labels: bool = False,
-        num_batch_labels: Optional[int] = None,
-        domain_spec_batchnorm: Union[bool, str] = False,
         input_emb_style: str = "continuous",
         n_input_bins: Optional[int] = None,
         cell_emb_style: str = "cls",
-        mvc_decoder_style: str = "inner product",
-        # ecs_threshold: float = 0.3,
         explicit_zero_prob: bool = False,
-        use_generative_training: bool = False,
-        use_fast_transformer: bool = False,
-        fast_transformer_backend: str = "flash",
+        do_mvc: bool = False,
+        mvc_decoder_style: str = "inner product",
         pre_norm: bool = False,
     ):
         super().__init__()
         self.model_type = "Transformer"
         self.d_model = d_model
-        self.do_dab = do_dab # Domain adaptation via reverse back propagation
-        # self.ecs_threshold = ecs_threshold # Elastic Cell Similarity could be added later
-        self.use_batch_labels = use_batch_labels # batch labels could be added label "Representation for batch and modality"
-        self.domain_spec_batchnorm = domain_spec_batchnorm # look into DSBN later, but it is false for now
         self.input_emb_style = input_emb_style # default, continuous, mentioned in paper. could try using category encoding but this is likely less expressive
         self.cell_emb_style = cell_emb_style # default: cls, but can also be avg-pool, w-pool. refers to how to encode the cell embeddings
         self.explicit_zero_prob = explicit_zero_prob # use a separate NN to predict the probability of zero for expression. Not mentioned in the paper, so off for now
         self.norm_scheme = "pre" if pre_norm else "post" # hyperparameter for the transformer encoder.
+        self.do_mvc = do_mvc
+        self.mvc_decoder_style = mvc_decoder_style
         if self.input_emb_style not in ["category", "continuous", "scaling"]:
             raise ValueError(
                 f"input_emb_style should be one of category, continuous, scaling, "
@@ -108,11 +98,14 @@ class TransformerModel(nn.Module):
             # TODO: consider row-wise normalization or softmax
             # TODO: Correct handle the mask_value when using scaling
 
-        # TODO: add batch labels
-        # # Batch Encoder
-        # if use_batch_labels:
-        #     self.batch_encoder = BatchLabelEncoder(num_batch_labels, d_model)
-
+        # # masked value classification decoder
+        # if do_mvc:
+        #     self.mvc_decoder = MVCDecoder(
+        #         d_model,
+        #         arch_style=mvc_decoder_style,
+        #         explicit_zero_prob=explicit_zero_prob,
+        #         use_batch_labels=False,  # do not use batch labels for MVC during pretraining
+        #     )
         # if domain_spec_batchnorm is True or domain_spec_batchnorm == "dsbn":
         #     use_affine = True if domain_spec_batchnorm == "do_affine" else False
         #     print(f"Use domain specific batchnorm with affine={use_affine}")
@@ -167,31 +160,9 @@ class TransformerModel(nn.Module):
         self.decoder = AbundanceDecoder(
             d_model,
             explicit_zero_prob=explicit_zero_prob,
-            use_batch_labels=use_batch_labels,
         )
 
-        # not sure if there is an analogous decoder here... will ask about it
-        # self.cls_decoder = ClsDecoder(d_model, n_cls, nlayers=nlayers_cls)
 
-        # masked value classification decoder
-        if do_mvc:
-            self.mvc_decoder = MVCDecoder(
-                d_model,
-                arch_style=mvc_decoder_style,
-                explicit_zero_prob=explicit_zero_prob,
-                use_batch_labels=use_batch_labels,
-            )
-
-        if do_dab:
-            self.grad_reverse_discriminator = AdversarialDiscriminator(
-                d_model,
-                n_cls=num_batch_labels,
-                reverse_grad=True,
-            )
-
-        # self.sim only used for CCE (or)
-        # self.sim = Similarity(temp=0.5)  # TODO: auto set temp
-        # self.criterion_cce = nn.CrossEntropyLoss()
 
         self.init_weights()
 
@@ -365,7 +336,6 @@ class TransformerModel(nn.Module):
         pcpt_taxa: Tensor,
         pcpt_values: Tensor,
         pcpt_key_padding_mask: Tensor,
-        pretraining: bool,
         gen_taxa: Tensor = None,
         gen_key_padding_mask: Tensor = None,
         # batch_labels: Optional[Tensor] = None,
@@ -403,24 +373,23 @@ class TransformerModel(nn.Module):
         Returns:
             dict of output Tensors.
         """
-        if pretraining:
-            assert gen_taxa is not None and gen_key_padding_mask is not None, "gen_taxa and gen_key_padding_mask should not be None during pretraining"
-            transformer_output = self.transformer_generate(
-                pcpt_taxa,
-                pcpt_values,
-                pcpt_key_padding_mask,
-                gen_taxa,
-                gen_key_padding_mask,
-                # batch_labels,
-                input_cell_emb=input_cell_emb,
-            )
-        else:
-            transformer_output = self._encode(
-                pcpt_taxa,
-                pcpt_values,
-                pcpt_key_padding_mask,
-                # batch_labels,
-            )
+        assert gen_taxa is not None and gen_key_padding_mask is not None, "gen_taxa and gen_key_padding_mask should not be None during pretraining"
+        transformer_output = self.transformer_generate(
+            pcpt_taxa,
+            pcpt_values,
+            pcpt_key_padding_mask,
+            gen_taxa,
+            gen_key_padding_mask,
+            # batch_labels,
+            input_cell_emb=input_cell_emb,
+        )
+        # else: if not pretraining
+        #     transformer_output = self._encode(
+        #         pcpt_taxa,
+        #         pcpt_values,
+        #         pcpt_key_padding_mask,
+        #         # batch_labels,
+        #     )
 
         output = {}
         decoder_output = self.decoder(
@@ -442,11 +411,10 @@ class TransformerModel(nn.Module):
         full_preds = decoder_output["pred"]  # (batch, seq_len)
 
         # separate pcpt and gen predictions
-        if pretraining:
-            output["pcpt_preds"] = full_preds[:, : pcpt_taxa.shape[1]]
-            output["gen_preds"] = full_preds[:, pcpt_taxa.shape[1] :]
-            # if self.explicit_zero_prob:
-            #     output["mlm_zero_probs"] = mlm_output["zero_probs"]
+        output["pcpt_preds"] = full_preds[:, : pcpt_taxa.shape[1]]
+        output["gen_preds"] = full_preds[:, pcpt_taxa.shape[1] :]
+        # if self.explicit_zero_prob:
+        #     output["mlm_zero_probs"] = mlm_output["zero_probs"]
 
         cell_emb = self._get_cell_emb_from_layer(transformer_output)
         output["cell_emb"] = cell_emb
@@ -504,10 +472,10 @@ class TransformerModel(nn.Module):
         #     # else:
         #     output["mvc_output"] = mvc_output["pred"]  # (batch, seq_len)
         #     if self.explicit_zero_prob:
-            # raise NotImplementedError(
-            #         "Explicit zero prob is not implemented for MVC decoder"
-            #     )
-            # output["mvc_zero_probs"] = mvc_output["zero_probs"]
+        #         raise NotImplementedError(
+        #                 "Explicit zero prob is not implemented for MVC decoder"
+        #             )
+        #         output["mvc_zero_probs"] = mvc_output["zero_probs"]
         # if ECS:
         #     raise NotImplementedError(
         #         "Elastic cell similarity is not implemented yet. "
@@ -527,10 +495,10 @@ class TransformerModel(nn.Module):
 
             # output["loss_ecs"] = torch.mean(1 - (cos_sim - self.ecs_threshold) ** 2)
 
-        if self.do_dab:
-            raise NotImplementedError(
-                "DAB is not implemented yet. Please set do_dab=False to avoid this error."
-            )
-            output["dab_output"] = self.grad_reverse_discriminator(cell_emb)
+        # if self.do_dab:
+        #     raise NotImplementedError(
+        #         "DAB is not implemented yet. Please set do_dab=False to avoid this error."
+        #     )
+        #     output["dab_output"] = self.grad_reverse_discriminator(cell_emb)
 
         return output

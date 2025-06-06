@@ -25,7 +25,7 @@ from .custom_losses import (
     masked_mse_loss,
 )
 
-from data_utils import MicrobiomeVocab
+from data_utils.vocab import MicrobiomeVocab, BatchVocab
 from trainers import logger
 
 # Define a simple state wrapper for the model to use with Accelerator
@@ -50,9 +50,11 @@ def pretrain(
         accelerator: Accelerator,
         optimizer,
         scheduler,
+        use_batch_labels: bool,
         best_dir: str,
         # save_interval: int = -1,
         best_val_loss: float = float("inf"),
+        use_mvc=False,
 
     ) -> None:
     """
@@ -83,6 +85,8 @@ def pretrain(
             gen_taxa = data_dict["gen_ids"]
             gen_values_target = target_values = data_dict["gen_values"]
             gen_key_padding_mask = gen_taxa.eq(vocab.pad_index)
+            if use_batch_labels:
+                batch_labels = data_dict.get("batch_labels", None)
             # else:
             #     input_gene_ids = data_dict["gene"]
             #     input_values = data_dict["masked_expr"]
@@ -97,7 +101,7 @@ def pretrain(
                     pcpt_key_padding_mask,
                     gen_taxa=gen_taxa,
                     gen_key_padding_mask=gen_key_padding_mask,
-                    pretraining=True,
+                    MVC=use_mvc,
                 )
                 gen_expr_preds = output_values = output_dict["gen_preds"]
 
@@ -105,16 +109,16 @@ def pretrain(
                 loss = loss_mse = masked_mse_loss(
                     gen_expr_preds, gen_values_target, positions_to_match
                 )
-                # accelerate.log({"train/mse": loss_mse.item()}, step=global_iter)
+                accelerator.log({"train/loss_pcpt": loss_mse.item()}, step=global_iter)
 
                 # if use_mvc:
-                #     loss_mvc = criterion(
+                #     loss_mvc = masked_mse_loss(
                 #         output_dict["mvc_output"][:, pcpt_taxa.shape[1] :],
                 #         gen_values_target,
                 #         positions_to_match,
                 #     )
                 #     loss = loss + loss_mvc
-                #     writer.add_scalar("train/mvc", loss_mvc, global_iter)
+                #     accelerator.log({"train/mvc": loss_mvc.item()}, step=global_iter)
                 # else:
                 #     output_dict = model(
                 #         input_gene_ids,
@@ -149,8 +153,6 @@ def pretrain(
                 #         )
                 #         loss = loss + loss_mvc
                 #         writer.add_scalar("train/mvc", loss_mvc, global_iter)
-
-                accelerator.log({"train/loss_pcpt": loss.item()}, step=global_iter)
 
                 # if USE_GENERATIVE_TRAINING and global_iter > 1000:
                 if global_iter > 500:
@@ -400,12 +402,17 @@ def commit_state(extra_state, epoch, best_val_loss, patience_counter, checkpoint
     logger.info("Training state committed to {} at time {}".format(actual_checkpoint_dir, time.ctime(time.time())))
 
 
-def create_or_restore_data_state(hmc_table_path, taxa_path, wandb_config, data_restore_dir, accelerator: Accelerator, nrows=None):
+def create_or_restore_data_state(hmc_table_path, taxa_path, wandb_config, data_restore_dir, accelerator: Accelerator, use_batch_labels: bool, experiments_path = None, nrows=None):
     if os.path.exists(os.path.join(data_restore_dir, "data_state.pt")) and os.path.exists(os.path.join(data_restore_dir, "vocab.json")):
         # load the data state from the file
         with open(os.path.join(data_restore_dir, "data_state.pt"), 'rb') as f:
             data_state = torch.load(f, weights_only=False)
         vocab = MicrobiomeVocab.get_vocab_from_json(os.path.join(data_restore_dir, "vocab.json"), os.path.join(data_restore_dir, "vocab_metadata.json"))
+        if use_batch_labels and os.path.exists(os.path.join(data_restore_dir, "batch_vocab.json")):
+            batch_vocab = BatchVocab.get_vocab_from_json(os.path.join(data_restore_dir, "batch_vocab.json"))
+        else:
+            raise AssertionError("Batch vocab not found in the data restore directory")
+            batch_vocab = None
         logger.info("Data state restored from {}".format(data_restore_dir))
 
         train_data_dict = data_state["train_data_dict"]
@@ -430,32 +437,74 @@ def create_or_restore_data_state(hmc_table_path, taxa_path, wandb_config, data_r
 
         vocab = MicrobiomeVocab(taxa_list)  # Replace with your vocab
 
+        # temp: process the study paths from the experiment paths
+        if use_batch_labels:
+            if os.path.exists(experiments_path):
+                logger.info(f"Processing study paths from {experiments_path}")
+                with open(experiments_path, 'r') as f:
+                    experiments_list = json.load(f)
+                study_list = Preprocessor.get_studies_from_trials(experiments_list)[:nrows if nrows else None]
+
+                batch_vocab = BatchVocab(study_list)  # Replace with your batch vocab
+            else:
+                raise ValueError("use_batch_labels is True but no experiments path provided")
+        else:
+            batch_vocab = None
+            study_list = None
+            
+
+
         # create tokenizer
-        tokenizer = Tokenizer(vocab)
-        data_dict = tokenizer.tokenize_and_pad_batch(hmc_npy)
-        # Assuming data_dict is a dictionary with keys 'taxa_ids' and 'values'
+        tokenizer = Tokenizer(vocab, batch_vocab=batch_vocab)
+        data_dict = tokenizer.tokenize_and_pad_batch(hmc_npy, batch_labels=study_list)
+        # Assuming data_dict is a dictionary with keys 'taxa_ids', 'values', (and 'study_ids' if batch_labels are being used
 
         # train and validation split
-        (
-            train_taxa_ids,
-            valid_taxa_ids,
-            train_values,
-            valid_values
-        ) = train_test_split(
-            data_dict["taxa_ids"],
-            data_dict["values"],
-            test_size=0.2,
-            shuffle=True
-        )
-
-        train_data_dict = {
-            "taxa_ids": train_taxa_ids,
-            "values": train_values
-        }
-        valid_data_dict = {
-            "taxa_ids": valid_taxa_ids,
-            "values": valid_values
-        }
+        if use_batch_labels:
+            (
+                train_taxa_ids,
+                valid_taxa_ids,
+                train_values,
+                valid_values,
+                train_study_ids,
+                valid_study_ids
+            ) = train_test_split(
+                data_dict["taxa_ids"],
+                data_dict["values"],
+                data_dict["batch_labels"],
+                test_size=0.2,
+                shuffle=True
+            )
+            train_data_dict = {
+                "taxa_ids": train_taxa_ids,
+                "values": train_values,
+                "batch_labels": train_study_ids
+            }
+            valid_data_dict = {
+                "taxa_ids": valid_taxa_ids,
+                "values": valid_values,
+                "batch_labels": valid_study_ids
+            }
+        else:
+            (
+                train_taxa_ids,
+                valid_taxa_ids,
+                train_values,
+                valid_values
+            ) = train_test_split(
+                data_dict["taxa_ids"],
+                data_dict["values"],
+                test_size=0.2,
+                shuffle=True
+            )
+            train_data_dict = {
+                "taxa_ids": train_taxa_ids,
+                "values": train_values,
+            }
+            valid_data_dict = {
+                "taxa_ids": valid_taxa_ids,
+                "values": valid_values,
+            }
 
         if accelerator.is_main_process:
             # save the train and validation dataloaders
@@ -467,9 +516,11 @@ def create_or_restore_data_state(hmc_table_path, taxa_path, wandb_config, data_r
             # save the data state to the file
             torch.save(data_state, os.path.join(data_restore_dir, "data_state.pt"))
             vocab.save_vocab_json(os.path.join(data_restore_dir, "vocab.json"), os.path.join(data_restore_dir, "vocab_metadata.json"))
+            if batch_vocab:
+                batch_vocab.save_vocab_json(os.path.join(data_restore_dir, "batch_vocab.json"))
             logger.info("Data state saved to {}".format(data_restore_dir))
 
-    return train_data_dict, valid_data_dict, vocab
+    return train_data_dict, valid_data_dict, vocab, batch_vocab
 
 
 def create_or_restore_training_state_wandb(vocab, init_lr, warmup_ratio_or_step, total_epochs, trainloader_length, checkpoint_dir, wandb_enabled, wandb_entity, wandb_project, wandb_config, accelerator: Accelerator):
@@ -491,7 +542,6 @@ def create_or_restore_training_state_wandb(vocab, init_lr, warmup_ratio_or_step,
         nlayers=3,
         vocab=vocab,
         dropout=0.1,
-        use_generative_training=True,
     )
     
     # params = model.transformer_encoder.layers[0].state_dict()

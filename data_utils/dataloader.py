@@ -1,12 +1,11 @@
 from typing import List, Dict, Any
-import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 
-from data_utils.tokenizer import MicrobiomeVocab
+from data_utils.vocab import MicrobiomeVocab
 
 class SeqDataset(Dataset):
-    def __init__(self, data: Dict[str, torch.Tensor], vocab: MicrobiomeVocab, gen_percent: float = 0, class_token: bool = True):
+    def __init__(self, data: Dict[str, torch.Tensor], vocab: MicrobiomeVocab, use_batch_labels: bool, gen_percent: float = 0, class_token: bool = True):
         """
         Args:
             data (Dict[str, torch.Tensor]): The input data.
@@ -18,6 +17,10 @@ class SeqDataset(Dataset):
         self.vocab = vocab
         self.gen_percent = gen_percent
         self.class_token = class_token
+        
+        self.use_batch_labels = use_batch_labels
+        if use_batch_labels:
+            assert "batch_labels" in self.data, "Batch labels must be provided if use_batch_labels is True"
 
         if class_token:
             sample_length = self.data["taxa_ids"].shape[1] + 1
@@ -37,10 +40,16 @@ class SeqDataset(Dataset):
 
     def __getitem__(self, idx):
         # return {k: v[idx] for k, v in self.data.items()}
-        return self.separate_pcpt_gen(
+        out_dict = self.separate_pcpt_gen(
             ids=self.data["taxa_ids"][idx],
             values=self.data["values"][idx]
         )
+        
+        if self.use_batch_labels:
+            batch_labels = self.data["batch_labels"][idx]
+            out_dict["batch_labels"] = batch_labels
+
+        return out_dict
 
     def separate_pcpt_gen(self, ids: torch.Tensor, values: torch.Tensor) -> Dict[str, torch.Tensor]:
         # Step 1: Identify valid (non-class, non-pad) tokens
@@ -83,6 +92,7 @@ def prepare_dataloader(
     data_pt: Dict[str, torch.Tensor],
     batch_size: int,
     vocab: MicrobiomeVocab,
+    use_batch_labels: bool,
     shuffle: bool = False,
     gen_percent: float = 0.15,
     # intra_domain_shuffle: bool = False,
@@ -90,7 +100,7 @@ def prepare_dataloader(
     num_workers: int = 0,
     # per_seq_batch_sample: bool = False,
 ) -> DataLoader:
-    dataset = SeqDataset(data_pt, vocab, gen_percent=gen_percent)
+    dataset = SeqDataset(data_pt, vocab, use_batch_labels, gen_percent=gen_percent)
 
     # # if per_seq_batch_sample, each batch will contain samples from the same experiment. Comment out for now because idk if we need this
     # if per_seq_batch_sample:

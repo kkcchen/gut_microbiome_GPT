@@ -9,8 +9,6 @@ import time
 from data_utils.preprocessor import Preprocessor
 from data_utils.dataloader import prepare_dataloader
 
-from sklearn.model_selection import train_test_split
-
 from trainers.train_functions import (
     pretrain, commit_state, create_or_restore_data_state, create_or_restore_training_state_wandb, epoch_end_logs
 )
@@ -28,6 +26,7 @@ if __name__ == "__main__":
     parser.add_argument("--best-dir", type=str, required=True, help="Directory to save best model so far")
     parser.add_argument("--checkpoint-dir", type=str, required=True, help="Directory to save checkpoints for preemption")
     parser.add_argument("--data-restore-dir", type=str, required=True, help="Directory to restore data state")
+    parser.add_argument("--experiments-path", type=str, default=None, help="Path to experiments files for training")
 
     # wandb
     parser.add_argument("--wandb-enabled", action="store_true", help="Enable Weights & Biases logging")
@@ -44,6 +43,7 @@ if __name__ == "__main__":
     parser.add_argument("--patience", type=int, default=None, help="Patience for early stopping")
     parser.add_argument("--grad-accumulation-steps", type=int, default=1, help="Number of gradient accumulation steps")
     parser.add_argument("--enable-fp16", action="store_true", help="Enable mixed precision training (FP16)")
+    parser.add_argument("--use-batch-labels", action="store_true", help="Use batch labels in the dataset")
 
     # for debugging
     parser.add_argument("--nrows", type=int, default=None, help="For debugging to limit number of samples in set")
@@ -57,6 +57,7 @@ if __name__ == "__main__":
     best_dir = args.best_dir
     checkpoint_dir = args.checkpoint_dir
     data_restore_dir = args.data_restore_dir
+    experiments_path = args.experiments_path
 
     wandb_enabled = args.wandb_enabled
     wandb_entity = args.wandb_entity
@@ -71,6 +72,12 @@ if __name__ == "__main__":
     patience = args.patience if args.patience else max_epochs
     grad_accumulation_steps = args.grad_accumulation_steps
     enable_fp16 = args.enable_fp16
+    
+    use_batch_labels = args.use_batch_labels
+    if use_batch_labels:
+        assert experiments_path is not None, "Experiments path must be provided when using batch labels."
+    else:
+        assert experiments_path is None, "Experiments path should not be provided when not using batch labels."
 
     nrows = args.nrows
     # Set random seed for reproducibility
@@ -95,19 +102,21 @@ if __name__ == "__main__":
             shutil.rmtree(checkpoint_dir)
 
     # Create or restore data state and wandb
-    train_data_dict, valid_data_dict, vocab = create_or_restore_data_state(
-        hmc_table_path, taxa_path, config, data_restore_dir, accelerator, nrows
+    train_data_dict, valid_data_dict, vocab, _ = create_or_restore_data_state(
+        hmc_table_path, taxa_path, config, data_restore_dir, accelerator, use_batch_labels=use_batch_labels, experiments_path=experiments_path, nrows=nrows
     )
 
     logger.info("Preparing dataloaders...")
     train_loader = prepare_dataloader(
         train_data_dict,
+        use_batch_labels=use_batch_labels,
         vocab=vocab,
         batch_size=batch_size,
         shuffle=True,
     )
     valid_loader = prepare_dataloader(
         valid_data_dict,
+        use_batch_labels=use_batch_labels,
         vocab=vocab,
         batch_size=batch_size,
         shuffle=False,
@@ -137,6 +146,7 @@ if __name__ == "__main__":
             accelerator=accelerator,
             optimizer=optimizer,
             scheduler=scheduler,
+            use_batch_labels=use_batch_labels,
             best_dir=best_dir,
             best_val_loss=best_val_loss,
         )
