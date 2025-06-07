@@ -139,6 +139,9 @@ class BatchVocab():
         """
         with open(path, 'w') as f:
             json.dump(self.stoi, f, indent=4)
+            
+    def __len__(self):
+        return len(self.itos)
     
     @classmethod
     def get_vocab_from_json(cls, path) -> 'BatchVocab':

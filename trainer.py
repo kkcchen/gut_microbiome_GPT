@@ -33,16 +33,18 @@ if __name__ == "__main__":
     parser.add_argument("--wandb-entity", type=str, default=None, help="wandb entity name")
     parser.add_argument("--wandb-project", type=str, default=None, help="wandb project name")
 
-    # optional
+    # optional training arguments
     parser.add_argument("--init-lr", type=float, default=1e-3, help="Initial learning rate")
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size for training")
     parser.add_argument("--max-epochs", type=int, default=25, help="Maximum number of epochs")
     parser.add_argument("--cosine-warmup-ratio-or-step", type=float, default=0.1, help="Scheduler warmup ratio or step")
-    parser.add_argument("--num-bins", type=int, default=10, help="Number of bins for binning")
     parser.add_argument("--log-interval", type=int, default=10, help="Interval for logging")
     parser.add_argument("--patience", type=int, default=None, help="Patience for early stopping")
     parser.add_argument("--grad-accumulation-steps", type=int, default=1, help="Number of gradient accumulation steps")
     parser.add_argument("--enable-fp16", action="store_true", help="Enable mixed precision training (FP16)")
+    
+    # model parameters
+    parser.add_argument("--num-bins", type=int, default=10, help="Number of bins for binning")
     parser.add_argument("--use-batch-labels", action="store_true", help="Use batch labels in the dataset")
 
     # for debugging
@@ -102,7 +104,7 @@ if __name__ == "__main__":
             shutil.rmtree(checkpoint_dir)
 
     # Create or restore data state and wandb
-    train_data_dict, valid_data_dict, vocab, _ = create_or_restore_data_state(
+    train_data_dict, valid_data_dict, vocab, batch_vocab = create_or_restore_data_state(
         hmc_table_path, taxa_path, config, data_restore_dir, accelerator, use_batch_labels=use_batch_labels, experiments_path=experiments_path, nrows=nrows
     )
 
@@ -123,8 +125,23 @@ if __name__ == "__main__":
     )
 
     # Create or restore training state
+    model_config = {
+        "d_model": 128,
+        "nhead": 4,
+        "d_hid": 512,
+        "nlayers": 3,
+        "use_batch_labels": True,
+        "dropout": 0.1,
+        "n_input_bins": num_bins,
+        "do_mvc": True,
+
+        "vocab_len": len(vocab),
+        "vocab_pad_index": vocab.pad_index,
+        "vocab_pad_value": vocab.pad_value,
+        "num_batch_labels": len(batch_vocab) if use_batch_labels else 0,
+    }
     model, optimizer, scheduler, epoch, best_val_loss, patience_counter, extra_state = create_or_restore_training_state_wandb(
-        vocab, init_lr, cosine_warmup_ratio_or_step, max_epochs, len(train_loader), checkpoint_dir, wandb_enabled, wandb_entity, wandb_project, config, accelerator
+        model_config, init_lr, cosine_warmup_ratio_or_step, max_epochs, len(train_loader), checkpoint_dir, wandb_enabled, wandb_entity, wandb_project, config, accelerator
     )
 
     train_loader, valid_loader, model, optimizer, scheduler = accelerator.prepare(
@@ -149,6 +166,7 @@ if __name__ == "__main__":
             use_batch_labels=use_batch_labels,
             best_dir=best_dir,
             best_val_loss=best_val_loss,
+            use_mvc=True,
         )
 
         # Log metrics to wandb

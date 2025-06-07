@@ -52,9 +52,9 @@ def pretrain(
         scheduler,
         use_batch_labels: bool,
         best_dir: str,
+        use_mvc,
         # save_interval: int = -1,
         best_val_loss: float = float("inf"),
-        use_mvc=False,
 
     ) -> None:
     """
@@ -86,7 +86,9 @@ def pretrain(
             gen_values_target = target_values = data_dict["gen_values"]
             gen_key_padding_mask = gen_taxa.eq(vocab.pad_index)
             if use_batch_labels:
-                batch_labels = data_dict.get("batch_labels", None)
+                batch_labels = data_dict["batch_labels"]
+            else:
+                batch_labels = None
             # else:
             #     input_gene_ids = data_dict["gene"]
             #     input_values = data_dict["masked_expr"]
@@ -102,6 +104,7 @@ def pretrain(
                     gen_taxa=gen_taxa,
                     gen_key_padding_mask=gen_key_padding_mask,
                     MVC=use_mvc,
+                    batch_labels=batch_labels,
                 )
                 gen_expr_preds = output_values = output_dict["gen_preds"]
 
@@ -111,15 +114,15 @@ def pretrain(
                 )
                 accelerator.log({"train/loss_pcpt": loss_mse.item()}, step=global_iter)
 
-                # if use_mvc:
-                #     loss_mvc = masked_mse_loss(
-                #         output_dict["mvc_output"][:, pcpt_taxa.shape[1] :],
-                #         gen_values_target,
-                #         positions_to_match,
-                #     )
-                #     loss = loss + loss_mvc
-                #     accelerator.log({"train/mvc": loss_mvc.item()}, step=global_iter)
-                # else:
+                if use_mvc:
+                    loss_mvc = masked_mse_loss(
+                        output_dict["mvc_gen_preds"],
+                        gen_values_target,
+                        positions_to_match,
+                    )
+                    loss = loss + loss_mvc
+                    accelerator.log({"train/mvc": loss_mvc.item()}, step=global_iter)
+                # else: # if not using generative training
                 #     output_dict = model(
                 #         input_gene_ids,
                 #         input_values,
@@ -254,6 +257,7 @@ def pretrain(
             best_val_loss=best_val_loss,
             global_iter=global_iter,
             accelerator=accelerator,
+            use_batch_labels=use_batch_labels
             # save=(save_interval > 0 and batch % save_interval == 0),
         )
 
@@ -277,10 +281,11 @@ def eval_and_save(
     best_val_loss: float,
     global_iter: int,
     accelerator: Accelerator,
+    use_batch_labels: bool
     # save: bool = True,
 ) -> None:
     # perform evaluation in distributed data parallel
-    val_loss, val_mre = evaluate(model, valid_loader, vocab, accelerator).values()
+    val_loss, val_mre = evaluate(model, valid_loader, vocab, accelerator, use_batch_labels).values()
     val_loss, val_mre = val_loss.item(), val_mre.item()
 
     logger.info(f"valid loss/mse {val_loss:5.4f} | mre {val_mre:5.4f}")
@@ -302,6 +307,7 @@ def evaluate(
         valid_loader: DataLoader,
         vocab: MicrobiomeVocab,
         accelerator: Accelerator,
+        use_batch_labels: bool
         ) -> Dict[str, torch.Tensor]:
     """
     Evaluate the model on the evaluation data.
@@ -318,6 +324,10 @@ def evaluate(
             gen_ids = data_dict["gen_ids"]
             gen_values = data_dict["gen_values"]
             gen_key_padding_mask = gen_ids.eq(vocab.pad_index)
+            if use_batch_labels:
+                batch_labels = data_dict["batch_labels"]
+            else:
+                batch_labels = None
             # else:
             #     input_gene_ids = data_dict["gene"]
             #     input_values = data_dict["masked_expr"]
@@ -332,8 +342,9 @@ def evaluate(
                     pcpt_key_padding_mask,
                     gen_ids,
                     gen_key_padding_mask,
+                    batch_labels=batch_labels,
                     # CLS=False,
-                    # MVC=False,
+                    MVC=False,
                     # generative_training=True,
                 )
                 gen_expr_preds = output_values = output_dict["gen_preds"]
@@ -523,7 +534,7 @@ def create_or_restore_data_state(hmc_table_path, taxa_path, wandb_config, data_r
     return train_data_dict, valid_data_dict, vocab, batch_vocab
 
 
-def create_or_restore_training_state_wandb(vocab, init_lr, warmup_ratio_or_step, total_epochs, trainloader_length, checkpoint_dir, wandb_enabled, wandb_entity, wandb_project, wandb_config, accelerator: Accelerator):
+def create_or_restore_training_state_wandb(model_config, init_lr, warmup_ratio_or_step, total_epochs, trainloader_length, checkpoint_dir, wandb_enabled, wandb_entity, wandb_project, wandb_config, accelerator: Accelerator):
     # initial configuration of the model
     # model = TransformerModel(
     #     d_model=512,
@@ -534,16 +545,20 @@ def create_or_restore_training_state_wandb(vocab, init_lr, warmup_ratio_or_step,
     #     dropout=0.1,
     #     use_generative_training=True,
     # )
-
-    model = TransformerModel(
-        d_model=128,
-        nhead=4,
-        d_hid=512,
-        nlayers=3,
-        vocab=vocab,
-        dropout=0.1,
-    )
     
+    # model = TransformerModel(
+    #     d_model=model_config["d_model"],
+    #     nhead=model_config["nhead"],
+    #     d_hid=model_config["d_hid"],
+    #     nlayers=model_config["nlayers"],
+    #     use_batch_labels=model_config["use_batch_labels"],
+    #     dropout=model_config["dropout"],
+    #     vocab_len= model_config["vocab_len"],
+    #     vocab_pad_index=model_config["vocab_pad_index"],
+    #     vocab_pad_value=model_config["vocab_pad_value"],
+    # )
+    
+    model = TransformerModel(**model_config)
     # params = model.transformer_encoder.layers[0].state_dict()
 
     optimizer = torch.optim.Adam(model.parameters(), lr=init_lr)

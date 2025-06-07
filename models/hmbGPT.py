@@ -27,6 +27,7 @@ from .encoders import (
     TaxaEncoder,
     ContinuousValueEncoder,
     CategoryValueEncoder,
+    BatchLabelEncoder
 )
 
 from .decoders import (
@@ -45,10 +46,14 @@ class TransformerModel(nn.Module):
         nlayers: int,
         # nlayers_cls: int = 3,
         # n_cls: int = 1,
-        vocab: MicrobiomeVocab,
+        vocab_len: int,
+        vocab_pad_index: int,
+        vocab_pad_value: int,
+        n_input_bins: int,
+        use_batch_labels: bool = False,
+        num_batch_labels: Optional[int] = None,
         dropout: float = 0.5,
         input_emb_style: str = "continuous",
-        n_input_bins: Optional[int] = None,
         cell_emb_style: str = "cls",
         explicit_zero_prob: bool = False,
         do_mvc: bool = False,
@@ -58,6 +63,7 @@ class TransformerModel(nn.Module):
         super().__init__()
         self.model_type = "Transformer"
         self.d_model = d_model
+        self.use_batch_labels = use_batch_labels
         self.input_emb_style = input_emb_style # default, continuous, mentioned in paper. could try using category encoding but this is likely less expressive
         self.cell_emb_style = cell_emb_style # default: cls, but can also be avg-pool, w-pool. refers to how to encode the cell embeddings
         self.explicit_zero_prob = explicit_zero_prob # use a separate NN to predict the probability of zero for expression. Not mentioned in the paper, so off for now
@@ -83,7 +89,7 @@ class TransformerModel(nn.Module):
 
         # TODO: add dropout in the TaxaEncoder
         self.flag_encoder = nn.Embedding(2, d_model)
-        self.encoder = TaxaEncoder(len(vocab), d_model, padding_idx=vocab.pad_index)
+        self.encoder = TaxaEncoder(vocab_len, d_model, padding_idx=vocab_pad_index)
 
         # Value Encoder, NOTE: the scaling style is also handled in _encode method
         if input_emb_style == "continuous":
@@ -91,21 +97,26 @@ class TransformerModel(nn.Module):
         elif input_emb_style == "category":
             assert n_input_bins > 0
             self.value_encoder = CategoryValueEncoder(
-                n_input_bins, d_model, padding_idx=vocab.pad_value
+                n_input_bins, d_model, padding_idx=vocab_pad_value
             )
         else: # input_emb_style == "scaling"
             self.value_encoder = nn.Identity()  # nn.Softmax(dim=1)
             # TODO: consider row-wise normalization or softmax
             # TODO: Correct handle the mask_value when using scaling
 
-        # # masked value classification decoder
-        # if do_mvc:
-        #     self.mvc_decoder = MVCDecoder(
-        #         d_model,
-        #         arch_style=mvc_decoder_style,
-        #         explicit_zero_prob=explicit_zero_prob,
-        #         use_batch_labels=False,  # do not use batch labels for MVC during pretraining
-        #     )
+        # Batch Encoder
+        if use_batch_labels:
+            assert num_batch_labels is not None, "num_batch_labels must be provided when use_batch_labels is True"
+            self.batch_encoder = BatchLabelEncoder(num_batch_labels, d_model)
+
+        # masked value classification decoder
+        if do_mvc:
+            self.mvc_decoder = MVCDecoder(
+                d_model,
+                arch_style=mvc_decoder_style,
+                explicit_zero_prob=explicit_zero_prob,
+                use_batch_labels=use_batch_labels,
+            )
         # if domain_spec_batchnorm is True or domain_spec_batchnorm == "dsbn":
         #     use_affine = True if domain_spec_batchnorm == "do_affine" else False
         #     print(f"Use domain specific batchnorm with affine={use_affine}")
@@ -160,9 +171,8 @@ class TransformerModel(nn.Module):
         self.decoder = AbundanceDecoder(
             d_model,
             explicit_zero_prob=explicit_zero_prob,
+            use_batch_labels=use_batch_labels,
         )
-
-
 
         self.init_weights()
 
@@ -176,7 +186,7 @@ class TransformerModel(nn.Module):
         # self._check_batch_labels(batch_labels)
 
         src = self.encoder(src)  # (batch, seq_len, embsize)
-        self.cur_gene_token_embs = src
+        cur_taxa_token_embs = src
 
         values = self.value_encoder(values)  # (batch, seq_len, embsize)
         if self.input_emb_style == "scaling":
@@ -197,7 +207,7 @@ class TransformerModel(nn.Module):
         output = self.transformer_encoder(
             total_embs, src_key_padding_mask=src_key_padding_mask
         )
-        return output  # (batch, seq_len, embsize)
+        return output, cur_taxa_token_embs # (batch, seq_len, embsize), (batch, seq_len, embsize)
     
     # this only initializes the taxa embedding layer
     def init_weights(self) -> None:
@@ -268,9 +278,9 @@ class TransformerModel(nn.Module):
         assert self.input_emb_style != "scaling"
         if gen_taxa is not None:
             gen_token_embs = self.encoder(gen_taxa)  # (batch, gen_len, embsize)
-            # self.cur_gene_token_embs = torch.cat(
-            #     [pcpt_token_embs, gen_token_embs], dim=1
-            # )
+            cur_taxa_token_embs = torch.cat(
+                [pcpt_token_embs, gen_token_embs], dim=1
+            )
             # this is a flag to let the model know that this is a generative training
             gen_flags = self.flag_encoder(
                 torch.tensor(1).to(pcpt_values.device)
@@ -281,7 +291,7 @@ class TransformerModel(nn.Module):
             raise NotImplementedError(
                 "gen_taxa should not be none..."
             )
-            # self.cur_gene_token_embs = pcpt_token_embs
+            # cur_taxa_token_embs = pcpt_token_embs
             # gen_total_embs = None
 
         # if self.domain_spec_batchnorm:
@@ -329,7 +339,7 @@ class TransformerModel(nn.Module):
         # the first part of all_output refers to the perceptual part (pcpt_total_embs.shape[1])
         # the rest of all_output refers to the generative part
         
-        return all_output
+        return all_output, cur_taxa_token_embs  # (batch, pcpt_len + gen_len, embsize), (batch, gen_len, embsize)
     
     def forward(
         self,
@@ -338,10 +348,10 @@ class TransformerModel(nn.Module):
         pcpt_key_padding_mask: Tensor,
         gen_taxa: Tensor = None,
         gen_key_padding_mask: Tensor = None,
-        # batch_labels: Optional[Tensor] = None,
+        batch_labels: Optional[Tensor] = None,
         # CLS: bool = False,
         # CCE: bool = False,
-        # MVC: bool = False,
+        MVC: bool = False,
         # ECS: bool = False,
         # do_sample: bool = False,
         input_cell_emb: Optional[Tensor] = None,
@@ -374,7 +384,13 @@ class TransformerModel(nn.Module):
             dict of output Tensors.
         """
         assert gen_taxa is not None and gen_key_padding_mask is not None, "gen_taxa and gen_key_padding_mask should not be None during pretraining"
-        transformer_output = self.transformer_generate(
+        if self.use_batch_labels:
+            assert batch_labels is not None, "batch_labels should not be None when use_batch_labels is True"
+            batch_emb = self.batch_encoder(batch_labels) # (batch, embsize)
+        else:
+            assert batch_labels is None, "batch_labels should be None when use_batch_labels is False"
+        
+        transformer_output, cur_taxa_token_embs = self.transformer_generate(
             pcpt_taxa,
             pcpt_values,
             pcpt_key_padding_mask,
@@ -384,7 +400,7 @@ class TransformerModel(nn.Module):
             input_cell_emb=input_cell_emb,
         )
         # else: if not pretraining
-        #     transformer_output = self._encode(
+        #     transformer_output, cur_taxa_token_embs = self._encode(
         #         pcpt_taxa,
         #         pcpt_values,
         #         pcpt_key_padding_mask,
@@ -394,14 +410,14 @@ class TransformerModel(nn.Module):
         output = {}
         decoder_output = self.decoder(
             transformer_output
-            # if not self.use_batch_labels
-            # else torch.cat(
-            #     [
-            #         transformer_output,
-            #         batch_emb.unsqueeze(1).repeat(1, transformer_output.shape[1], 1),
-            #     ],
-            #     dim=2,
-            # ),
+            if not self.use_batch_labels
+            else torch.cat(
+                [
+                    transformer_output,
+                    batch_emb.unsqueeze(1).repeat(1, transformer_output.shape[1], 1),
+                ],
+                dim=2,
+            ),
             # # else transformer_output + batch_emb.unsqueeze(1),
         )
         # if self.explicit_zero_prob and do_sample:
@@ -458,24 +474,27 @@ class TransformerModel(nn.Module):
         #     cos_sim = self.sim(cell1.unsqueeze(1), cell2.unsqueeze(0))  # (batch, batch)
         #     labels = torch.arange(cos_sim.size(0)).long().to(cell1.device)
         #     output["loss_cce"] = self.creterion_cce(cos_sim, labels)
-        # if MVC: # GEPC
-        #     mvc_output = self.mvc_decoder(
-        #         cell_emb
-        #         # if not self.use_batch_labels
-        #         # else torch.cat([cell_emb, batch_emb], dim=1),
-        #         # # else cell_emb + batch_emb,
-        #         # self.cur_gene_token_embs,
-        #     )
-        #     # if self.explicit_zero_prob and do_sample:
-        #     #     bernoulli = Bernoulli(probs=mvc_output["zero_probs"])
-        #     #     output["mvc_output"] = bernoulli.sample() * mvc_output["pred"]
-        #     # else:
-        #     output["mvc_output"] = mvc_output["pred"]  # (batch, seq_len)
-        #     if self.explicit_zero_prob:
-        #         raise NotImplementedError(
-        #                 "Explicit zero prob is not implemented for MVC decoder"
-        #             )
-        #         output["mvc_zero_probs"] = mvc_output["zero_probs"]
+        if MVC: # GEPC
+            mvc_output = self.mvc_decoder(
+                cell_emb
+                if not self.use_batch_labels
+                else torch.cat([cell_emb, batch_emb], dim=1),
+                # else cell_emb + batch_emb,
+                cur_taxa_token_embs,
+            )
+            # if self.explicit_zero_prob and do_sample:
+            #     bernoulli = Bernoulli(probs=mvc_output["zero_probs"])
+            #     output["mvc_output"] = bernoulli.sample() * mvc_output["pred"]
+            # else:
+            mvc_full_preds = mvc_output["pred"]  # (batch, seq_len)
+            
+            output["mvc_pcpt_preds"] = mvc_full_preds[:, : pcpt_taxa.shape[1]]
+            output["mvc_gen_preds"] = mvc_full_preds[:, pcpt_taxa.shape[1] :]
+            if self.explicit_zero_prob:
+                raise NotImplementedError(
+                        "Explicit zero prob is not implemented for MVC decoder"
+                    )
+                output["mvc_zero_probs"] = mvc_output["zero_probs"]
         # if ECS:
         #     raise NotImplementedError(
         #         "Elastic cell similarity is not implemented yet. "
