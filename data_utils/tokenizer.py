@@ -186,7 +186,7 @@ class Tokenizer:
             assert self.batch_vocab is not None, "Batch vocabulary must be provided if batch labels are used."
         
         if len(batch_labels) != data_dict["taxa_ids"].shape[0]:
-            raise ValueError("Batch labels length does not match the number of samples.")
+            raise ValueError(f"Batch labels length does not match the number of samples, {len(batch_labels)} vs {data_dict['taxa_ids'].shape[0]}")
         
         return dict(
             **data_dict,

@@ -86,7 +86,7 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     
-    config={
+    wandb_config={
         "learning_rate": init_lr,
         "batch_size": batch_size,
         "max_epochs": max_epochs,
@@ -105,7 +105,7 @@ if __name__ == "__main__":
 
     # Create or restore data state and wandb
     train_data_dict, valid_data_dict, vocab, batch_vocab = create_or_restore_data_state(
-        hmc_table_path, taxa_path, config, data_restore_dir, accelerator, use_batch_labels=use_batch_labels, experiments_path=experiments_path, nrows=nrows
+        hmc_table_path, taxa_path, num_bins, data_restore_dir, accelerator, use_batch_labels=use_batch_labels, experiments_path=experiments_path, nrows=nrows
     )
 
     logger.info("Preparing dataloaders...")
@@ -141,7 +141,7 @@ if __name__ == "__main__":
         "num_batch_labels": len(batch_vocab) if use_batch_labels else 0,
     }
     model, optimizer, scheduler, epoch, best_val_loss, patience_counter, extra_state = create_or_restore_training_state_wandb(
-        model_config, init_lr, cosine_warmup_ratio_or_step, max_epochs, len(train_loader), checkpoint_dir, wandb_enabled, wandb_entity, wandb_project, config, accelerator
+        model_config, init_lr, cosine_warmup_ratio_or_step, max_epochs, len(train_loader), checkpoint_dir, wandb_enabled, wandb_entity, wandb_project, wandb_config, accelerator
     )
 
     train_loader, valid_loader, model, optimizer, scheduler = accelerator.prepare(
@@ -166,7 +166,7 @@ if __name__ == "__main__":
             use_batch_labels=use_batch_labels,
             best_dir=best_dir,
             best_val_loss=best_val_loss,
-            use_mvc=True,
+            use_mvc=model_config["do_mvc"],
         )
 
         # Log metrics to wandb

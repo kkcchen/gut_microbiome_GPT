@@ -413,7 +413,7 @@ def commit_state(extra_state, epoch, best_val_loss, patience_counter, checkpoint
     logger.info("Training state committed to {} at time {}".format(actual_checkpoint_dir, time.ctime(time.time())))
 
 
-def create_or_restore_data_state(hmc_table_path, taxa_path, wandb_config, data_restore_dir, accelerator: Accelerator, use_batch_labels: bool, experiments_path = None, nrows=None):
+def create_or_restore_data_state(hmc_table_path, taxa_path, num_bins, data_restore_dir, accelerator: Accelerator, use_batch_labels: bool, experiments_path = None, nrows=None):
     if os.path.exists(os.path.join(data_restore_dir, "data_state.pt")) and os.path.exists(os.path.join(data_restore_dir, "vocab.json")):
         # load the data state from the file
         with open(os.path.join(data_restore_dir, "data_state.pt"), 'rb') as f:
@@ -441,7 +441,7 @@ def create_or_restore_data_state(hmc_table_path, taxa_path, wandb_config, data_r
             taxa_list = json.load(f)
 
         preprocessor = Preprocessor(
-            binning=wandb_config["binning"],
+            binning=num_bins,
         )
 
         _, _ = preprocessor.process_from_np(hmc_npy)

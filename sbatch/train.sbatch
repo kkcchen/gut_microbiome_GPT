@@ -20,7 +20,7 @@ python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not availabl
 # DATA_DIR="$HOME/datasets"
 HMC_TABLE_PATH="./datasets/pretrain/taxonomy_table_512.npy"
 TAXA_JSON_PATH="./datasets/pretrain/pretrain_cols.json"
-EXPERIMENT_PATH="./datasets/pretrain/studies_list.json"
+EXPERIMENT_PATH="./datasets/pretrain/sample_list.json"
 
 SAVE_DIR="./model_checkpoints"
 BEST_DIR="$SAVE_DIR/best_model"
