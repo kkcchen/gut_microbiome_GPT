@@ -167,7 +167,8 @@ def pretrain(
                         gen_taxa,
                         gen_key_padding_mask,
                         # CLS=False,
-                        # MVC=False,
+                        MVC=False,
+                        batch_labels=batch_labels,
                         input_cell_emb=previous_cell_embs,
                         # generative_training=True,
                     )["gen_preds"]
