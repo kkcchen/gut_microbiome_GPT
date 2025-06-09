@@ -28,26 +28,31 @@ class SeqDataset(Dataset):
             sample_length = self.data["taxa_ids"].shape[1]
 
         if self.gen_percent > 0:
+            self.generation_mode = True
             self.gen_len = int(sample_length * self.gen_percent)
             self.pcpt_len = sample_length - self.gen_len
         else:
-            raise NotImplementedError(
-                "Generation percentage must be greater than 0 to use this dataset, for generation mode"
-            )
+            self.generation_mode = False
 
     def __len__(self):
         return self.data["taxa_ids"].shape[0]
 
     def __getitem__(self, idx):
         # return {k: v[idx] for k, v in self.data.items()}
-        out_dict = self.separate_pcpt_gen(
-            ids=self.data["taxa_ids"][idx],
-            values=self.data["values"][idx]
-        )
-        
-        if self.use_batch_labels:
-            batch_labels = self.data["batch_labels"][idx]
-            out_dict["batch_labels"] = batch_labels
+        if self.generation_mode:
+            out_dict = self.separate_pcpt_gen(
+                ids=self.data["taxa_ids"][idx],
+                values=self.data["values"][idx]
+            )
+            
+            if self.use_batch_labels:
+                batch_labels = self.data["batch_labels"][idx]
+                out_dict["batch_labels"] = batch_labels
+        else:
+            out_dict = {
+                "ids": self.data["taxa_ids"][idx],
+                "values": self.data["values"][idx]
+            }
 
         return out_dict
 

@@ -21,6 +21,7 @@ import argparse
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Train TransformerModel on microbiome data")
+    parser.add_argument("--model-config-path", type=str, required=True, help="Path to model configuration file")
     parser.add_argument("--hmc-table-path", type=str, required=True, help="Path to HMC table file")
     parser.add_argument("--taxa-path", type=str, required=True, help="Path to taxa file")
     parser.add_argument("--best-dir", type=str, required=True, help="Directory to save best model so far")
@@ -44,7 +45,7 @@ if __name__ == "__main__":
     parser.add_argument("--enable-fp16", action="store_true", help="Enable mixed precision training (FP16)")
     
     # model parameters
-    parser.add_argument("--num-bins", type=int, default=10, help="Number of bins for binning")
+    parser.add_argument("--num-bins", type=int, default=15, help="Number of bins for binning")
     parser.add_argument("--use-batch-labels", action="store_true", help="Use batch labels in the dataset")
 
     # for debugging
@@ -54,6 +55,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    model_config_path = args.model_config_path
     hmc_table_path = args.hmc_table_path
     taxa_path = args.taxa_path
     best_dir = args.best_dir
@@ -103,7 +105,7 @@ if __name__ == "__main__":
         if os.path.exists(checkpoint_dir):
             shutil.rmtree(checkpoint_dir)
 
-    # Create or restore data state and wandb
+    # Create or restore data state
     train_data_dict, valid_data_dict, vocab, batch_vocab = create_or_restore_data_state(
         hmc_table_path, taxa_path, num_bins, data_restore_dir, accelerator, use_batch_labels=use_batch_labels, experiments_path=experiments_path, nrows=nrows
     )
@@ -140,6 +142,12 @@ if __name__ == "__main__":
         "vocab_pad_value": vocab.pad_value,
         "num_batch_labels": len(batch_vocab) if use_batch_labels else 0,
     }
+    
+    import json
+    os.makedirs(os.path.dirname(model_config_path), exist_ok=True)
+    with open(model_config_path, "w") as f:
+        json.dump(model_config, f, indent=4)
+
     model, optimizer, scheduler, epoch, best_val_loss, patience_counter, extra_state = create_or_restore_training_state_wandb(
         model_config, init_lr, cosine_warmup_ratio_or_step, max_epochs, len(train_loader), checkpoint_dir, wandb_enabled, wandb_entity, wandb_project, wandb_config, accelerator
     )

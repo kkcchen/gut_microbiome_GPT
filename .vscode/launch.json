@@ -12,12 +12,12 @@
             "cwd": "${workspaceFolder}",
             "args": [
             "trainer.py",
-            "--hmc-table-path", "datasets/pretrain/taxonomy_table_512.npy",
-            "--taxa-path", "datasets/pretrain/pretrain_cols.json",
+            "--hmc-table-path", "datasets_full/pretrain/taxonomy_table_512.npy",
+            "--taxa-path", "datasets_full/pretrain/pretrain_cols.json",
             "--best-dir", "model_checkpoints/best_model",
             "--checkpoint-dir", "model_checkpoints/current_checkpoints",
             "--data-restore-dir", "model_checkpoints/data_checkpoint",
-            "--experiments-path", "datasets/pretrain/sample_list.json",
+            "--experiments-path", "datasets_full/pretrain/sample_list.json",
             "--use-batch-labels",
 
             "--batch-size", "3",
@@ -26,13 +26,31 @@
             "--nrows", "10",
             "--seed", "42",
 
-            "--start-over",
+            // "--start-over",
 
             // "--wandb-enabled",
             // "--wandb-entity", "kevinkaiwen-chen-vector",
             // "--wandb-project", "hmb_testproject",
             ]
         },
+        {
+          "name": "Python: encode samples",
+          "type": "debugpy",
+          "request": "launch",
+          "module": "accelerate.commands.launch",
+          "cwd": "${workspaceFolder}",
+          "args": [
+          "encode_samples.py",
+          "--safetensors-path", "model_checkpoints/best_model/model.safetensors",
+          "--output-path", "outputs/encoded_samples.npy",
+          "--vocab-path", "model_checkpoints/data_checkpoint/vocab.json",
+          "--vocab-metadata-path", "model_checkpoints/data_checkpoint/vocab_metadata.json",
+          "--data-dict-path", "model_checkpoints/data_checkpoint/encode_datastore/data_dict.pt",
+          "--npy-path", "datasets/finetune/train/finetune_data_train.npy",
+          "--model-config-path", "model_checkpoints/model_config.json",
+          // "--nrows", "1000"
+          ]
+      },
         {
             "name": "Debug preprocess_hmc.py",
             "type": "python",

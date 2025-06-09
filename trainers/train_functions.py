@@ -463,13 +463,11 @@ def create_or_restore_data_state(hmc_table_path, taxa_path, num_bins, data_resto
         else:
             batch_vocab = None
             study_list = None
-            
-
 
         # create tokenizer
         tokenizer = Tokenizer(vocab, batch_vocab=batch_vocab)
         data_dict = tokenizer.tokenize_and_pad_batch(hmc_npy, batch_labels=study_list)
-        # Assuming data_dict is a dictionary with keys 'taxa_ids', 'values', (and 'study_ids' if batch_labels are being used
+        # Assuming data_dict is a dictionary with keys 'taxa_ids', 'values', (and 'batch_labels' if batch_labels are being used)
 
         # train and validation split
         if use_batch_labels:
