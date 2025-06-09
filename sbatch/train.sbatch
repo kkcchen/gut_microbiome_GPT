@@ -17,9 +17,11 @@ source ~/hmbenv/bin/activate
 python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not available. Exiting.'" || exit 1
 
 # put your command here
-DATA_DIR="$HOME/datasets"
-HMC_TABLE_PATH="./datasets/pretrain/taxonomy_table_512_train.npy"
+# DATA_DIR="$HOME/datasets"
+HMC_TABLE_PATH="./datasets/pretrain/taxonomy_table_512.npy"
 TAXA_JSON_PATH="./datasets/pretrain/pretrain_cols.json"
+EXPERIMENT_PATH="./datasets/pretrain/studies_list.json"
+
 SAVE_DIR="./model_checkpoints"
 BEST_DIR="$SAVE_DIR/best_model"
 MODEL_CHECKPOINTS="$SAVE_DIR/current_checkpoints"
@@ -33,6 +35,8 @@ accelerate launch trainer.py \
     --best-dir "$BEST_DIR" \
     --checkpoint-dir "$MODEL_CHECKPOINTS" \
     --data-restore-dir "$DATA_RESTORE_PATH" \
+    --experiments-path "$EXPERIMENT_PATH" \
+    --use-batch-labels \
     --wandb-enabled \
     --wandb-entity "haoze-deng-university-of-toronto" \
     --wandb-project "hmbgpt_oncluster" \

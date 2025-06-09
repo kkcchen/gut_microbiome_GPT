@@ -130,7 +130,7 @@ if __name__ == "__main__":
         "nhead": 4,
         "d_hid": 512,
         "nlayers": 3,
-        "use_batch_labels": True,
+        "use_batch_labels": use_batch_labels,
         "dropout": 0.1,
         "n_input_bins": num_bins,
         "do_mvc": True,

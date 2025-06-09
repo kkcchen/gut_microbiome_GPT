@@ -18,6 +18,7 @@ PRETRAIN_SAVE_DIR="$HOME/gut_microbiome_GPT/datasets/pretrain"
 FINETUNE_SAVE_DIR="$HOME/gut_microbiome_GPT/datasets/finetune"
 NPY_PRETRAIN_FILE="taxonomy_table_pretrain"
 NPY_FINETUNE_FILE="taxonomy_table_finetune"
+METADATA_PATH="$HOME/datasets/sample_metadata.tsv"
 
 # Run the script
 echo starting now
@@ -26,6 +27,7 @@ python scripts/preprocess_hmc.py \
     --pretrain_save_dir "$PRETRAIN_SAVE_DIR" \
     --finetune_save_dir "$FINETUNE_SAVE_DIR" \
     --npy_pretrain_file "$NPY_PRETRAIN_FILE" \
-    --npy_finetune_file "$NPY_FINETUNE_FILE"
+    --npy_finetune_file "$NPY_FINETUNE_FILE"\
+    --sample_metadata_path "$METADATA_PATH"\
 
 echo finished

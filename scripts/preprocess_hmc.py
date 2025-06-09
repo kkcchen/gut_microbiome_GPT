@@ -4,6 +4,7 @@ import os
 # import fasttext
 import json
 import argparse
+from sklearn.model_selection import train_test_split
 # os.environ["GOOGLE_API_KEY"] = "AIzaSyB41iEts_InBYR3sHz1bywFYN2JjxlBTJ0"
 # GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 # if not GOOGLE_API_KEY:
@@ -27,46 +28,6 @@ def get_loc_labels(samples_list_path, sample_metadata_path):
         row = metadata_df.loc[sample_id]
         location_list.append(row.region)
     return location_list
-
-
-def train_test_split(npy_file_path, save_path, test_size=0.2, random_state=42):
-    """
-    Splits a NumPy array into training and testing arrays along the first axis.
-
-    Parameters:
-      arr (np.ndarray): Input array of shape (N, ...).
-      test_size (float): Fraction of rows to allocate to the test set.
-      random_state (int, optional): Seed for reproducibility.
-
-    Returns:
-      train (np.ndarray): Training array.
-      test (np.ndarray): Testing array.
-    """
-    if random_state is not None:
-        np.random.seed(random_state)
-    arr = np.load(npy_file_path)
-
-    print('Original shape: {}'.format(arr.shape))
-    # Shuffle the row indices
-    indices = np.arange(arr.shape[0])
-    np.random.shuffle(indices)
-
-    # Calculate the splitting index
-    split_idx = int(arr.shape[0] * (1 - test_size))
-    train_indices = indices[:split_idx]
-    test_indices = indices[split_idx:]
-
-    # Split the array
-    train = arr[train_indices]
-    test = arr[test_indices]
-    print('Train shape: {}'.format(train.shape))
-    print('Test shape: {}'.format(test.shape))
-    base_name = os.path.splitext(os.path.basename(npy_file_path))[0]
-    train_save_name = os.path.join(save_path, f"{base_name}_train.npy")
-    test_save_name = os.path.join(save_path, f"{base_name}_test.npy")
-    np.save(train_save_name, train)
-    np.save(test_save_name, test)
-
 
 
 def get_top_k_npy(npy_file_path, npy_save_path, k=512):
@@ -140,7 +101,7 @@ def split_dataframe_by_samples(df, sample_col="sample", remove_agp=True, split_r
     # check if remove american gut project
     remove_count = study_counts.get("PRJEB11419", 0)
     print(f"Removing {remove_count} samples due to being in American Gut Project (PRJEB11419).")
-    if remove_agp:
+    if remove_agp and "PRJEB11419" in study_counts:
         del study_counts["PRJEB11419"]
     # Sort studies by sample count descending.
     sorted_studies = sorted(study_counts.items(), key=lambda x: x[1], reverse=True)
@@ -165,7 +126,7 @@ def split_dataframe_by_samples(df, sample_col="sample", remove_agp=True, split_r
     return df_group1, df_group2, group1_studies, group2_studies
 
 
-def read_taxonomic_table(file_path, df1_save_path, df2_save_path, nrows = None, split_ratio=0.5):
+def read_taxonomic_table(file_path, df1_save_path, df2_save_path, split_ratio, nrows = None):
     """takes a file path of a csv file containing the hmc taxonomic table
     returns:
     - a numpy array of data of shape (n_rows, n_cols, 2) where [:, :, 0] represents the index of column and [:, :, 1]
@@ -235,6 +196,8 @@ if __name__ == '__main__':
     parser.add_argument('--finetune_save_dir', type=str, required=True, help='Directory to save finetune data.')
     parser.add_argument('--npy_pretrain_file', type=str, default="taxonomy_table_pretrain", help='Pretrain .npy file name.')
     parser.add_argument('--npy_finetune_file', type=str, default="taxonomy_table_finetune", help='Finetune .npy file name.')
+    parser.add_argument('--sample_metadata_path', type=str, required=True, help='Finetune .npy file name.')
+
     parser.add_argument('--split_ratio', type=float, default=0.8, help='Ratio for splitting the dataset into pretrain and finetune sets.')
     parser.add_argument('--nrows', type=int, default=None, help='Number of rows to read from the taxonomic table CSV file.')
     parser.add_argument('--seed', type=int, default=None, help='Random seed for reproducibility.')
@@ -245,31 +208,66 @@ if __name__ == '__main__':
     finetune_save_dir = args.finetune_save_dir
     npy_pretrain_file = args.npy_pretrain_file
     npy_finetune_file = args.npy_finetune_file
+    sample_metadata_path = args.sample_metadata_path
     nrows = args.nrows
     split_ratio = args.split_ratio
     
     if args.seed is not None:
         np.random.seed(args.seed)
         print(f"Setting random seed to {args.seed} for reproducibility.")
-        
-    # npy1_512_path = "/home/kchen/microbiome/gut_microbiome_GPT/datasets/hmc/electra/transformer/taxonomy_table_512.npy"
 
+    pretrain_sample_list_path = os.path.join(pretrain_save_dir, "sample_list.json")
+    finetune_sample_list_path_all = os.path.join(finetune_save_dir, "sample_list.json")
+    finetune_sample_list_path_train = os.path.join(finetune_save_dir, "sample_list_train.json")
+    finetune_sample_list_path_test = os.path.join(finetune_save_dir, "sample_list_test.json")
+    
     print(f"Reading taxonomic table from {taxonomic_table_path} with nrows={nrows} and split_ratio={split_ratio}")
     col_names = read_taxonomic_table(taxonomic_table_path, pretrain_save_dir, finetune_save_dir, nrows=nrows, split_ratio=split_ratio)
     # vocab_embeddings = create_vocab_embeddings_biowordvec(col_names, npy_save_dir)
     top_512_pretrain = get_top_k_npy(os.path.join(pretrain_save_dir, npy_pretrain_file + ".npy"), pretrain_save_dir)
     top_512_finetune = get_top_k_npy(os.path.join(finetune_save_dir, npy_finetune_file + ".npy"), finetune_save_dir)
-    train_test_split(top_512_pretrain, pretrain_save_dir)
+    
+    
+    # location labels for pretrain
+    pretrain_locations = get_loc_labels(pretrain_sample_list_path, sample_metadata_path)
+    pretrain_loc_save_path = os.path.join(pretrain_save_dir, "loc_labels_pretrain.json")
+    with open(pretrain_loc_save_path, "w") as f1:
+        json.dump(pretrain_locations, f1, indent=4)
+        
+    # location labels for finetune
+    finetune_locations = get_loc_labels(finetune_sample_list_path_all, sample_metadata_path)
+    finetune_loc_save_path = os.path.join(finetune_save_dir, "loc_labels_finetune.json")
+    with open(finetune_loc_save_path, "w") as f1:
+        json.dump(finetune_locations, f1, indent=4)
 
-    # rf_sample_list_path = "/home/kchen/microbiome/gut_microbiome_GPT/datasets/pretrain/sample_list.json"
-    # sample_metadata_path = "/home/kchen/microbiome/gut_microbiome_GPT/datasets/sample_metadata.tsv"
-    # locations = get_loc_labels(rf_sample_list_path, sample_metadata_path)
-    # label_save_path = "/home/kchen/microbiome/gut_microbiome_GPT/datasets/pretrain/loc_labels.json"
-    # with open(label_save_path, "w") as f1:
-    #     json.dump(locations, f1, indent=4)
 
-    # rf_npy_path = "/home/kevin/Desktop/gut_microbiome/dataset/hmc/electra/random_forest/taxonomy_table.npy"
-    # rf_save_path =
+    # train test split for finetune data
+    data_arr = np.load(top_512_finetune)
+    with open(finetune_sample_list_path_all) as f:
+        samples_list = json.load(f)
+    with open(finetune_loc_save_path) as f:
+        loc_labels = json.load(f)
+
+    train_data_arr, test_data_arr, train_samples, test_samples, train_locs, test_locs = train_test_split(
+        data_arr, samples_list, loc_labels, train_size=0.8
+    )
+    
+    # Save .npy files
+    os.makedirs(os.path.join(finetune_save_dir, "train"), exist_ok=True)
+    os.makedirs(os.path.join(finetune_save_dir, "test"), exist_ok=True)
+    np.save(os.path.join(finetune_save_dir, "train/finetune_data_train.npy"), train_data_arr)
+    np.save(os.path.join(finetune_save_dir, "test/finetune_data_test.npy"), test_data_arr)
+
+    # Save .json files
+    with open(os.path.join(finetune_save_dir, "train/finetune_samples_train.json"), "w") as f:
+        json.dump(train_samples, f, indent=4)
+    with open(os.path.join(finetune_save_dir, "test/finetune_samples_test.json"), "w") as f:
+        json.dump(test_samples, f, indent=4)
+
+    with open(os.path.join(finetune_save_dir, "train/finetune_locs_train.json"), "w") as f:
+        json.dump(train_locs, f, indent=4)
+    with open(os.path.join(finetune_save_dir, "test/finetune_locs_test.json"), "w") as f:
+        json.dump(test_locs, f, indent=4)
 
 
 
