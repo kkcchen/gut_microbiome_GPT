@@ -26,12 +26,29 @@
             "--nrows", "10",
             "--seed", "42",
 
-            // "--start-over",
+            "--start-over",
 
             // "--wandb-enabled",
             // "--wandb-entity", "kevinkaiwen-chen-vector",
             // "--wandb-project", "hmb_testproject",
             ]
-        }
+        },
+        {
+            "name": "Debug preprocess_hmc.py",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/preprocess_hmc.py",  //  This must be the full path to the script
+            "console": "integratedTerminal",
+            "args": [
+              "--taxonomic_table_path", "/home/kchen/microbiome/gut_microbiome_GPT/datasets/taxonomic_table.csv",
+              "--pretrain_save_dir", "/home/kchen/microbiome/gut_microbiome_GPT/datasets/pretrain",
+              "--finetune_save_dir", "/home/kchen/microbiome/gut_microbiome_GPT/datasets/finetune",
+              "--npy_pretrain_file", "taxonomy_table_pretrain",
+              "--npy_finetune_file", "taxonomy_table_finetune",
+              "--sample_metadata_path", "/home/kchen/microbiome/gut_microbiome_GPT/datasets/sample_metadata.tsv",
+              "--nrows", "500",
+            ],
+            "python": "/home/kchen/miniconda3/envs/hmbGPT/bin/python"  // optional: usually auto-detected
+          }
     ]
 }

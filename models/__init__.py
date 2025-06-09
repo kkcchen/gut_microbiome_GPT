@@ -1,1 +1,1 @@
-from .hmbGPT import TransformerModel
+from .model import TransformerModel

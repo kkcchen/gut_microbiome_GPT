@@ -49,7 +49,7 @@ class AbundanceDecoder(nn.Module):
 
 class MVCDecoder(nn.Module):
     """
-    Decoder for the masked value prediction for cell embeddings.
+    Decoder for the masked value prediction for environment embeddings.
     """
 
     def __init__(
@@ -74,19 +74,19 @@ class MVCDecoder(nn.Module):
         super().__init__()
         d_in = d_model * 2 if use_batch_labels else d_model
         if arch_style in ["inner product", "inner product, detach"]:
-            self.gene2query = nn.Linear(d_model, d_model)
+            self.taxon2query = nn.Linear(d_model, d_model)
             self.query_activation = query_activation()
             self.W = nn.Linear(d_model, d_in, bias=False)
             if explicit_zero_prob:  # by default, gene-wise prob rate
                 self.W_zero_logit = nn.Linear(d_model, d_in)
         elif arch_style == "concat query":
-            self.gene2query = nn.Linear(d_model, 64)
+            self.taxon2query = nn.Linear(d_model, 64)
             self.query_activation = query_activation()
             self.fc1 = nn.Linear(d_model + 64, 64)
             self.hidden_activation = hidden_activation()
             self.fc2 = nn.Linear(64, 1)
         elif arch_style == "sum query":
-            self.gene2query = nn.Linear(d_model, d_model)
+            self.taxon2query = nn.Linear(d_model, d_model)
             self.query_activation = query_activation()
             self.fc1 = nn.Linear(d_model, 64)
             self.hidden_activation = hidden_activation()
@@ -99,41 +99,41 @@ class MVCDecoder(nn.Module):
         self.explicit_zero_prob = explicit_zero_prob
 
     def forward(
-        self, cell_emb: Tensor, gene_embs: Tensor
+        self, env_emb: Tensor, taxon_embs: Tensor
     ) -> Union[Tensor, Dict[str, Tensor]]:
         """
         Args:
-            cell_emb: Tensor, shape (batch, embsize=d_model)
-            gene_embs: Tensor, shape (batch, seq_len, embsize=d_model)
+            env_emb: Tensor, shape (batch, embsize=d_model)
+            taxon_embs: Tensor, shape (batch, seq_len, embsize=d_model)
         """
-        gene_embs = gene_embs.detach() if self.do_detach else gene_embs
+        taxon_embs = taxon_embs.detach() if self.do_detach else taxon_embs
         if self.arch_style in ["inner product", "inner product, detach"]:
-            query_vecs = self.query_activation(self.gene2query(gene_embs))
-            cell_emb = cell_emb.unsqueeze(2)  # (batch, embsize, 1)
+            query_vecs = self.query_activation(self.taxon2query(taxon_embs))
+            env_emb = env_emb.unsqueeze(2)  # (batch, embsize, 1)
             # the pred gene expr values, # (batch, seq_len)
-            pred_value = torch.bmm(self.W(query_vecs), cell_emb).squeeze(2)
+            pred_value = torch.bmm(self.W(query_vecs), env_emb).squeeze(2)
             if not self.explicit_zero_prob:
                 return dict(pred=pred_value)
-            # zero logits need to based on the cell_emb, because of input exprs
-            zero_logits = torch.bmm(self.W_zero_logit(query_vecs), cell_emb).squeeze(2)
+            # zero logits need to based on the env_emb, because of input exprs
+            zero_logits = torch.bmm(self.W_zero_logit(query_vecs), env_emb).squeeze(2)
             zero_probs = torch.sigmoid(zero_logits)
             return dict(pred=pred_value, zero_probs=zero_probs)
         elif self.arch_style == "concat query":
-            query_vecs = self.query_activation(self.gene2query(gene_embs))
-            # expand cell_emb to (batch, seq_len, embsize)
-            cell_emb = cell_emb.unsqueeze(1).expand(-1, gene_embs.shape[1], -1)
+            query_vecs = self.query_activation(self.taxon2query(taxon_embs))
+            # expand env_emb to (batch, seq_len, embsize)
+            env_emb = env_emb.unsqueeze(1).expand(-1, taxon_embs.shape[1], -1)
 
             h = self.hidden_activation(
-                self.fc1(torch.cat([cell_emb, query_vecs], dim=2))
+                self.fc1(torch.cat([env_emb, query_vecs], dim=2))
             )
             if self.explicit_zero_prob:
                 raise NotImplementedError
             return self.fc2(h).squeeze(2)  # (batch, seq_len)
         elif self.arch_style == "sum query":
-            query_vecs = self.query_activation(self.gene2query(gene_embs))
-            cell_emb = cell_emb.unsqueeze(1)
+            query_vecs = self.query_activation(self.taxon2query(taxon_embs))
+            env_emb = env_emb.unsqueeze(1)
 
-            h = self.hidden_activation(self.fc1(cell_emb + query_vecs))
+            h = self.hidden_activation(self.fc1(env_emb + query_vecs))
             if self.explicit_zero_prob:
                 raise NotImplementedError
             return self.fc2(h).squeeze(2)  # (batch, seq_len)

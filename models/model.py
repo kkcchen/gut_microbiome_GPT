@@ -350,7 +350,7 @@ class TransformerModel(nn.Module):
         gen_key_padding_mask: Tensor = None,
         batch_labels: Optional[Tensor] = None,
         # CLS: bool = False,
-        # CCE: bool = False,
+        CCE: bool = False,
         MVC: bool = False,
         # ECS: bool = False,
         # do_sample: bool = False,
