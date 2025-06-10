@@ -11,7 +11,7 @@
             "module": "accelerate.commands.launch",
             "cwd": "${workspaceFolder}",
             "args": [
-            "trainer.py",
+            "scripts/trainer.py",
             "--hmc-table-path", "datasets_full/pretrain/taxonomy_table_512.npy",
             "--taxa-path", "datasets_full/pretrain/pretrain_cols.json",
             "--best-dir", "model_checkpoints/best_model",
@@ -40,33 +40,47 @@
           "module": "accelerate.commands.launch",
           "cwd": "${workspaceFolder}",
           "args": [
-          "encode_samples.py",
+          "scripts/encode_samples.py",
           "--safetensors-path", "model_checkpoints/best_model/model.safetensors",
-          "--output-path", "outputs/encoded_samples.npy",
+          "--output-path", "outputs/encoded_samples_test.npy",
           "--vocab-path", "model_checkpoints/data_checkpoint/vocab.json",
           "--vocab-metadata-path", "model_checkpoints/data_checkpoint/vocab_metadata.json",
           "--data-dict-path", "model_checkpoints/data_checkpoint/encode_datastore/data_dict.pt",
-          "--npy-path", "datasets/finetune/train/finetune_data_train.npy",
+          "--npy-path", "datasets/finetune/test/finetune_data_test.npy",
           "--model-config-path", "model_checkpoints/model_config.json",
           // "--nrows", "1000"
           ]
       },
+      {
+          "name": "Debug preprocess_hmc.py",
+          "type": "debugpy",
+          "request": "launch",
+          "program": "${workspaceFolder}/scripts/preprocess_hmc.py",  //  This must be the full path to the script
+          "console": "integratedTerminal",
+          "args": [
+            "--taxonomic_table_path", "/home/kchen/microbiome/gut_microbiome_GPT/datasets/taxonomic_table.csv",
+            "--pretrain_save_dir", "/home/kchen/microbiome/gut_microbiome_GPT/datasets/pretrain",
+            "--finetune_save_dir", "/home/kchen/microbiome/gut_microbiome_GPT/datasets/finetune",
+            "--npy_pretrain_file", "taxonomy_table_pretrain",
+            "--npy_finetune_file", "taxonomy_table_finetune",
+            "--sample_metadata_path", "/home/kchen/microbiome/gut_microbiome_GPT/datasets/sample_metadata.tsv",
+            "--nrows", "500",
+          ],
+          "python": "/home/kchen/miniconda3/envs/hmbGPT/bin/python"  // optional: usually auto-detected
+        },
         {
-            "name": "Debug preprocess_hmc.py",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/scripts/preprocess_hmc.py",  //  This must be the full path to the script
-            "console": "integratedTerminal",
-            "args": [
-              "--taxonomic_table_path", "/home/kchen/microbiome/gut_microbiome_GPT/datasets/taxonomic_table.csv",
-              "--pretrain_save_dir", "/home/kchen/microbiome/gut_microbiome_GPT/datasets/pretrain",
-              "--finetune_save_dir", "/home/kchen/microbiome/gut_microbiome_GPT/datasets/finetune",
-              "--npy_pretrain_file", "taxonomy_table_pretrain",
-              "--npy_finetune_file", "taxonomy_table_finetune",
-              "--sample_metadata_path", "/home/kchen/microbiome/gut_microbiome_GPT/datasets/sample_metadata.tsv",
-              "--nrows", "500",
-            ],
-            "python": "/home/kchen/miniconda3/envs/hmbGPT/bin/python"  // optional: usually auto-detected
-          }
+          "name": "Debug random_forest_transformer.py",
+          "type": "debugpy",
+          "request": "launch",
+          "program": "${workspaceFolder}/scripts/random_forest_transformer.py",  //  This must be the full path to the script
+          "console": "integratedTerminal",
+          "args": [
+            "--train-embed-path", "/home/kchen/microbiome/gut_microbiome_GPT/outputs/encoded_samples_train.npy",
+            "--train-loc-labels-path", "/home/kchen/microbiome/gut_microbiome_GPT/datasets/finetune/train/finetune_locs_train.json",
+            "--test-embed-path", "/home/kchen/microbiome/gut_microbiome_GPT/outputs/encoded_samples_test.npy",
+            "--test-loc-labels-path", "datasets/finetune/test/finetune_locs_test.json"
+          ],
+          "python": "/home/kchen/miniconda3/envs/hmbGPT/bin/python"  // optional: usually auto-detected
+        }
     ]
 }

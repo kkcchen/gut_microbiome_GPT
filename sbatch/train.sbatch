@@ -25,16 +25,16 @@ EXPERIMENT_PATH="./datasets/pretrain/sample_list.json"
 SAVE_DIR="./model_checkpoints"
 BEST_DIR="$SAVE_DIR/best_model"
 MODEL_CHECKPOINTS="$SAVE_DIR/current_checkpoints"
-DATA_RESTORE_PATH="$SAVE_DIR/data_checkpoint/preempt_data.pt"
+DATA_RESTORE_DIR="$SAVE_DIR/data_checkpoint"
 
 python -m wandb login 7559085cf6a63fa75982fe12e737bdd576c4fc62
 
-accelerate launch trainer.py \
+accelerate launch scripts/trainer.py \
     --hmc-table-path "$HMC_TABLE_PATH" \
     --taxa-path "$TAXA_JSON_PATH" \
     --best-dir "$BEST_DIR" \
     --checkpoint-dir "$MODEL_CHECKPOINTS" \
-    --data-restore-dir "$DATA_RESTORE_PATH" \
+    --data-restore-dir "$DATA_RESTORE_DIR" \
     --experiments-path "$EXPERIMENT_PATH" \
     --use-batch-labels \
     --wandb-enabled \

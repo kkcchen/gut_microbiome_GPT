@@ -2,7 +2,7 @@ datasets
 __pycache__/
 */__pycache__/
 model_checkpoints/*
-outputs
+encoded_samples
 notebooks/**
 wandb
 logs/

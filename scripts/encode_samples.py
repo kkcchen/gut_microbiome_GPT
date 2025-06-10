@@ -3,7 +3,7 @@ import argparse
 import os
 import numpy as np
 import json
-import shutil
+from tqdm import tqdm
 
 from safetensors.torch import load_file
 from data_utils.preprocessor import Preprocessor
@@ -26,36 +26,23 @@ def restore_vocab(vocab_path, vocab_metadata_path):
     return vocab
 
 
-def create_or_restore_testdata_state(npy_path, num_bins, data_dict_path, vocab, accelerator: Accelerator, nrows=None):
+def create_or_restore_testdata_state(npy_path, num_bins, vocab, accelerator: Accelerator, nrows=None):
     # check if the data state already exists. if not, create the data dict
-    if os.path.exists(data_dict_path):
-        # load the data state from the file
-        with open(data_dict_path, 'rb') as f:
-            data_dict = torch.load(f, weights_only=False)
-        logger.info(f"testata state restored from {data_dict_path}")
-
+    if nrows:
+        hmc_npy = np.load(npy_path)[:nrows,:,:] # shape (num_samples, num_taxa, 2) where (:,:,0) is taxa_id and (:,:,1) is counts
     else:
-        if nrows:
-            hmc_npy = np.load(npy_path)[:nrows,:,:] # shape (num_samples, num_taxa, 2) where (:,:,0) is taxa_id and (:,:,1) is counts
-        else:
-            hmc_npy = np.load(npy_path)
+        hmc_npy = np.load(npy_path)
 
-        preprocessor = Preprocessor(
-            binning=num_bins,
-        )
+    preprocessor = Preprocessor(
+        binning=num_bins,
+    )
 
-        _, _ = preprocessor.process_from_np(hmc_npy)
+    _, _ = preprocessor.process_from_np(hmc_npy)
 
-        # create tokenizer
-        tokenizer = Tokenizer(vocab)
-        data_dict = tokenizer.tokenize_and_pad_batch(hmc_npy)
-        # Assuming data_dict is a dictionary with keys 'taxa_ids', 'values'
-
-        if accelerator.is_main_process:
-            # save the data state to the file
-            os.makedirs(os.path.dirname(data_dict_path), exist_ok=True)
-            torch.save(data_dict, data_dict_path)
-            logger.info(f"Data state saved to {data_dict_path}")
+    # create tokenizer
+    tokenizer = Tokenizer(vocab)
+    data_dict = tokenizer.tokenize_and_pad_batch(hmc_npy)
+    # Assuming data_dict is a dictionary with keys 'taxa_ids', 'values'
 
     return data_dict
 
@@ -66,7 +53,6 @@ def main():
     parser.add_argument("--output-path", type=str, required=True, help="Where to save the output tensor")
     parser.add_argument("--vocab-path", type=str, required=True, help="Path to the vocabulary JSON file")
     parser.add_argument("--vocab-metadata-path", type=str, required=True, help="Path to the vocabulary metadata JSON file")
-    parser.add_argument("--data-dict-path", type=str, required=True, help="Path to save or load the train data dictionary")
     parser.add_argument("--model-config-path", type=str, required=True, help="Path to the model configuration file (not used in this script but can be useful for reference)")
     parser.add_argument("--npy-path", type=str, required=True, help="Path to the training data numpy file")
     parser.add_argument("--nrows", type=int, default=None, help="Number of rows to use from the npy file (for debugging)")
@@ -76,7 +62,6 @@ def main():
     output_path = args.output_path
     vocab_path = args.vocab_path
     vocab_metadata_path = args.vocab_metadata_path
-    data_dict_path = args.data_dict_path
     npy_path = args.npy_path
     model_config_path = args.model_config_path
     
@@ -103,7 +88,6 @@ def main():
     data_dict = create_or_restore_testdata_state(
         npy_path=npy_path,
         num_bins=model_config["n_input_bins"],
-        data_dict_path=data_dict_path,
         vocab=vocab,
         accelerator=accelerator,
         nrows=nrows  # Set to None to use all rows
@@ -115,7 +99,7 @@ def main():
         gen_percent=0.0,  # No generation for encoding
         vocab=vocab,
         batch_size=64,  # Adjust batch size as needed
-        shuffle=False,  # No need to shuffle for encoding
+        shuffle=False,  # Do not shuffle for encoding
     )
 
     # Prepare model and dataloader with accelerate
@@ -124,7 +108,7 @@ def main():
     # === Encode ===
     all_cell_embs = []
     with torch.no_grad():
-        for data_dict in dataloader:
+        for data_dict in tqdm(dataloader):
             taxa = data_dict["ids"]
             values = data_dict["values"]
             src_padding_mask = taxa.eq(vocab.pad_index)
