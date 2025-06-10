@@ -11,7 +11,7 @@
             "module": "accelerate.commands.launch",
             "cwd": "${workspaceFolder}",
             "args": [
-            "scripts/trainer.py",
+            "-m", "scripts.trainer",
             "--hmc-table-path", "datasets_full/pretrain/taxonomy_table_512.npy",
             "--taxa-path", "datasets_full/pretrain/pretrain_cols.json",
             "--best-dir", "model_checkpoints/best_model",
@@ -40,12 +40,11 @@
           "module": "accelerate.commands.launch",
           "cwd": "${workspaceFolder}",
           "args": [
-          "scripts/encode_samples.py",
+          "-m", "scripts.encode_samples",
           "--safetensors-path", "model_checkpoints/best_model/model.safetensors",
           "--output-path", "outputs/encoded_samples_test.npy",
           "--vocab-path", "model_checkpoints/data_checkpoint/vocab.json",
           "--vocab-metadata-path", "model_checkpoints/data_checkpoint/vocab_metadata.json",
-          "--data-dict-path", "model_checkpoints/data_checkpoint/encode_datastore/data_dict.pt",
           "--npy-path", "datasets/finetune/test/finetune_data_test.npy",
           "--model-config-path", "model_checkpoints/model_config.json",
           // "--nrows", "1000"
@@ -55,7 +54,7 @@
           "name": "Debug preprocess_hmc.py",
           "type": "debugpy",
           "request": "launch",
-          "program": "${workspaceFolder}/scripts/preprocess_hmc.py",  //  This must be the full path to the script
+          "module": "scripts.preprocess_hmc",
           "console": "integratedTerminal",
           "args": [
             "--taxonomic_table_path", "/home/kchen/microbiome/gut_microbiome_GPT/datasets/taxonomic_table.csv",
@@ -72,7 +71,7 @@
           "name": "Debug random_forest_transformer.py",
           "type": "debugpy",
           "request": "launch",
-          "program": "${workspaceFolder}/scripts/random_forest_transformer.py",  //  This must be the full path to the script
+          "module": "scripts.random_forest_transformer",
           "console": "integratedTerminal",
           "args": [
             "--train-embed-path", "/home/kchen/microbiome/gut_microbiome_GPT/outputs/encoded_samples_train.npy",

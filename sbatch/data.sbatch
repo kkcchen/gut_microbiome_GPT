@@ -22,7 +22,7 @@ METADATA_PATH="$HOME/datasets/sample_metadata.tsv"
 
 # Run the script
 echo starting now
-python scripts/preprocess_hmc.py \
+python -m scripts.preprocess_hmc \
     --taxonomic_table_path "$TAXONOMIC_TABLE_PATH" \
     --pretrain_save_dir "$PRETRAIN_SAVE_DIR" \
     --finetune_save_dir "$FINETUNE_SAVE_DIR" \

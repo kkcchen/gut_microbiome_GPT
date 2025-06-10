@@ -11,7 +11,7 @@ METADATA_PATH="/home/kchen/microbiome/gut_microbiome_GPT/datasets/sample_metadat
 # Run the script
 echo "Starting HMC taxonomic table preprocessing..."
 
-python scripts/preprocess_hmc.py \
+python -m scripts.preprocess_hmc \
     --taxonomic_table_path "$TAXONOMIC_TABLE_PATH" \
     --pretrain_save_dir "$PRETRAIN_SAVE_DIR" \
     --finetune_save_dir "$FINETUNE_SAVE_DIR" \

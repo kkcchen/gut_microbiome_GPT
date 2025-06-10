@@ -1,6 +1,6 @@
 #!/bin/bash
 
-accelerate launch scripts/trainer.py \
+accelerate launch -m scripts.trainer \
     --model-config-path model_checkpoints/model_config.json \
     --hmc-table-path datasets/pretrain/taxonomy_table_512.npy \
     --taxa-path datasets/pretrain/pretrain_cols.json \

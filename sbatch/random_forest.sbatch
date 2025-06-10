@@ -22,7 +22,7 @@ TEST_LABELS_PATH=datasets/finetune/test/finetune_locs_test.json
 
 # === Run the Random Forest classifier ===
 echo "Running Random Forest classification..."
-python scripts/random_forest_transformer.py \
+python -m scripts.random_forest_transformer \
   --train-embed-path $TRAIN_EMBED_PATH \
   --train-loc-labels-path $TRAIN_LABELS_PATH \
   --test-embed-path $TEST_EMBED_PATH \

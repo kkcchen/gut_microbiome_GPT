@@ -30,7 +30,7 @@ TEST_OUTPUT_PATH=encoded_samples/encoded_samples_test.npy
 
 # === Run the encoding script ===
 echo "Running encoding for finetune train set..."
-accelerate launch scripts/encode_samples.py \
+accelerate launch -m scripts.encode_samples \
   --safetensors-path $SAFETENSORS_PATH \
   --output-path $TRAIN_OUTPUT_PATH \
   --vocab-path $VOCAB_PATH \
@@ -40,7 +40,7 @@ accelerate launch scripts/encode_samples.py \
 
 
 echo "Running encoding for finetune train set..."
-accelerate launch scripts/encode_samples.py \
+accelerate launch -m scripts.encode_samples \
   --safetensors-path $SAFETENSORS_PATH \
   --output-path $TEST_OUTPUT_PATH \
   --vocab-path $VOCAB_PATH \

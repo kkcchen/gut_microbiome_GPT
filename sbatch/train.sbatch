@@ -29,7 +29,7 @@ DATA_RESTORE_DIR="$SAVE_DIR/data_checkpoint"
 
 python -m wandb login 7559085cf6a63fa75982fe12e737bdd576c4fc62
 
-accelerate launch scripts/trainer.py \
+accelerate launch -m scripts.trainer \
     --hmc-table-path "$HMC_TABLE_PATH" \
     --taxa-path "$TAXA_JSON_PATH" \
     --best-dir "$BEST_DIR" \
