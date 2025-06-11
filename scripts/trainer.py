@@ -27,7 +27,7 @@ if __name__ == "__main__":
     parser.add_argument("--best-dir", type=str, required=True, help="Directory to save best model so far")
     parser.add_argument("--checkpoint-dir", type=str, required=True, help="Directory to save checkpoints for preemption")
     parser.add_argument("--data-restore-dir", type=str, required=True, help="Directory to restore data state")
-    parser.add_argument("--experiments-path", type=str, default=None, help="Path to experiments files for training")
+    parser.add_argument("--samplename-path", type=str, default=None, help="Path to samplename files for training")
 
     # wandb
     parser.add_argument("--wandb-enabled", action="store_true", help="Enable Weights & Biases logging")
@@ -61,7 +61,7 @@ if __name__ == "__main__":
     best_dir = args.best_dir
     checkpoint_dir = args.checkpoint_dir
     data_restore_dir = args.data_restore_dir
-    experiments_path = args.experiments_path
+    samplename_path = args.samplename_path
 
     wandb_enabled = args.wandb_enabled
     wandb_entity = args.wandb_entity
@@ -79,9 +79,9 @@ if __name__ == "__main__":
     
     use_batch_labels = args.use_batch_labels
     if use_batch_labels:
-        assert experiments_path is not None, "Experiments path must be provided when using batch labels."
+        assert samplename_path is not None, "Experiments path must be provided when using batch labels."
     else:
-        assert experiments_path is None, "Experiments path should not be provided when not using batch labels."
+        assert samplename_path is None, "Experiments path should not be provided when not using batch labels."
 
     nrows = args.nrows
     # Set random seed for reproducibility
@@ -107,7 +107,7 @@ if __name__ == "__main__":
 
     # Create or restore data state
     train_data_dict, valid_data_dict, vocab, batch_vocab = create_or_restore_data_state(
-        hmc_table_path, taxa_path, num_bins, data_restore_dir, accelerator, use_batch_labels=use_batch_labels, experiments_path=experiments_path, nrows=nrows
+        hmc_table_path, taxa_path, num_bins, data_restore_dir, accelerator, use_batch_labels=use_batch_labels, experiments_path=samplename_path, nrows=nrows
     )
 
     logger.info("Preparing dataloaders...")

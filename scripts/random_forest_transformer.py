@@ -1,10 +1,13 @@
 import numpy as np
 import time
+import os
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, roc_auc_score
+from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_score
 import json
+import joblib
 
 import argparse
+from sklearn.model_selection import GridSearchCV
 
 def main():
     parser = argparse.ArgumentParser(description="Script for processing embeddings.")
@@ -13,6 +16,7 @@ def main():
     parser.add_argument("--train-loc-labels-path", type=str, required=True, help="Path to the train location labels file.")
     parser.add_argument("--test-embed-path", type=str, required=True, help="Path to the file where the test embeddings are saved or should be saved.")
     parser.add_argument("--test-loc-labels-path", type=str, required=True, help="Path to the test location labels file.")
+    parser.add_argument("--output-dir", type=str, required=True, help="Directory to save the best model and parameters.")
 
     args = parser.parse_args()
 
@@ -20,6 +24,7 @@ def main():
     train_loc_labels_path = args.train_loc_labels_path
     test_embed_path = args.test_embed_path
     test_loc_labels_path = args.test_loc_labels_path
+    output_dir = args.output_dir
     
     # Load train embeddings and labels
     train_embeddings = np.load(train_embed_path)  # (batch_size, emb_dim)
@@ -71,6 +76,9 @@ def main():
     # X = (X - min_X) / (max_X - min_X + 1e6)
     #
     # instead of doing random forest over all categories, we follow the HMC paper and do per category one-vs-all classification
+    # Initialize a dictionary to store scores for each region
+    region_scores = []
+
     for i in range(7):
         print(f"Starting Random Forest classifier on region {i}, which is {list(label_dict.keys())[i]}")
         start_time = time.time()
@@ -78,32 +86,80 @@ def main():
         # Create binary labels: 1 for current region, 0 otherwise
         y_train_binary = (Y_train == i).astype(np.int64)
         y_test_binary = (Y_test == i).astype(np.int64)
-    
-        # Initialize the RandomForestClassifier.
+
+        param_grid = {
+            'n_estimators': [1, 2, 3],
+            'max_depth': [None, 10, 20, 30]
+        }
+
+        # Initialize the RandomForestClassifier
         rf_model = RandomForestClassifier(
-            n_estimators=2000,
-            max_features=210,
-            min_samples_leaf=1,
             bootstrap=True,
             random_state=42,
             class_weight="balanced",
             n_jobs=-1
         )
-    
-        # Train the model on the training data.
+
+        # Perform grid search with cross-validation
+        grid_search = GridSearchCV(
+            estimator=rf_model,
+            param_grid=param_grid,
+            scoring='roc_auc',
+            cv=3,
+            n_jobs=-1
+        )
+
+        # Train the model using grid search
         start_time = time.time()
-        rf_model.fit(X_train, y_train_binary)
+        grid_search.fit(X_train, y_train_binary)
         end_time = time.time()
-        print(f"Time elapsed training: {(end_time - start_time):.2f} seconds")
-    
-        # Predict the labels for the test set.
-        y_pred = rf_model.predict(X_test)
-    
-        # Evaluate the model's accuracy on the test set.
+        print(f"Time elapsed for grid search: {(end_time - start_time):.2f} seconds")
+
+        # Get the best parameters and model
+        best_params = grid_search.best_params_
+        print(f"Best Parameters for region {i}:", best_params)
+        best_model = grid_search.best_estimator_
+
+        # Save the best parameters and model for the current region
+        region_dir = os.path.join(output_dir, f"region_{i}")
+        os.makedirs(region_dir, exist_ok=True)
+
+        # Save best parameters
+        with open(os.path.join(region_dir, "best_params.json"), "w") as f:
+            json.dump(best_params, f)
+
+        # Save best model
+        joblib.dump(best_model, os.path.join(region_dir, "best_model.pkl"))
+
+        # Predict the labels for the test set using the best model
+        y_pred = best_model.predict(X_test)
+
+        # Evaluate the model's accuracy on the test set
         accuracy = accuracy_score(y_test_binary, y_pred)
         print("Test Accuracy:", accuracy)
+        
+        # Evaluate AUC (ROC)
         auc = roc_auc_score(y_test_binary, y_pred)
-        print("AUC:", auc)
+        print("AUC (ROC):", auc)
+        
+        # Evaluate Precision score
+        average_precision = average_precision_score(y_test_binary, y_pred)
+        print("Average Precision:", average_precision)
+
+        # Store the scores for the current region
+        region_scores.append({
+            "Region": list(label_dict.keys())[i],
+            "Accuracy": accuracy,
+            "AUC (ROC)": auc,
+            "Average Precision": average_precision
+        })
+
+    # Save the scores to a file
+    scores_file = os.path.join(output_dir, "region_scores.json")
+    with open(scores_file, "w") as f:
+        json.dump(region_scores, f, indent=4)
+
+    print(f"Scores for all regions saved to {scores_file}")
         
 if __name__ == "__main__":
     main()

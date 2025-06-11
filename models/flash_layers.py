@@ -1,10 +1,8 @@
 # copied from scGPT
 
 from functools import lru_cache
-import math
 from typing import Optional
 
-from einops import rearrange
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

@@ -17,16 +17,18 @@ source ~/hmbenv/bin/activate
 python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not available. Exiting.'" || exit 1
 
 # === Set paths ===
-SAFETENSORS_PATH=model_checkpoints/best_model/model.safetensors
-VOCAB_PATH=model_checkpoints/data_checkpoint/vocab.json
-VOCAB_METADATA_PATH=model_checkpoints/data_checkpoint/vocab_metadata.json
-MODEL_CONFIG_PATH=model_checkpoints/model_config.json
+EXPERIMENT_PATH=experiment_saves
+
+SAFETENSORS_PATH=$EXPERIMENT_PATH/model_checkpoints/best_model/model.safetensors
+VOCAB_PATH=$EXPERIMENT_PATH/model_checkpoints/data_checkpoint/vocab.json
+VOCAB_METADATA_PATH=$EXPERIMENT_PATH/model_checkpoints/data_checkpoint/vocab_metadata.json
+MODEL_CONFIG_PATH=$EXPERIMENT_PATH/model_checkpoints/model_config.json
 
 TRAIN_NPY_PATH=datasets/finetune/train/finetune_data_train.npy
 TEST_NPY_PATH=datasets/finetune/test/finetune_data_test.npy
 
-TRAIN_OUTPUT_PATH=encoded_samples/encoded_samples_train.npy
-TEST_OUTPUT_PATH=encoded_samples/encoded_samples_test.npy
+TRAIN_OUTPUT_PATH=$EXPERIMENT_PATH/encoded_samples/encoded_samples_train.npy
+TEST_OUTPUT_PATH=$EXPERIMENT_PATH/encoded_samples/encoded_samples_test.npy
 
 # === Run the encoding script ===
 echo "Running encoding for finetune train set..."

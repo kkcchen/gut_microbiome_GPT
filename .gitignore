@@ -1,8 +1,7 @@
 datasets
 __pycache__/
 */__pycache__/
-model_checkpoints/*
-encoded_samples
+experiment_saves
 notebooks/**
 wandb
 logs/

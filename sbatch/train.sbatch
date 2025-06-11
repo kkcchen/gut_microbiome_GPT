@@ -18,11 +18,18 @@ python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not availabl
 
 # put your command here
 # DATA_DIR="$HOME/datasets"
+EXPERIMENT_PATH=experiment_saves
+
+# Create a notes file for the experiment
+NOTES_FILE="$EXPERIMENT_PATH/experiment_notes.txt"
+echo "Experiment started on $(date)" > "$NOTES_FILE"
+echo "Notes: Add your experiment details here." >> "$NOTES_FILE"
+
 HMC_TABLE_PATH="./datasets/pretrain/taxonomy_table_512.npy"
 TAXA_JSON_PATH="./datasets/pretrain/pretrain_cols.json"
-EXPERIMENT_PATH="./datasets/pretrain/sample_list.json"
+STUDY_PATH="./datasets/pretrain/sample_list.json"
 
-SAVE_DIR="./model_checkpoints"
+SAVE_DIR="$EXPERIMENT_PATH/model_checkpoints"
 BEST_DIR="$SAVE_DIR/best_model"
 MODEL_CHECKPOINTS="$SAVE_DIR/current_checkpoints"
 DATA_RESTORE_DIR="$SAVE_DIR/data_checkpoint"
@@ -35,7 +42,7 @@ accelerate launch -m scripts.trainer \
     --best-dir "$BEST_DIR" \
     --checkpoint-dir "$MODEL_CHECKPOINTS" \
     --data-restore-dir "$DATA_RESTORE_DIR" \
-    --experiments-path "$EXPERIMENT_PATH" \
+    --samplename-path "$STUDY_PATH" \
     --use-batch-labels \
     --wandb-enabled \
     --wandb-entity "haoze-deng-university-of-toronto" \
