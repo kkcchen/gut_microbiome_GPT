@@ -3,7 +3,6 @@ import argparse
 import os
 import numpy as np
 import json
-from tqdm import tqdm
 
 from safetensors.torch import load_file
 from data_utils.preprocessor import Preprocessor
@@ -108,22 +107,24 @@ def main():
     # === Encode ===
     all_cell_embs = []
     with torch.no_grad():
-        for data_dict in tqdm(dataloader):
+        for data_dict in dataloader:
             taxa = data_dict["ids"]
             values = data_dict["values"]
             src_padding_mask = taxa.eq(vocab.pad_index)
-            output, _ = model._encode(
+            unwrapped_model = accelerator.unwrap_model(model)
+            output, _ = unwrapped_model.encode(
                 src=taxa,  # (batch, seq_len)
                 values=values,  # (batch, seq_len)
                 src_key_padding_mask=src_padding_mask,  # (batch, seq_len)
             )  # (batch, seq_len, embsize)
-            cell_emb = model._get_cell_emb_from_layer(output)  # (batch, embsize)
-            gathered = accelerator.gather(cell_emb)  # Gather across processes
+            cell_emb = unwrapped_model.get_cell_emb_from_layer(output)  # (batch, embsize)
+            gathered = accelerator.gather_for_metrics(cell_emb)  # Gather across processes
             all_cell_embs.append(gathered.cpu())
 
     # === Save result (only main process) ===
     if accelerator.is_main_process:
         final_tensor = torch.cat(all_cell_embs, dim=0)
+        print(f"number of samples is {final_tensor.shape[0]}")
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         np.save(output_path, final_tensor.cpu().numpy())
         print(f"Saved cell embeddings as NumPy array to {output_path}")

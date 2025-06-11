@@ -176,7 +176,7 @@ class TransformerModel(nn.Module):
 
         self.init_weights()
 
-    def _encode(
+    def encode(
         self,
         src: Tensor,
         values: Tensor,
@@ -216,7 +216,7 @@ class TransformerModel(nn.Module):
         self.encoder.embedding.weight.data.uniform_(-initrange, initrange)
 
     # for the <cls> embedding this will be the first token in the sequence
-    def _get_cell_emb_from_layer(
+    def get_cell_emb_from_layer(
         self, layer_output: Tensor, weights: Tensor = None
     ) -> Tensor:
         """
@@ -400,7 +400,7 @@ class TransformerModel(nn.Module):
             input_cell_emb=input_cell_emb,
         )
         # else: if not pretraining
-        #     transformer_output, cur_taxa_token_embs = self._encode(
+        #     transformer_output, cur_taxa_token_embs = self.encode(
         #         pcpt_taxa,
         #         pcpt_values,
         #         pcpt_key_padding_mask,
@@ -432,7 +432,7 @@ class TransformerModel(nn.Module):
         # if self.explicit_zero_prob:
         #     output["mlm_zero_probs"] = mlm_output["zero_probs"]
 
-        cell_emb = self._get_cell_emb_from_layer(transformer_output)
+        cell_emb = self.get_cell_emb_from_layer(transformer_output)
         output["cell_emb"] = cell_emb
 
         # if CLS: # GEP
@@ -446,10 +446,10 @@ class TransformerModel(nn.Module):
         #         "Please set CCE=False to avoid this error."
         #     )
         #     cell1 = cell_emb
-        #     transformer_output2 = self._encode(
+        #     transformer_output2 = self.encode(
         #         src, values, src_key_padding_mask, batch_labels
         #     )
-        #     cell2 = self._get_cell_emb_from_layer(transformer_output2)
+        #     cell2 = self.get_cell_emb_from_layer(transformer_output2)
 
         #     # Gather embeddings from all devices if distributed training
         #     if dist.is_initialized() and self.training:

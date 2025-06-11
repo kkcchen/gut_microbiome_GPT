@@ -1,4 +1,5 @@
 import numpy as np
+import time
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, roc_auc_score
 import json
@@ -31,8 +32,8 @@ def main():
         test_loc_labels = json.load(f)
         
     # Check label lengths match original embeddings
-    assert len(train_loc_labels) == train_embeddings.shape[0], "Mismatch between train labels and embeddings"
-    assert len(test_loc_labels) == test_embeddings.shape[0], "Mismatch between test labels and embeddings"
+    assert len(train_loc_labels) == train_embeddings.shape[0], f"Mismatch between train labels and embeddings, {len(train_loc_labels)} vs {train_embeddings.shape[0]}"
+    assert len(test_loc_labels) == test_embeddings.shape[0], f"Mismatch between test labels and embeddings, {len(test_loc_labels)} vs {test_embeddings.shape[0]}"
 
     # Location to label mapping
     label_dict = {
@@ -72,6 +73,7 @@ def main():
     # instead of doing random forest over all categories, we follow the HMC paper and do per category one-vs-all classification
     for i in range(7):
         print(f"Starting Random Forest classifier on region {i}, which is {list(label_dict.keys())[i]}")
+        start_time = time.time()
         
         # Create binary labels: 1 for current region, 0 otherwise
         y_train_binary = (Y_train == i).astype(np.int64)
@@ -84,12 +86,15 @@ def main():
             min_samples_leaf=1,
             bootstrap=True,
             random_state=42,
+            class_weight="balanced",
             n_jobs=-1
         )
     
         # Train the model on the training data.
-    
+        start_time = time.time()
         rf_model.fit(X_train, y_train_binary)
+        end_time = time.time()
+        print(f"Time elapsed training: {(end_time - start_time):.2f} seconds")
     
         # Predict the labels for the test set.
         y_pred = rf_model.predict(X_test)
