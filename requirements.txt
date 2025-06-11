@@ -8,3 +8,4 @@ scikit-learn
 accelerate
 safetensors
 joblib
+scikit-bio

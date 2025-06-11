@@ -26,7 +26,7 @@ OUTPUT_DIR=$EXPERIMENT_PATH/random_forest_results
 
 # === Run the Random Forest classifier ===
 echo "Running Random Forest classification..."
-python -m scripts.random_forest_transformer \
+python -m scripts.random_forest_exp \
   --train-embed-path $TRAIN_EMBED_PATH \
   --train-loc-labels-path $TRAIN_LABELS_PATH \
   --test-embed-path $TEST_EMBED_PATH \
