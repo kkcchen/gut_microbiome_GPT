@@ -255,13 +255,13 @@ if __name__ == '__main__':
     # Save .npy files
     os.makedirs(os.path.join(finetune_save_dir, "train"), exist_ok=True)
     os.makedirs(os.path.join(finetune_save_dir, "test"), exist_ok=True)
-    np.save(os.path.join(finetune_save_dir, "train/finetune_data_train.npy"), train_data_arr)
-    np.save(os.path.join(finetune_save_dir, "test/finetune_data_test.npy"), test_data_arr)
+    np.save(os.path.join(finetune_save_dir, "train/finetune_data_train_512.npy"), train_data_arr)
+    np.save(os.path.join(finetune_save_dir, "test/finetune_data_test_512.npy"), test_data_arr)
 
     # Save .json files
-    with open(os.path.join(finetune_save_dir, "train/finetune_samples_train.json"), "w") as f:
+    with open(os.path.join(finetune_save_dir, "train/finetune_samples_train_512.json"), "w") as f:
         json.dump(train_samples, f, indent=4)
-    with open(os.path.join(finetune_save_dir, "test/finetune_samples_test.json"), "w") as f:
+    with open(os.path.join(finetune_save_dir, "test/finetune_samples_test_512.json"), "w") as f:
         json.dump(test_samples, f, indent=4)
 
     with open(os.path.join(finetune_save_dir, "train/finetune_locs_train.json"), "w") as f:
