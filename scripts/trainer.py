@@ -52,7 +52,8 @@ if __name__ == "__main__":
     parser.add_argument("--nrows", type=int, default=None, help="For debugging to limit number of samples in set")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     parser.add_argument("--start-over", action="store_true", help="Start over from scratch, ignoring existing data and checkpoints")
-
+    parser.add_argument("--notes", type=str, default="", help="Notes for the current training run")
+    
     args = parser.parse_args()
 
     model_config_path = args.model_config_path
@@ -87,6 +88,13 @@ if __name__ == "__main__":
     # Set random seed for reproducibility
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
+    
+    # Save notes to a markdown file in the save directory
+    if args.notes:
+        notes_path = os.path.join(best_dir, "training_notes.md")
+        os.makedirs(best_dir, exist_ok=True)
+        with open(notes_path, "w") as notes_file:
+            notes_file.write(args.notes)
     
     wandb_config={
         "learning_rate": init_lr,

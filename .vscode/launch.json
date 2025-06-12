@@ -12,6 +12,7 @@
             "cwd": "${workspaceFolder}",
             "args": [
             "-m", "scripts.trainer",
+            "--model-config-path", "experiment_saves/model_checkpoints/model_config.json",
             "--hmc-table-path", "datasets_full/pretrain/taxonomy_table_512.npy",
             "--taxa-path", "datasets_full/pretrain/pretrain_cols.json",
             "--best-dir", "experiment_saves/model_checkpoints/best_model",
@@ -25,6 +26,8 @@
             "--cosine-warmup-ratio-or-step", "0.1",
             "--nrows", "10",
             "--seed", "42",
+
+            "--notes", "test run",
 
             // "--start-over",
 
