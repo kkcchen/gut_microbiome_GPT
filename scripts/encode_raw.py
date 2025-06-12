@@ -44,12 +44,12 @@ def main():
     X_filtered[:, :, 1] = preprocess_clr(X_filtered[:, :, 1])
 
     # Separate train and test data
-    train_filtered = X_filtered[:X_train.shape[0], :, :]
-    test_filtered = X_filtered[X_train.shape[0]:, :, :]
+    train_filtered = X_filtered[:X_train.shape[0], :, 1]
+    test_filtered = X_filtered[X_train.shape[0]:, :, 1]
 
     # Save train and test data separately
     train_output_path = os.path.join(args.output_dir, "raw_encoded_train.npy")
-    test_output_path = os.path.join(args.output_dir, "raw_encoded_train.npy")
+    test_output_path = os.path.join(args.output_dir, "raw_encoded_test.npy")
 
     os.makedirs(args.output_dir, exist_ok=True)
     np.save(train_output_path, train_filtered)

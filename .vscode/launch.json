@@ -89,8 +89,8 @@
           "module": "scripts.encode_raw",
           "console": "integratedTerminal",
           "args": [
-            "--train-input", "/home/kchen/microbiome/gut_microbiome_GPT/datasets/finetune/train/finetune_data_train_512.npy",
-            "--test-input", "/home/kchen/microbiome/gut_microbiome_GPT/datasets/finetune/test/finetune_data_test_512.npy",
+            "--train-input", "/home/kchen/microbiome/gut_microbiome_GPT/datasets/finetune/train/finetune_data_train.npy",
+            "--test-input", "/home/kchen/microbiome/gut_microbiome_GPT/datasets/finetune/test/finetune_data_test.npy",
             "--output-dir", "/home/kchen/microbiome/gut_microbiome_GPT/experiment_saves/encoded_samples",
             "--prevalence-threshold", "0.01",
             "--abundance-threshold", "0.05"

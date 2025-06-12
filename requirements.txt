@@ -9,3 +9,4 @@ accelerate
 safetensors
 joblib
 scikit-bio
+scipy

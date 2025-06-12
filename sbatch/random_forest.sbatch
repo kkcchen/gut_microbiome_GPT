@@ -5,7 +5,7 @@
 #SBATCH --partition=cpu
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --time=3:00:00              
+#SBATCH --time=6:00:00              
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 
@@ -22,7 +22,7 @@ TRAIN_LABELS_PATH=datasets/finetune/train/finetune_locs_train.json
 TEST_EMBED_PATH=$EXPERIMENT_PATH/encoded_samples/encoded_samples_test.npy
 TEST_LABELS_PATH=datasets/finetune/test/finetune_locs_test.json
 
-OUTPUT_DIR=$EXPERIMENT_PATH/random_forest_results
+OUTPUT_DIR=$EXPERIMENT_PATH/random_forest_results/encoded_samples
 
 # === Run the Random Forest classifier ===
 echo "Running Random Forest classification..."

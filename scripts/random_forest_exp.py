@@ -5,9 +5,10 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_score
 import json
 import joblib
+from scipy.stats import randint, uniform
 
 import argparse
-from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 
 def main():
     parser = argparse.ArgumentParser(description="Script for processing embeddings.")
@@ -87,11 +88,6 @@ def main():
         y_train_binary = (Y_train == i).astype(np.int64)
         y_test_binary = (Y_test == i).astype(np.int64)
 
-        param_grid = {
-            'n_estimators': [1, 2, 3],
-            'max_depth': [None, 10, 20, 30]
-        }
-
         # Initialize the RandomForestClassifier
         rf_model = RandomForestClassifier(
             bootstrap=True,
@@ -100,28 +96,53 @@ def main():
             n_jobs=-1
         )
 
-        # Perform grid search with cross-validation
-        grid_search = GridSearchCV(
+        # param_grid = {
+        #     "min_samples_leaf": [1, 5, 10],
+        #     "max_samples": [1.0, 0.75, 0.5],
+        #     "max_features": [0.1, 0.2, 0.3],
+        #     "n_estimators": [50, 200, 500]
+        # }
+        
+        # # Perform grid search with cross-validation
+        # search = GridSearchCV(
+        #     estimator=rf_model,
+        #     param_grid=param_grid,
+        #     scoring='roc_auc',
+        #     cv=3,
+        #     n_jobs=-1
+        # )
+        
+        param_distributions = {
+            "min_samples_leaf": randint(1, 11),            # integer between 1 and 10
+            "max_samples": uniform(0.5, 0.5),              # float between 0.5 and 1.0
+            "max_features": uniform(0.1, 0.2),             # float between 0.1 and 0.3
+            "n_estimators": randint(50, 501)               # integer between 50 and 500
+        }
+
+        # Perform random search with cross-validation
+        search = RandomizedSearchCV(
             estimator=rf_model,
-            param_grid=param_grid,
+            param_distributions=param_distributions,
+            n_iter=25,                   # Number of parameter combinations to try
             scoring='roc_auc',
             cv=3,
-            n_jobs=-1
+            n_jobs=-1,
+            random_state=42,
+            verbose=1
         )
 
         # Train the model using grid search
         start_time = time.time()
-        grid_search.fit(X_train, y_train_binary)
+        search.fit(X_train, y_train_binary)
         end_time = time.time()
         print(f"Time elapsed for grid search: {(end_time - start_time):.2f} seconds")
 
         # Get the best parameters and model
-        best_params = grid_search.best_params_
-        print(f"Best Parameters for region {i}:", best_params)
-        best_model = grid_search.best_estimator_
+        best_params = search.best_params_
+        best_model = search.best_estimator_
 
         # Save the best parameters and model for the current region
-        region_dir = os.path.join(output_dir, f"region_{i}")
+        region_dir = os.path.join(output_dir, f"{list(label_dict.keys())[i]}")
         os.makedirs(region_dir, exist_ok=True)
 
         # Save best parameters
@@ -136,22 +157,17 @@ def main():
 
         # Evaluate the model's accuracy on the test set
         accuracy = accuracy_score(y_test_binary, y_pred)
-        print("Test Accuracy:", accuracy)
-        
-        # Evaluate AUC (ROC)
         auc = roc_auc_score(y_test_binary, y_pred)
-        print("AUC (ROC):", auc)
-        
-        # Evaluate Precision score
         average_precision = average_precision_score(y_test_binary, y_pred)
-        print("Average Precision:", average_precision)
+        baseline_precision = np.mean(y_test_binary)
 
         # Store the scores for the current region
         region_scores.append({
             "Region": list(label_dict.keys())[i],
             "Accuracy": accuracy,
             "AUC (ROC)": auc,
-            "Average Precision": average_precision
+            "Average Precision": average_precision,
+            "Baseline Precision": baseline_precision
         })
 
     # Save the scores to a file

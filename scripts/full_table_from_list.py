@@ -1,13 +1,19 @@
 import numpy as np
 import json
 
-full_table = np.load("/home/kchen/microbiome/gut_microbiome_GPT/datasets_full/finetune/taxonomy_table_finetune.npy")
-save_path = "/home/kchen/microbiome/gut_microbiome_GPT/datasets/finetune/test/finetune_data_test.npy"
+full_table_path = "/h/chenke83/gut_microbiome_GPT/datasets/finetune/taxonomy_table_finetune.npy"
+full_sample_names_path = "/h/chenke83/gut_microbiome_GPT/datasets/finetune/sample_list.json"
 
-with open("/home/kchen/microbiome/gut_microbiome_GPT/datasets_full/finetune/test/finetune_samples_test.json", "r") as f:
+save_path = "/h/chenke83/gut_microbiome_GPT/datasets/finetune/test/finetune_data_test.npy"
+small_sample_names_path = "/h/chenke83/gut_microbiome_GPT/datasets/finetune/test/finetune_samples_test.json"
+top_k_table_path = "/h/chenke83/gut_microbiome_GPT/datasets/finetune/test/finetune_data_test_512.npy"
+
+full_table = np.load(full_table_path)
+
+with open(small_sample_names_path, "r") as f:
     small_sample_names = json.load(f)
 
-with open("/home/kchen/microbiome/gut_microbiome_GPT/datasets_full/finetune/sample_list.json", "r") as f:
+with open(full_sample_names_path, "r") as f:
     full_sample_names = json.load(f)
 
 assert len(full_sample_names) == len(full_table)
@@ -16,7 +22,7 @@ indices = [full_sample_names.index(name) for name in small_sample_names]
 filtered_table = full_table[indices]
 
 print("first check that filtered table, passed through top_k, is the same as the 512 table")
-top_k_table = np.load("/home/kchen/microbiome/gut_microbiome_GPT/datasets_full/finetune/test/finetune_data_test_512.npy")
+top_k_table = np.load(top_k_table_path)
 
 new_top_k_table = np.array([
     row[np.argsort(-row[:, 1])[:512]]
