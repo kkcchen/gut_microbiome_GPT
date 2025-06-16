@@ -46,6 +46,7 @@ accelerate launch -m scripts.trainer \
     --wandb-entity "haoze-deng-university-of-toronto" \
     --wandb-project "hmbgpt_oncluster" \
     --wandb-run-name "$RUN_NAME" \
+    --wandb-run-notes "$NOTES" \
     --init-lr 1e-3 \
     --batch-size 64 \
     --max-epochs 25 \

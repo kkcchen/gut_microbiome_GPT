@@ -34,6 +34,7 @@ if __name__ == "__main__":
     parser.add_argument("--wandb-entity", type=str, default=None, help="wandb entity name")
     parser.add_argument("--wandb-project", type=str, default=None, help="wandb project name")
     parser.add_argument("--wandb-run-name", type=str, default=None, help="wandb run name")
+    parser.add_argument("--wandb-run-notes", type=str, default=None, help="wandb run notes")
 
     # optional training arguments
     parser.add_argument("--init-lr", type=float, default=1e-3, help="Initial learning rate")
@@ -70,6 +71,7 @@ if __name__ == "__main__":
     wandb_entity = args.wandb_entity
     wandb_project = args.wandb_project
     wandb_run_name = args.wandb_run_name
+    wandb_run_notes = args.wandb_run_notes
 
     init_lr = args.init_lr
     batch_size = args.batch_size
@@ -161,7 +163,7 @@ if __name__ == "__main__":
         json.dump(model_config, f, indent=4)
 
     model, optimizer, scheduler, epoch, best_val_loss, patience_counter, extra_state = create_or_restore_training_state_wandb(
-        model_config, init_lr, cosine_warmup_ratio_or_step, max_epochs, len(train_loader), checkpoint_dir, wandb_enabled, wandb_entity, wandb_project, wandb_config, accelerator, wandb_run_name=wandb_run_name
+        model_config, init_lr, cosine_warmup_ratio_or_step, max_epochs, len(train_loader), checkpoint_dir, wandb_enabled, wandb_entity, wandb_project, wandb_config, accelerator, wandb_run_name=wandb_run_name, wandb_run_notes=wandb_run_notes
     )
 
     train_loader, valid_loader, model, optimizer, scheduler = accelerator.prepare(
