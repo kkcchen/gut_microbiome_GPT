@@ -5,7 +5,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --partition=t4v1,t4v2,a40,rtx6000 
 #SBATCH --qos=normal
-#SBATCH --time=15:00:00
+#SBATCH --time=24:00:00
 #SBATCH --output=logs/train_hmc/%j.out
 #SBATCH --error=logs/train_hmc/%j.err
 #SBATCH --gres=gpu:4

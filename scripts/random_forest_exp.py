@@ -96,40 +96,40 @@ def main():
             n_jobs=-1
         )
 
-        # param_grid = {
-        #     "min_samples_leaf": [1, 5, 10],
-        #     "max_samples": [1.0, 0.75, 0.5],
-        #     "max_features": [0.1, 0.2, 0.3],
-        #     "n_estimators": [50, 200, 500]
-        # }
+        param_grid = {
+            "min_samples_leaf": [1, 10, 100],
+            # "max_samples": [1.0, 0.75, 0.5],
+            # "max_features": [0.1, 0.2, 0.3],
+            "n_estimators": [50, 250, 500, 1000]
+        }
         
         # # Perform grid search with cross-validation
-        # search = GridSearchCV(
-        #     estimator=rf_model,
-        #     param_grid=param_grid,
-        #     scoring='roc_auc',
-        #     cv=3,
-        #     n_jobs=-1
-        # )
-        
-        param_distributions = {
-            "min_samples_leaf": randint(1, 11),            # integer between 1 and 10
-            "max_samples": uniform(0.5, 0.5),              # float between 0.5 and 1.0
-            "max_features": uniform(0.1, 0.2),             # float between 0.1 and 0.3
-            "n_estimators": randint(50, 501)               # integer between 50 and 500
-        }
-
-        # Perform random search with cross-validation
-        search = RandomizedSearchCV(
+        search = GridSearchCV(
             estimator=rf_model,
-            param_distributions=param_distributions,
-            n_iter=25,                   # Number of parameter combinations to try
+            param_grid=param_grid,
             scoring='roc_auc',
             cv=3,
-            n_jobs=-1,
-            random_state=42,
-            verbose=1
+            n_jobs=8,
         )
+        
+        # param_distributions = {
+        #     "min_samples_leaf": randint(1, 11),            # integer between 1 and 10
+        #     "max_samples": uniform(0.5, 0.5),              # float between 0.5 and 1.0
+        #     "max_features": uniform(0.1, 0.2),             # float between 0.1 and 0.3
+        #     "n_estimators": randint(50, 501)               # integer between 50 and 500
+        # }
+
+        # # Perform random search with cross-validation
+        # search = RandomizedSearchCV(
+        #     estimator=rf_model,
+        #     param_distributions=param_distributions,
+        #     n_iter=25,                   # Number of parameter combinations to try
+        #     scoring='roc_auc',
+        #     cv=3,
+        #     n_jobs=,-1
+        #     random_state=42,
+        #     verbose=1
+        # )
 
         # Train the model using grid search
         start_time = time.time()
@@ -142,7 +142,8 @@ def main():
         best_model = search.best_estimator_
 
         # Save the best parameters and model for the current region
-        region_dir = os.path.join(output_dir, f"{list(label_dict.keys())[i]}")
+        region_name = list(label_dict.keys())[i].replace("/", " ")
+        region_dir = os.path.join(output_dir, f"{region_name}")
         os.makedirs(region_dir, exist_ok=True)
 
         # Save best parameters

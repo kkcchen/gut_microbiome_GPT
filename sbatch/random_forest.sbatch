@@ -14,12 +14,13 @@ cd ~/gut_microbiome_GPT
 source ~/hmbenv/bin/activate
 
 # === Paths to your data ===
-EXPERIMENT_PATH=experiment_saves/no_mvc
+EXPERIMENT_PATH=experiment_saves/grid_search
+EMB_SAVE_PATH=experiment_saves/without_batches/encoded_samples
 
-TRAIN_EMBED_PATH=$EXPERIMENT_PATH/encoded_samples/encoded_samples_train.npy
+TRAIN_EMBED_PATH=$EMB_SAVE_PATH/encoded_samples_train.npy
 TRAIN_LABELS_PATH=datasets/finetune/train/finetune_locs_train.json
 
-TEST_EMBED_PATH=$EXPERIMENT_PATH/encoded_samples/encoded_samples_test.npy
+TEST_EMBED_PATH=$EMB_SAVE_PATH/encoded_samples_test.npy
 TEST_LABELS_PATH=datasets/finetune/test/finetune_locs_test.json
 
 OUTPUT_DIR=$EXPERIMENT_PATH/random_forest_results
