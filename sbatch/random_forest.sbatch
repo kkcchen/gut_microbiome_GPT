@@ -14,7 +14,7 @@ cd ~/gut_microbiome_GPT
 source ~/hmbenv/bin/activate
 
 # === Paths to your data ===
-EXPERIMENT_PATH=experiment_saves
+EXPERIMENT_PATH=experiment_saves/no_mvc
 
 TRAIN_EMBED_PATH=$EXPERIMENT_PATH/encoded_samples/encoded_samples_train.npy
 TRAIN_LABELS_PATH=datasets/finetune/train/finetune_locs_train.json
@@ -22,7 +22,7 @@ TRAIN_LABELS_PATH=datasets/finetune/train/finetune_locs_train.json
 TEST_EMBED_PATH=$EXPERIMENT_PATH/encoded_samples/encoded_samples_test.npy
 TEST_LABELS_PATH=datasets/finetune/test/finetune_locs_test.json
 
-OUTPUT_DIR=$EXPERIMENT_PATH/random_forest_results/encoded_samples
+OUTPUT_DIR=$EXPERIMENT_PATH/random_forest_results
 
 # === Run the Random Forest classifier ===
 echo "Running Random Forest classification..."

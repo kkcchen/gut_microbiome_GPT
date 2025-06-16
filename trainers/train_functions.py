@@ -533,7 +533,7 @@ def create_or_restore_data_state(hmc_table_path, taxa_path, num_bins, data_resto
     return train_data_dict, valid_data_dict, vocab, batch_vocab
 
 
-def create_or_restore_training_state_wandb(model_config, init_lr, warmup_ratio_or_step, total_epochs, trainloader_length, checkpoint_dir, wandb_enabled, wandb_entity, wandb_project, wandb_config, accelerator: Accelerator):
+def create_or_restore_training_state_wandb(model_config, init_lr, warmup_ratio_or_step, total_epochs, trainloader_length, checkpoint_dir, wandb_enabled, wandb_entity, wandb_project, wandb_config, accelerator: Accelerator, wandb_run_name=None):
     # initial configuration of the model
     # model = TransformerModel(
     #     d_model=512,
@@ -604,6 +604,7 @@ def create_or_restore_training_state_wandb(model_config, init_lr, warmup_ratio_o
         if accelerator.is_main_process:
             run = wandb.init(
                 mode="online" if wandb_enabled else "disabled",
+                name=wandb_run_name,
                 entity=wandb_entity,
                 project=wandb_project,
                 config=wandb_config,

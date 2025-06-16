@@ -18,7 +18,8 @@ python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not availabl
 
 # put your command here
 # DATA_DIR="$HOME/datasets"
-EXPERIMENT_PATH=experiment_saves/no_mvc
+RUN_NAME=no_mvc
+EXPERIMENT_PATH=experiment_saves/$RUN_NAME
 
 HMC_TABLE_PATH="./datasets/pretrain/taxonomy_table_512.npy"
 TAXA_JSON_PATH="./datasets/pretrain/pretrain_cols.json"
@@ -44,6 +45,7 @@ accelerate launch -m scripts.trainer \
     --wandb-enabled \
     --wandb-entity "haoze-deng-university-of-toronto" \
     --wandb-project "hmbgpt_oncluster" \
+    --wandb-run-name "$RUN_NAME" \
     --init-lr 1e-3 \
     --batch-size 64 \
     --max-epochs 25 \
