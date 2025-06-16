@@ -18,12 +18,7 @@ python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not availabl
 
 # put your command here
 # DATA_DIR="$HOME/datasets"
-EXPERIMENT_PATH=experiment_saves
-
-# Create a notes file for the experiment
-NOTES_FILE="$EXPERIMENT_PATH/experiment_notes.txt"
-echo "Experiment started on $(date)" > "$NOTES_FILE"
-echo "Notes: Add your experiment details here." >> "$NOTES_FILE"
+EXPERIMENT_PATH=experiment_saves/no_mvc
 
 HMC_TABLE_PATH="./datasets/pretrain/taxonomy_table_512.npy"
 TAXA_JSON_PATH="./datasets/pretrain/pretrain_cols.json"
@@ -33,6 +28,9 @@ SAVE_DIR="$EXPERIMENT_PATH/model_checkpoints"
 BEST_DIR="$SAVE_DIR/best_model"
 MODEL_CHECKPOINTS="$SAVE_DIR/current_checkpoints"
 DATA_RESTORE_DIR="$SAVE_DIR/data_checkpoint"
+MODEL_CONFIG_PATH="$SAVE_DIR/model_config.json"
+
+NOTES="removing mvc and batches"
 
 python -m wandb login 7559085cf6a63fa75982fe12e737bdd576c4fc62
 
@@ -42,8 +40,7 @@ accelerate launch -m scripts.trainer \
     --best-dir "$BEST_DIR" \
     --checkpoint-dir "$MODEL_CHECKPOINTS" \
     --data-restore-dir "$DATA_RESTORE_DIR" \
-    --samplename-path "$STUDY_PATH" \
-    --use-batch-labels \
+    --model-config-path "$MODEL_CONFIG_PATH" \
     --wandb-enabled \
     --wandb-entity "haoze-deng-university-of-toronto" \
     --wandb-project "hmbgpt_oncluster" \
@@ -54,4 +51,9 @@ accelerate launch -m scripts.trainer \
     --num-bins 15 \
     --log-interval 10 \
     --enable-fp16 \
-    --seed 42
+    --seed 42 \
+    --notes "$NOTES" \
+    # --use-batch-labels \
+    # --samplename-path "$STUDY_PATH" \
+    # --do-mvc
+

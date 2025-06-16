@@ -47,6 +47,7 @@ if __name__ == "__main__":
     # model parameters
     parser.add_argument("--num-bins", type=int, default=15, help="Number of bins for binning")
     parser.add_argument("--use-batch-labels", action="store_true", help="Use batch labels in the dataset")
+    parser.add_argument("--do-mvc", action="store_true", help="do mvc task for pretraining")
 
     # for debugging
     parser.add_argument("--nrows", type=int, default=None, help="For debugging to limit number of samples in set")
@@ -77,6 +78,7 @@ if __name__ == "__main__":
     patience = args.patience if args.patience else max_epochs
     grad_accumulation_steps = args.grad_accumulation_steps
     enable_fp16 = args.enable_fp16
+    do_mvc = args.do_mvc
     
     use_batch_labels = args.use_batch_labels
     if use_batch_labels:
@@ -143,7 +145,7 @@ if __name__ == "__main__":
         "use_batch_labels": use_batch_labels,
         "dropout": 0.1,
         "n_input_bins": num_bins,
-        "do_mvc": True,
+        "do_mvc": do_mvc,
 
         "vocab_len": len(vocab),
         "vocab_pad_index": vocab.pad_index,
@@ -182,7 +184,7 @@ if __name__ == "__main__":
             use_batch_labels=use_batch_labels,
             best_dir=best_dir,
             best_val_loss=best_val_loss,
-            use_mvc=model_config["do_mvc"],
+            use_mvc=do_mvc,
         )
 
         # Log metrics to wandb

@@ -110,6 +110,7 @@ class TransformerModel(nn.Module):
             self.batch_encoder = BatchLabelEncoder(num_batch_labels, d_model)
 
         # masked value classification decoder
+        # always init mvc, even if it isn't used for model init compatibility purposes
         if do_mvc:
             self.mvc_decoder = MVCDecoder(
                 d_model,
@@ -475,6 +476,8 @@ class TransformerModel(nn.Module):
         #     labels = torch.arange(cos_sim.size(0)).long().to(cell1.device)
         #     output["loss_cce"] = self.creterion_cce(cos_sim, labels)
         if MVC: # GEPC
+            if not self.do_mvc:
+                raise ValueError("MVC is not enabled for this model, so do not call MVC in the forward pass!")
             mvc_output = self.mvc_decoder(
                 cell_emb
                 if not self.use_batch_labels
