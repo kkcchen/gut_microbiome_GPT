@@ -13,12 +13,12 @@
 source ~/hmbenv/bin/activate
 
 # Arguments
-TAXONOMIC_TABLE_PATH="$HOME/datasets/taxonomic_table.csv"
-PRETRAIN_SAVE_DIR="$HOME/gut_microbiome_GPT/datasets/pretrain"
-FINETUNE_SAVE_DIR="$HOME/gut_microbiome_GPT/datasets/finetune"
+TAXONOMIC_TABLE_PATH="/projects/gutmodel/taxonomic_table.csv"
+PRETRAIN_SAVE_DIR="/projects/gutmodel/datasets/pretrain"
+FINETUNE_SAVE_DIR="/projects/gutmodel/datasets/finetune"
 NPY_PRETRAIN_FILE="taxonomy_table_pretrain"
 NPY_FINETUNE_FILE="taxonomy_table_finetune"
-METADATA_PATH="$HOME/datasets/sample_metadata.tsv"
+METADATA_PATH="/projects/gutmodel/sample_metadata.tsv"
 
 # Run the script
 echo starting now

@@ -17,13 +17,13 @@ source ~/hmbenv/bin/activate
 python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not available. Exiting.'" || exit 1
 
 # put your command here
-# DATA_DIR="$HOME/datasets"
+DATA_DIR="/projects/gutmodel/datasets"
 RUN_NAME=no_mvc
 EXPERIMENT_PATH=experiment_saves/$RUN_NAME
 
-HMC_TABLE_PATH="./datasets/pretrain/taxonomy_table_512.npy"
-TAXA_JSON_PATH="./datasets/pretrain/pretrain_cols.json"
-STUDY_PATH="./datasets/pretrain/sample_list.json"
+HMC_TABLE_PATH="$DATA_DIR/pretrain/taxonomy_table_512.npy"
+TAXA_JSON_PATH="$DATA_DIR/pretrain/pretrain_cols.json"
+STUDY_PATH="$DATA_DIR/pretrain/sample_list.json"
 
 SAVE_DIR="$EXPERIMENT_PATH/model_checkpoints"
 BEST_DIR="$SAVE_DIR/best_model"
