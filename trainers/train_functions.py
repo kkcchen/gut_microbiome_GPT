@@ -109,9 +109,10 @@ def pretrain(
                 gen_expr_preds = output_values = output_dict["gen_preds"]
 
                 positions_to_match = ~gen_key_padding_mask
-                loss = loss_mse = masked_mse_loss(
+                loss_mse = masked_mse_loss(
                     gen_expr_preds, gen_values_target, positions_to_match
                 )
+                loss = 2 * loss_mse
                 accelerator.log({"train/loss_pcpt": loss_mse.item()}, step=global_iter)
 
                 if use_mvc:
@@ -158,23 +159,23 @@ def pretrain(
                 #         writer.add_scalar("train/mvc", loss_mvc, global_iter)
 
                 # if USE_GENERATIVE_TRAINING and global_iter > 1000:
-                if global_iter > 500:
-                    previous_cell_embs = output_dict["cell_emb"].detach()
-                    preds = model(
-                        pcpt_taxa,
-                        pcpt_values,
-                        pcpt_key_padding_mask,
-                        gen_taxa,
-                        gen_key_padding_mask,
-                        # CLS=False,
-                        MVC=False,
-                        batch_labels=batch_labels,
-                        input_cell_emb=previous_cell_embs,
-                        # generative_training=True,
-                    )["gen_preds"]
-                    loss_gen = masked_mse_loss(preds, gen_values_target, positions_to_match)
-                    loss = loss + loss_gen
-                    accelerator.log({"train/loss_gen": loss_gen.item()}, step=global_iter)
+                # if global_iter > 500:
+                #     previous_cell_embs = output_dict["cell_emb"].detach()
+                #     preds = model(
+                #         pcpt_taxa,
+                #         pcpt_values,
+                #         pcpt_key_padding_mask,
+                #         gen_taxa,
+                #         gen_key_padding_mask,
+                #         # CLS=False,
+                #         MVC=False,
+                #         batch_labels=batch_labels,
+                #         input_cell_emb=previous_cell_embs,
+                #         # generative_training=True,
+                #     )["gen_preds"]
+                #     loss_gen = masked_mse_loss(preds, gen_values_target, positions_to_match)
+                #     loss = loss + loss_gen
+                #     accelerator.log({"train/loss_gen": loss_gen.item()}, step=global_iter)
 
             # TODO: try this choice of using a separate backprop
             # # this part is for the choice of using a separate backprop
@@ -364,10 +365,10 @@ def evaluate(
                 #     output_values = output_dict["mlm_output"]
                 #     positions_to_match = input_values.eq(args.mask_value)
 
-            loss = masked_mse_loss(output_values, gen_values, positions_to_match)
+            loss = masked_mse_loss(gen_expr_preds, gen_values, positions_to_match)
             total_loss += loss.item()
             total_error += masked_relative_error(
-                output_values, gen_values, positions_to_match
+                gen_expr_preds, gen_values, positions_to_match
             ).item()
 
     total_loss = total_loss / len(valid_loader)
@@ -420,19 +421,24 @@ def create_or_restore_data_state(hmc_table_path, taxa_path, num_bins, data_resto
         with open(os.path.join(data_restore_dir, "data_state.pt"), 'rb') as f:
             data_state = torch.load(f, weights_only=False)
         vocab = MicrobiomeVocab.get_vocab_from_json(os.path.join(data_restore_dir, "vocab.json"), os.path.join(data_restore_dir, "vocab_metadata.json"))
-        if use_batch_labels and os.path.exists(os.path.join(data_restore_dir, "batch_vocab.json")):
-            batch_vocab = BatchVocab.get_vocab_from_json(os.path.join(data_restore_dir, "batch_vocab.json"))
+        if use_batch_labels:
+            if os.path.exists(os.path.join(data_restore_dir, "batch_vocab.json")):
+                batch_vocab = BatchVocab.get_vocab_from_json(os.path.join(data_restore_dir, "batch_vocab.json"))
+            else:
+                raise AssertionError("Batch vocab not found in the data restore directory")
         else:
-            raise AssertionError("Batch vocab not found in the data restore directory")
             batch_vocab = None
+
         logger.info("Data state restored from {}".format(data_restore_dir))
 
         train_data_dict = data_state["train_data_dict"]
         valid_data_dict = data_state["valid_data_dict"]
     else:
-        if os.path.exists(data_restore_dir):
-            shutil.rmtree(data_restore_dir)
-        os.makedirs(data_restore_dir)
+        if accelerator.is_main_process:
+            if os.path.exists(data_restore_dir):
+                shutil.rmtree(data_restore_dir)
+            os.makedirs(data_restore_dir)
+        accelerator.wait_for_everyone()
         if nrows:
             hmc_npy = np.load(hmc_table_path)[:nrows,:,:] # shape (num_samples, num_taxa, 2) where (:,:,0) is taxa_id and (:,:,1) is counts
         else:
