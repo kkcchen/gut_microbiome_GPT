@@ -114,9 +114,9 @@ def main():
         
         # param_distributions = {
         #     "min_samples_leaf": randint(1, 11),            # integer between 1 and 10
-        #     "max_samples": uniform(0.5, 0.5),              # float between 0.5 and 1.0
-        #     "max_features": uniform(0.1, 0.2),             # float between 0.1 and 0.3
-        #     "n_estimators": randint(50, 501)               # integer between 50 and 500
+        #     "max_samples": uniform(0.5, 1),              # float between 0.5 and 1.0
+        #     "max_features": uniform(0.1, 0.3),             # float between 0.1 and 0.3
+        #     "n_estimators": randint(200, 1000)               # integer between 50 and 500
         # }
 
         # # Perform random search with cross-validation

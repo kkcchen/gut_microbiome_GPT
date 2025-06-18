@@ -95,13 +95,6 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     
-    # Save notes to a markdown file in the save directory
-    if args.notes:
-        notes_path = os.path.join(best_dir, "training_notes.md")
-        os.makedirs(best_dir, exist_ok=True)
-        with open(notes_path, "w") as notes_file:
-            notes_file.write(args.notes)
-    
     wandb_config={
         "learning_rate": init_lr,
         "batch_size": batch_size,
@@ -111,6 +104,13 @@ if __name__ == "__main__":
     }
 
     accelerator = Accelerator(gradient_accumulation_steps=grad_accumulation_steps, mixed_precision="fp16" if enable_fp16 else "no", log_with="wandb" if wandb_enabled else None)
+
+    # Save notes to a markdown file in the save directory
+    if accelerator.is_main_process and args.notes:
+        notes_path = os.path.join(best_dir, "training_notes.md")
+        os.makedirs(best_dir, exist_ok=True)
+        with open(notes_path, "w") as notes_file:
+            notes_file.write(args.notes)
 
     if args.start_over:
         logger.info("Starting over from scratch, deleting existing training state.")
@@ -158,9 +158,10 @@ if __name__ == "__main__":
     }
     
     import json
-    os.makedirs(os.path.dirname(model_config_path), exist_ok=True)
-    with open(model_config_path, "w") as f:
-        json.dump(model_config, f, indent=4)
+    if accelerator.is_main_process:
+        os.makedirs(os.path.dirname(model_config_path), exist_ok=True)
+        with open(model_config_path, "w") as f:
+            json.dump(model_config, f, indent=4)
 
     model, optimizer, scheduler, epoch, best_val_loss, patience_counter, extra_state = create_or_restore_training_state_wandb(
         model_config, init_lr, cosine_warmup_ratio_or_step, max_epochs, len(train_loader), checkpoint_dir, wandb_enabled, wandb_entity, wandb_project, wandb_config, accelerator, wandb_run_name=wandb_run_name, wandb_run_notes=wandb_run_notes
