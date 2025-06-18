@@ -50,6 +50,7 @@ if __name__ == "__main__":
     parser.add_argument("--num-bins", type=int, default=15, help="Number of bins for binning")
     parser.add_argument("--use-batch-labels", action="store_true", help="Use batch labels in the dataset")
     parser.add_argument("--do-mvc", action="store_true", help="do mvc task for pretraining")
+    parser.add_argument("--do-contrastive", action="store_true", help="Use contrastive embedding in the model")
 
     # for debugging
     parser.add_argument("--nrows", type=int, default=None, help="For debugging to limit number of samples in set")
@@ -83,6 +84,7 @@ if __name__ == "__main__":
     grad_accumulation_steps = args.grad_accumulation_steps
     enable_fp16 = args.enable_fp16
     do_mvc = args.do_mvc
+    do_contrastive = args.do_contrastive
     
     use_batch_labels = args.use_batch_labels
     if use_batch_labels:
@@ -131,6 +133,7 @@ if __name__ == "__main__":
         vocab=vocab,
         batch_size=batch_size,
         shuffle=True,
+        contrastive_embedding=do_contrastive,
     )
     valid_loader = prepare_dataloader(
         valid_data_dict,
@@ -138,6 +141,7 @@ if __name__ == "__main__":
         vocab=vocab,
         batch_size=batch_size,
         shuffle=False,
+        contrastive_embedding=False,
     )
 
     # Create or restore training state
@@ -189,6 +193,7 @@ if __name__ == "__main__":
             best_dir=best_dir,
             best_val_loss=best_val_loss,
             use_mvc=do_mvc,
+            use_contrastive=do_contrastive,
         )
 
         # Log metrics to wandb

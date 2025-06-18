@@ -11,7 +11,6 @@ from torch.nn import TransformerEncoder, TransformerEncoderLayer
 from torch.distributions import Bernoulli
 # from tqdm import trange
 
-from data_utils.vocab import MicrobiomeVocab
 from functools import lru_cache
 
 # from .flash_layers import (
@@ -351,7 +350,6 @@ class TransformerModel(nn.Module):
         gen_key_padding_mask: Tensor = None,
         batch_labels: Optional[Tensor] = None,
         # CLS: bool = False,
-        CCE: bool = False,
         MVC: bool = False,
         # ECS: bool = False,
         # do_sample: bool = False,
@@ -441,40 +439,6 @@ class TransformerModel(nn.Module):
         #         "CLS is not implemented yet. Please set CLS=False to avoid this error."
         #     )
         #     output["cls_output"] = self.cls_decoder(cell_emb)  # (batch, n_cls)
-        # if CCE:
-        #     raise NotImplementedError(
-        #         "Contrastive cell embedding objective is not implemented yet. "
-        #         "Please set CCE=False to avoid this error."
-        #     )
-        #     cell1 = cell_emb
-        #     transformer_output2 = self.encode(
-        #         src, values, src_key_padding_mask, batch_labels
-        #     )
-        #     cell2 = self.get_cell_emb_from_layer(transformer_output2)
-
-        #     # Gather embeddings from all devices if distributed training
-        #     if dist.is_initialized() and self.training:
-        #         cls1_list = [
-        #             torch.zeros_like(cell1) for _ in range(dist.get_world_size())
-        #         ]
-        #         cls2_list = [
-        #             torch.zeros_like(cell2) for _ in range(dist.get_world_size())
-        #         ]
-        #         dist.all_gather(tensor_list=cls1_list, tensor=cell1.contiguous())
-        #         dist.all_gather(tensor_list=cls2_list, tensor=cell2.contiguous())
-
-        #         # NOTE: all_gather results have no gradients, so replace the item
-        #         # of the current rank with the original tensor to keep gradients.
-        #         # See https://github.com/princeton-nlp/SimCSE/blob/main/simcse/models.py#L186
-        #         cls1_list[dist.get_rank()] = cell1
-        #         cls2_list[dist.get_rank()] = cell2
-
-        #         cell1 = torch.cat(cls1_list, dim=0)
-        #         cell2 = torch.cat(cls2_list, dim=0)
-        #     # TODO: should detach the second run cls2? Can have a try
-        #     cos_sim = self.sim(cell1.unsqueeze(1), cell2.unsqueeze(0))  # (batch, batch)
-        #     labels = torch.arange(cos_sim.size(0)).long().to(cell1.device)
-        #     output["loss_cce"] = self.creterion_cce(cos_sim, labels)
         if MVC: # GEPC
             if not self.do_mvc:
                 raise ValueError("MVC is not enabled for this model, so do not call MVC in the forward pass!")
