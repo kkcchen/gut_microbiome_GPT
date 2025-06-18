@@ -17,6 +17,7 @@ accelerate launch -m scripts.trainer \
     --use-batch-labels \
     --start-over \
     --max-epochs 1 \
+    --do-contrastive \
     # --wandb-enabled \
     # --wandb-entity kevinkaiwen-chen-vector \
-    # --wandb-project hmb_testproject
+    # --wandb-project hmb_testproject \

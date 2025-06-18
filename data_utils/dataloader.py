@@ -3,9 +3,10 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 
 from data_utils.vocab import MicrobiomeVocab
+from data_utils.data_collator import DataCollator
 
 class SeqDataset(Dataset):
-    def __init__(self, data: Dict[str, torch.Tensor], vocab: MicrobiomeVocab, use_batch_labels: bool, gen_percent: float = 0, class_token: bool = True):
+    def __init__(self, data: Dict[str, torch.Tensor]):
         """
         Args:
             data (Dict[str, torch.Tensor]): The input data.
@@ -14,83 +15,12 @@ class SeqDataset(Dataset):
                 - "values": Tensor of shape (num_samples, seq_len)
         """
         self.data = data
-        self.vocab = vocab
-        self.gen_percent = gen_percent
-        self.class_token = class_token
-        
-        self.use_batch_labels = use_batch_labels
-        if use_batch_labels:
-            assert "batch_labels" in self.data, "Batch labels must be provided if use_batch_labels is True"
-
-        if class_token:
-            sample_length = self.data["taxa_ids"].shape[1] + 1
-        else:
-            sample_length = self.data["taxa_ids"].shape[1]
-
-        if self.gen_percent > 0:
-            self.generation_mode = True
-            self.gen_len = int(sample_length * self.gen_percent)
-            self.pcpt_len = sample_length - self.gen_len
-        else:
-            self.generation_mode = False
-
+    
     def __len__(self):
         return self.data["taxa_ids"].shape[0]
 
     def __getitem__(self, idx):
-        # return {k: v[idx] for k, v in self.data.items()}
-        if self.generation_mode:
-            out_dict = self.separate_pcpt_gen(
-                ids=self.data["taxa_ids"][idx],
-                values=self.data["values"][idx]
-            )
-            
-            if self.use_batch_labels:
-                batch_labels = self.data["batch_labels"][idx]
-                out_dict["batch_labels"] = batch_labels
-        else:
-            out_dict = {
-                "ids": self.data["taxa_ids"][idx],
-                "values": self.data["values"][idx]
-            }
-
-        return out_dict
-
-    def separate_pcpt_gen(self, ids: torch.Tensor, values: torch.Tensor) -> Dict[str, torch.Tensor]:
-        # Step 1: Identify valid (non-class, non-pad) tokens
-        valid_mask = (ids != self.vocab.pad_index) & (ids != self.vocab.class_index)
-        valid_indices = torch.nonzero(valid_mask, as_tuple=True)[0]
-
-        num_gen = int(len(valid_indices) * self.gen_percent)
-
-        # Step 2: Randomly split into gen and pcpt
-        perm = torch.randperm(len(valid_indices))
-        gen_indices = valid_indices[perm[:num_gen]]
-        pcpt_indices = valid_indices[perm[num_gen:]]
-
-        gen_ids = ids[gen_indices]
-        pcpt_ids = ids[pcpt_indices]
-
-        gen_values = values[gen_indices]
-        pcpt_values = values[pcpt_indices]
-
-        # prepend class token to pcpt
-        if self.class_token:
-            pcpt_ids = torch.cat([torch.tensor([self.vocab.class_index], dtype=pcpt_ids.dtype), pcpt_ids])
-            pcpt_values = torch.cat([torch.tensor([self.vocab.pad_value], dtype=pcpt_values.dtype), pcpt_values])
-
-        # Step 3: Pad pcpt so that len(pcpt) == self.pcpt_len and len(gen) == self.gen_len
-        gen_ids = torch.cat([gen_ids, torch.full((self.gen_len - len(gen_ids),), self.vocab.pad_index, dtype=gen_ids.dtype)])
-        gen_values = torch.cat([gen_values, torch.full((self.gen_len - len(gen_values),), self.vocab.pad_value, dtype=gen_values.dtype)])
-        pcpt_ids = torch.cat([pcpt_ids, torch.full((self.pcpt_len - len(pcpt_ids),), self.vocab.pad_index, dtype=pcpt_ids.dtype)])
-        pcpt_values = torch.cat([pcpt_values, torch.full((self.pcpt_len - len(pcpt_values),), self.vocab.pad_value, dtype=pcpt_values.dtype)])
-
-        return {
-            "pcpt_ids": pcpt_ids,
-            "pcpt_values": pcpt_values,
-            "gen_ids": gen_ids,
-            "gen_values": gen_values
-        }
+        return {k: v[idx] for k, v in self.data.items()}
 
 
 def prepare_dataloader(
@@ -103,9 +33,20 @@ def prepare_dataloader(
     # intra_domain_shuffle: bool = False,
     drop_last: bool = False,
     num_workers: int = 0,
+    contrastive_embedding: bool = False,
     # per_seq_batch_sample: bool = False,
 ) -> DataLoader:
-    dataset = SeqDataset(data_pt, vocab, use_batch_labels, gen_percent=gen_percent)
+    dataset = SeqDataset(data_pt)
+    collator = DataCollator(
+        vocab=vocab,
+        sample_length=data_pt["taxa_ids"].shape[1],
+        use_batch_labels=use_batch_labels,
+        do_binning=True,
+        do_padding=True,
+        gen_percent=gen_percent,
+        use_class_token=True,
+        contrastive_embedding=contrastive_embedding,
+    )
 
     # # if per_seq_batch_sample, each batch will contain samples from the same experiment. Comment out for now because idk if we need this
     # if per_seq_batch_sample:
@@ -133,6 +74,7 @@ def prepare_dataloader(
         dataset=dataset,
         batch_size=batch_size,
         shuffle=shuffle,
+        collate_fn=collator,
         drop_last=drop_last,
         num_workers=num_workers,
         pin_memory=True,

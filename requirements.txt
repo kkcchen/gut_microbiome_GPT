@@ -10,3 +10,4 @@ safetensors
 joblib
 scikit-bio
 scipy
+wandb
