@@ -20,6 +20,7 @@
             "--data-restore-dir", "experiment_saves/model_checkpoints/data_checkpoint",
             "--samplename-path", "datasets_full/pretrain/sample_list.json",
             "--use-batch-labels",
+            // "--do-contrastive",
 
             "--batch-size", "3",
             "--log-interval", "5",
@@ -29,7 +30,7 @@
 
             "--notes", "test run",
 
-            // "--start-over",
+            "--start-over",
 
             // "--wandb-enabled",
             // "--wandb-entity", "kevinkaiwen-chen-vector",

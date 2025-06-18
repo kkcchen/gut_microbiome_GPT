@@ -75,7 +75,8 @@ accelerate launch -m scripts.trainer \
     --enable-fp16 \
     --seed 42 \
     --notes "$NOTES" \
-    --do-mvc &
+    --do-mvc \
+    --do-contrastive &
     # --use-batch-labels \
     # --samplename-path "$STUDY_PATH" \
 
