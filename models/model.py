@@ -68,6 +68,7 @@ class TransformerModel(nn.Module):
         self.explicit_zero_prob = explicit_zero_prob # use a separate NN to predict the probability of zero for expression. Not mentioned in the paper, so off for now
         self.norm_scheme = "pre" if pre_norm else "post" # hyperparameter for the transformer encoder.
         self.do_mvc = do_mvc
+        self.n_input_bins = n_input_bins
         self.mvc_decoder_style = mvc_decoder_style
         if self.input_emb_style not in ["category", "continuous", "scaling"]:
             raise ValueError(

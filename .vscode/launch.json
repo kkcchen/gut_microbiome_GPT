@@ -100,7 +100,78 @@
             "--abundance-threshold", "0.05"
           ],
           "python": "/home/kchen/miniconda3/envs/hmbGPT/bin/python"  // optional
-        }
-        
+        },
+        {
+          "name": "Python: trainer finetune",
+          "type": "debugpy",
+          "request": "launch",
+          "module": "accelerate.commands.launch",
+          "cwd": "${workspaceFolder}",
+          "args": [
+            "-m", "scripts.trainer_finetune",
+
+            "--base-model-config-path", "experiment_saves/model_checkpoints/model_config.json",
+            "--base-model-path", "experiment_saves/model_checkpoints/best_model/model.safetensors",
+            "--vocab-restore-dir", "experiment_saves/model_checkpoints/data_checkpoint",
+
+            "--train-input", "datasets_full/finetune/train/filtered_outputs/filtered_data_512.npy",
+            "--train-loc-labels-path", "datasets_full/finetune/train/filtered_outputs/filtered_locs.json",
+
+            "--best-dir", "experiment_saves/finetune_model_checkpoints_frozen/loc_finetune/best_model",
+            "--checkpoint-dir", "experiment_saves/finetune_model_checkpoints_frozen/loc_finetune/current_checkpoints",
+            "--data-restore-dir", "experiment_saves/finetune_model_checkpoints_frozen/loc_finetune/data_checkpoint",
+            "--batch-restore-dir", "experiment_saves/finetune_model_checkpoints_frozen/loc_finetune/data_checkpoint",
+            "--model-config-path", "experiment_saves/finetune_model_checkpoints_frozen/loc_finetune/finetune_model_config.json",
+
+            "--frozen-max-epochs", "10",
+            "--unfrozen-max-epochs", "0",
+
+            // "--wandb-enabled",
+            // "--wandb-entity", "vector-kevin",
+            // "--wandb-project", "microbiome-finetune",
+            // "--wandb-run-name", "test_run_001",
+            // "--wandb-run-notes", "test run",
+            "--nrows", "10",
+
+            "--log-interval", "2",
+            "--cosine-warmup-ratio-or-step", "0.1",
+            "--nrows", "10",
+            "--seed", "42",
+            "--start-over"
+          
+
+          // "--wandb-enabled",
+          // "--wandb-entity", "kevinkaiwen-chen-vector",
+          // "--wandb-project", "hmb_testproject",
+          ],
+      },
+      {
+        "name": "Python: tester finetune",
+        "type": "debugpy",
+        "request": "launch",
+        "module": "accelerate.commands.launch",
+        "cwd": "${workspaceFolder}",
+        "args": [
+          "-m", "scripts.tester_finetune",
+
+          "--best-path", "experiment_saves/finetune_model_checkpoints/loc_finetune/best_model/model.safetensors",
+          "--model-config-path", "experiment_saves/finetune_model_checkpoints/loc_finetune/finetune_model_config.json",
+
+          "--batch-vocab-path", "experiment_saves/finetune_model_checkpoints/loc_finetune/data_checkpoint/batch_vocab.json",
+      
+          "--vocab-path", "experiment_saves/model_checkpoints/data_checkpoint/vocab.json",
+          "--vocab-metadata-path", "experiment_saves/model_checkpoints/data_checkpoint/vocab_metadata.json",
+
+          "--npy-path", "datasets_full/finetune/test/filtered_outputs/filtered_data_512.npy",
+          "--test-loc-labels-path", "datasets_full/finetune/test/filtered_outputs/filtered_locs.json",
+
+          "--nrows", "10",
+          "--output-dir", "experiment_saves/finetune_model_checkpoints/loc_finetune/test_outputs",
+
+        // "--wandb-enabled",
+        // "--wandb-entity", "kevinkaiwen-chen-vector",
+        // "--wandb-project", "hmb_testproject",
+        ],
+    },
     ]
 }

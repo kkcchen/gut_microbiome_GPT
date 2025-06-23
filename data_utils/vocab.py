@@ -43,7 +43,7 @@ class MicrobiomeVocab():
         return len(self.itos)
 
     def __getitem__(self, item: str):
-        return self.stoi.get(item, None)
+        return self.stoi.get(item, self.pad_index)
     
     def lookup_indices(self, taxa_names: List[str]) -> List[int]:
         """
@@ -53,7 +53,7 @@ class MicrobiomeVocab():
         Returns:
             List[int]: A list of indices of the taxa_ids in the vocabulary.
         """
-        return [self.stoi.get(taxa_name, None) for taxa_name in taxa_names]
+        return [self[taxa_name] for taxa_name in taxa_names]
     
     def save_vocab_json(self, path, meta_path):
         """
@@ -129,7 +129,7 @@ class BatchVocab():
         self.stoi = {token: idx for idx, token in enumerate(self.itos)}
         
     def __getitem__(self, item: str):
-        return self.stoi.get(item, None)
+        return self.stoi.get(item, -1)
     
     def save_vocab_json(self, path):
         """

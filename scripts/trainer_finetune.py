@@ -5,30 +5,56 @@ import os
 import shutil
 import numpy as np
 import time
+from safetensors.torch import load_file
 
-from data_utils.preprocessor import Preprocessor
 from data_utils.dataloader import prepare_dataloader
 
 from trainers.train_functions import (
-    pretrain, commit_state, create_or_restore_data_state, create_or_restore_training_state_wandb, epoch_end_logs
+    commit_state, create_or_restore_data_state, create_or_restore_training_state_wandb, epoch_end_logs
+)
+from trainers.finetune_functions import (
+    finetune, unfreeze_base_model
 )
 from trainers import logger
 
 from accelerate import Accelerator
+import json
 
 import argparse
+
+
+def check_vocab_basemodel_match(
+    base_model_config: dict,
+    vocab,
+) -> None:
+    """
+    Check if the vocab length matches the base model config.
+    """
+    if base_model_config["vocab_len"] != len(vocab):
+        raise ValueError(
+            f"vocab mismatch: base model config vocab length {base_model_config['vocab_len']} does not match the restored vocab length {len(vocab)}."
+        )
+    elif base_model_config["vocab_pad_index"] != vocab.pad_index:
+        raise ValueError(
+            f"vocab mismatch: base model config vocab pad index {base_model_config['vocab_pad_index']} does not match the restored vocab pad index {vocab.pad_index}."
+        )
+    elif base_model_config["vocab_pad_value"] != vocab.pad_value:
+        raise ValueError(
+            f"vocab mismatch: base model config vocab pad value {base_model_config['vocab_pad_value']} does not match the restored vocab pad value {vocab.pad_value}."
+        )
+
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Train TransformerModel on microbiome data")
-    parser.add_argument("--model-config-path", type=str, required=True, help="Path to model configuration file")
-    parser.add_argument("--hmc-table-path", type=str, required=True, help="Path to HMC table file")
-    parser.add_argument("--taxa-path", type=str, required=True, help="Path to taxa file")
+    parser.add_argument("--base-model-config-path", type=str, required=True, help="Path to base model configuration file")
+    parser.add_argument("--base-model-path", type=str, required=True, help="Path to the base model state dictionary")
+    parser.add_argument("--train-input", type=str, required=True, help="Path to train .npy file (samples, taxa, 2)")
     parser.add_argument("--best-dir", type=str, required=True, help="Directory to save best model so far")
     parser.add_argument("--checkpoint-dir", type=str, required=True, help="Directory to save checkpoints for preemption")
     parser.add_argument("--data-restore-dir", type=str, required=True, help="Directory to restore data state")
-    parser.add_argument("--samplename-path", type=str, default=None, help="Path to samplename files for training")
-
+    parser.add_argument("--vocab-restore-dir", type=str, required=True, help="Directory to restore vocab state")
+    parser.add_argument("--batch-restore-dir", type=str, required=True, help="Directory to restore batch vocab state")
     # wandb
     parser.add_argument("--wandb-enabled", action="store_true", help="Enable Weights & Biases logging")
     parser.add_argument("--wandb-entity", type=str, default=None, help="wandb entity name")
@@ -39,18 +65,13 @@ if __name__ == "__main__":
     # optional training arguments
     parser.add_argument("--init-lr", type=float, default=1e-3, help="Initial learning rate")
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size for training")
-    parser.add_argument("--max-epochs", type=int, default=25, help="Maximum number of epochs")
+    parser.add_argument("--frozen-max-epochs", type=int, default=25, help="Maximum number of epochs")
+    parser.add_argument("--unfrozen-max-epochs", type=int, default=50, help="Maximum number of epochs for finetuning")
     parser.add_argument("--cosine-warmup-ratio-or-step", type=float, default=0.1, help="Scheduler warmup ratio or step")
     parser.add_argument("--log-interval", type=int, default=10, help="Interval for logging")
     parser.add_argument("--patience", type=int, default=None, help="Patience for early stopping")
     parser.add_argument("--grad-accumulation-steps", type=int, default=1, help="Number of gradient accumulation steps")
     parser.add_argument("--enable-fp16", action="store_true", help="Enable mixed precision training (FP16)")
-    
-    # model parameters
-    parser.add_argument("--num-bins", type=int, default=15, help="Number of bins for binning")
-    parser.add_argument("--use-batch-labels", action="store_true", help="Use batch labels in the dataset")
-    parser.add_argument("--do-mvc", action="store_true", help="do mvc task for pretraining")
-    parser.add_argument("--do-contrastive", action="store_true", help="Use contrastive embedding in the model")
 
     # for debugging
     parser.add_argument("--nrows", type=int, default=None, help="For debugging to limit number of samples in set")
@@ -58,15 +79,20 @@ if __name__ == "__main__":
     parser.add_argument("--start-over", action="store_true", help="Start over from scratch, ignoring existing data and checkpoints")
     parser.add_argument("--notes", type=str, default="", help="Notes for the current training run")
     
+    # for finetuning
+    parser.add_argument("--train-loc-labels-path", type=str, required=True, help="Path to the train location labels file.")
+    parser.add_argument("--model-config-path", type=str, required=True, help="Path to save model configuration file")
+
     args = parser.parse_args()
 
-    model_config_path = args.model_config_path
-    hmc_table_path = args.hmc_table_path
-    taxa_path = args.taxa_path
+    base_model_config_path = args.base_model_config_path
+    base_model_path = args.base_model_path
+    train_input = args.train_input
     best_dir = args.best_dir
     checkpoint_dir = args.checkpoint_dir
     data_restore_dir = args.data_restore_dir
-    samplename_path = args.samplename_path
+    vocab_restore_dir = args.vocab_restore_dir
+    batch_restore_dir = args.batch_restore_dir
 
     wandb_enabled = args.wandb_enabled
     wandb_entity = args.wandb_entity
@@ -76,34 +102,28 @@ if __name__ == "__main__":
 
     init_lr = args.init_lr
     batch_size = args.batch_size
-    max_epochs = args.max_epochs
+    frozen_max_epochs = args.frozen_max_epochs
+    unfrozen_max_epochs = args.unfrozen_max_epochs
     cosine_warmup_ratio_or_step = args.cosine_warmup_ratio_or_step
-    num_bins = args.num_bins
     log_interval = args.log_interval
-    patience = args.patience if args.patience else max_epochs
+    patience = args.patience if args.patience else unfrozen_max_epochs + frozen_max_epochs
     grad_accumulation_steps = args.grad_accumulation_steps
     enable_fp16 = args.enable_fp16
-    do_mvc = args.do_mvc
-    do_contrastive = args.do_contrastive
-    
-    use_batch_labels = args.use_batch_labels
-    if use_batch_labels:
-        assert samplename_path is not None, "Experiments path must be provided when using batch labels."
-    else:
-        assert samplename_path is None, "Experiments path should not be provided when not using batch labels."
-
     nrows = args.nrows
+    
+    train_loc_labels_path = args.train_loc_labels_path
+    model_config_path = args.model_config_path
+    
+    start_over = args.start_over
+        
     # Set random seed for reproducibility
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     
-    wandb_config={
-        "learning_rate": init_lr,
-        "batch_size": batch_size,
-        "max_epochs": max_epochs,
-        "cosine_warmup_ratio_or_step": cosine_warmup_ratio_or_step,
-        "binning": num_bins
-    }
+    with open(base_model_config_path, "r") as f:
+        base_model_config = json.load(f)
+        
+    num_bins = base_model_config["n_input_bins"]
 
     accelerator = Accelerator(gradient_accumulation_steps=grad_accumulation_steps, mixed_precision="fp16" if enable_fp16 else "no", log_with="wandb" if wandb_enabled else None)
 
@@ -114,54 +134,63 @@ if __name__ == "__main__":
         with open(notes_path, "w") as notes_file:
             notes_file.write(args.notes)
 
-    if args.start_over:
+    if start_over:
         logger.info("Starting over from scratch, deleting existing training state.")
         if os.path.exists(data_restore_dir):
             shutil.rmtree(data_restore_dir)
+        os.makedirs(data_restore_dir, exist_ok=True)
+        if os.path.exists(batch_restore_dir):
+            shutil.rmtree(batch_restore_dir)
+        os.makedirs(batch_restore_dir, exist_ok=True)
+        # don't remove vocab_restore_dir, as it is from pretraining
         if os.path.exists(checkpoint_dir):
             shutil.rmtree(checkpoint_dir)
+        os.makedirs(checkpoint_dir, exist_ok=True)
 
     # Create or restore data state
     train_data_dict, valid_data_dict, vocab, batch_vocab = create_or_restore_data_state(
-        hmc_table_path, num_bins, data_restore_dir, data_restore_dir, data_restore_dir, accelerator, taxa_path=taxa_path, use_batch_labels=use_batch_labels, experiments_path=samplename_path, nrows=nrows
+        train_input, num_bins, data_restore_dir, vocab_restore_dir, batch_restore_dir, accelerator, taxa_path=None, use_batch_labels=True, direct_batch_path=train_loc_labels_path, nrows=nrows
     )
+    
+    check_vocab_basemodel_match(base_model_config, vocab)
+        
+    wandb_config={
+        "learning_rate": init_lr,
+        "batch_size": batch_size,
+        "frozen_max_epochs": frozen_max_epochs,
+        "unfrozen_max_epochs": unfrozen_max_epochs,
+        "cosine_warmup_ratio_or_step": cosine_warmup_ratio_or_step,
+        "binning": num_bins
+    }
 
     logger.info("Preparing dataloaders...")
     train_loader = prepare_dataloader(
         train_data_dict,
-        use_batch_labels=use_batch_labels,
+        use_batch_labels=True,
         vocab=vocab,
         batch_size=batch_size,
         shuffle=True,
-        contrastive_embedding=do_contrastive,
+        gen_percent=0,
+        contrastive_embedding=False,
     )
     valid_loader = prepare_dataloader(
         valid_data_dict,
-        use_batch_labels=use_batch_labels,
+        use_batch_labels=True,
         vocab=vocab,
         batch_size=batch_size,
         shuffle=False,
+        gen_percent=0,
         contrastive_embedding=False,
     )
 
-    # Create or restore training state
+    base_state_dict = load_file(base_model_path)
+    
     model_config = {
-        "d_model": 128,
-        "nhead": 4,
-        "d_hid": 512,
-        "nlayers": 3,
-        "use_batch_labels": use_batch_labels,
-        "dropout": 0.1,
-        "n_input_bins": num_bins,
-        "do_mvc": do_mvc,
-
-        "vocab_len": len(vocab),
-        "vocab_pad_index": vocab.pad_index,
-        "vocab_pad_value": vocab.pad_value,
-        "num_batch_labels": len(batch_vocab) if use_batch_labels else 0,
+        'base_model_config': base_model_config,
+        'num_classes': len(batch_vocab),
     }
     
-    import json
+    # save model config to file
     if accelerator.is_main_process:
         os.makedirs(os.path.dirname(model_config_path), exist_ok=True)
         with open(model_config_path, "w") as f:
@@ -171,29 +200,31 @@ if __name__ == "__main__":
         model_config,
         init_lr,
         cosine_warmup_ratio_or_step,
-        max_epochs,
+        frozen_max_epochs,
         len(train_loader),
         checkpoint_dir,
         wandb_enabled,
         wandb_entity,
         wandb_project,
         wandb_config,
-        is_pretrain=True,
+        is_pretrain=False,
         accelerator=accelerator,
         wandb_run_name=wandb_run_name,
-        wandb_run_notes=wandb_run_notes
+        wandb_run_notes=wandb_run_notes,
+        base_state_dict=base_state_dict,
+        trainable_base_model=False  # Set to False to freeze base model initially
     )
 
     train_loader, valid_loader, model, optimizer, scheduler = accelerator.prepare(
         train_loader, valid_loader, model, optimizer, scheduler
     )
 
-    while epoch < max_epochs:
-        logger.info(f"Epoch {epoch + 1}/{max_epochs}")
+    while epoch < frozen_max_epochs:
+        logger.info(f"Epoch {epoch + 1}/{frozen_max_epochs + unfrozen_max_epochs}")
         epoch_start_time = time.time()
 
         # Train the model
-        val_loss, val_mre = pretrain(
+        val_loss, val_acc = finetune(
             model=model,
             train_loader=train_loader,
             valid_loader=valid_loader,
@@ -203,15 +234,12 @@ if __name__ == "__main__":
             accelerator=accelerator,
             optimizer=optimizer,
             scheduler=scheduler,
-            use_batch_labels=use_batch_labels,
             best_dir=best_dir,
             best_val_loss=best_val_loss,
-            use_mvc=do_mvc,
-            use_contrastive=do_contrastive,
         )
 
         # Log metrics to wandb
-        epoch_end_logs(epoch_start_time, epoch, val_loss=val_loss, val_mre=val_mre)
+        epoch_end_logs(epoch_start_time, epoch, val_loss=val_loss, val_accuracy=val_acc)
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -228,6 +256,48 @@ if __name__ == "__main__":
             commit_state(extra_state, epoch, best_val_loss, patience_counter, checkpoint_dir, accelerator)
             
         accelerator.wait_for_everyone()
+        
+    # now, train with base model unfrozen
+    unwrapped_model = accelerator.unwrap_model(model)
+    unfreeze_base_model(unwrapped_model, optimizer)
+    logger.info("Starting finetuning with base model unfrozen...")
+    while epoch < frozen_max_epochs + unfrozen_max_epochs:
+        logger.info(f"Epoch {epoch + 1}/{frozen_max_epochs + unfrozen_max_epochs}")
+        epoch_start_time = time.time()
+
+        # Train the model
+        val_loss, val_acc = finetune(
+            model=model,
+            train_loader=train_loader,
+            valid_loader=valid_loader,
+            epoch=epoch,
+            log_interval=log_interval,
+            vocab=vocab,
+            accelerator=accelerator,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            best_dir=best_dir,
+            best_val_loss=best_val_loss,
+        )
+
+        # Log metrics to wandb
+        epoch_end_logs(epoch_start_time, epoch, val_loss=val_loss, val_accuracy=val_acc)
+
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            logger.info(f"New best validation loss: {best_val_loss:.4f}")
+            patience_counter = 0
+        else:
+            patience_counter += 1
+        if patience_counter >= patience:
+            logger.info("Early stopping triggered. Stopping training.")
+            break
+
+        epoch += 1
+        if accelerator.is_main_process:
+            commit_state(extra_state, epoch, best_val_loss, patience_counter, checkpoint_dir, accelerator)
 
     logger.info("Training complete with best validation loss: {:.4f}".format(best_val_loss))
     accelerator.end_training()
+    
+    

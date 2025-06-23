@@ -126,7 +126,7 @@ def main():
         #     n_iter=25,                   # Number of parameter combinations to try
         #     scoring='roc_auc',
         #     cv=3,
-        #     n_jobs=,-1
+        #     n_jobs=-1,
         #     random_state=42,
         #     verbose=1
         # )

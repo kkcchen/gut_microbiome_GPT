@@ -5,45 +5,14 @@ import numpy as np
 import json
 
 from safetensors.torch import load_file
-from data_utils.preprocessor import Preprocessor
 from data_utils.dataloader import prepare_dataloader
-from data_utils.tokenizer import Tokenizer
 
 from accelerate import Accelerator
-from trainers import logger
 
-from data_utils.vocab import MicrobiomeVocab
-
-def restore_vocab(vocab_path, vocab_metadata_path):
-    # vocab should always already exist
-    if not os.path.exists(vocab_path) or not os.path.exists(vocab_metadata_path):
-        raise FileNotFoundError(f"Vocab files not found at {vocab_path} or {vocab_metadata_path}")
-    
-    vocab = MicrobiomeVocab.get_vocab_from_json(vocab_path, vocab_metadata_path)
-    logger.info(f"Vocab loaded from {vocab_path} and {vocab_metadata_path}")
-    
-    return vocab
-
-
-def create_or_restore_testdata_state(npy_path, num_bins, vocab, accelerator: Accelerator, nrows=None):
-    # check if the data state already exists. if not, create the data dict
-    if nrows:
-        hmc_npy = np.load(npy_path)[:nrows,:,:] # shape (num_samples, num_taxa, 2) where (:,:,0) is taxa_id and (:,:,1) is counts
-    else:
-        hmc_npy = np.load(npy_path)
-
-    preprocessor = Preprocessor(
-        binning=num_bins,
-    )
-
-    _, _ = preprocessor.process_from_np(hmc_npy)
-
-    # create tokenizer
-    tokenizer = Tokenizer(vocab)
-    data_dict = tokenizer.tokenize_and_pad_batch(hmc_npy)
-    # Assuming data_dict is a dictionary with keys 'taxa_ids', 'values'
-
-    return data_dict
+from trainers.test_functions import (
+    restore_vocab,
+    create_testdata_state,
+)
 
 
 def main():
@@ -84,11 +53,10 @@ def main():
     model.eval()
 
     # === Load test dataloader ===
-    data_dict = create_or_restore_testdata_state(
+    data_dict = create_testdata_state(
         npy_path=npy_path,
         num_bins=model_config["n_input_bins"],
         vocab=vocab,
-        accelerator=accelerator,
         nrows=nrows  # Set to None to use all rows
     )
     
@@ -128,6 +96,7 @@ def main():
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         np.save(output_path, final_tensor.cpu().numpy())
         print(f"Saved cell embeddings as NumPy array to {output_path}")
+
 
 if __name__ == "__main__":
     main()
