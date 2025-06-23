@@ -130,7 +130,6 @@
             // "--wandb-entity", "vector-kevin",
             // "--wandb-project", "microbiome-finetune",
             // "--wandb-run-name", "test_run_001",
-            // "--wandb-run-notes", "test run",
             "--nrows", "10",
 
             "--log-interval", "2",

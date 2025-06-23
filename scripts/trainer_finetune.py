@@ -60,11 +60,10 @@ if __name__ == "__main__":
     parser.add_argument("--wandb-entity", type=str, default=None, help="wandb entity name")
     parser.add_argument("--wandb-project", type=str, default=None, help="wandb project name")
     parser.add_argument("--wandb-run-name", type=str, default=None, help="wandb run name")
-    parser.add_argument("--wandb-run-notes", type=str, default=None, help="wandb run notes")
 
     # optional training arguments
     parser.add_argument("--init-lr", type=float, default=1e-3, help="Initial learning rate")
-    parser.add_argument("--batch-size", type=int, default=32, help="Batch size for training")
+    parser.add_argument("--batch-size", type=int, default=64, help="Batch size for training")
     parser.add_argument("--frozen-max-epochs", type=int, default=25, help="Maximum number of epochs")
     parser.add_argument("--unfrozen-max-epochs", type=int, default=50, help="Maximum number of epochs for finetuning")
     parser.add_argument("--cosine-warmup-ratio-or-step", type=float, default=0.1, help="Scheduler warmup ratio or step")
@@ -210,7 +209,7 @@ if __name__ == "__main__":
         is_pretrain=False,
         accelerator=accelerator,
         wandb_run_name=wandb_run_name,
-        wandb_run_notes=wandb_run_notes,
+        wandb_run_notes=args.notes,
         base_state_dict=base_state_dict,
         trainable_base_model=False  # Set to False to freeze base model initially
     )
