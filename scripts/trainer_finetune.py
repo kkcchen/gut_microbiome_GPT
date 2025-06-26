@@ -97,7 +97,6 @@ if __name__ == "__main__":
     wandb_entity = args.wandb_entity
     wandb_project = args.wandb_project
     wandb_run_name = args.wandb_run_name
-    wandb_run_notes = args.wandb_run_notes
 
     init_lr = args.init_lr
     batch_size = args.batch_size
@@ -152,7 +151,12 @@ if __name__ == "__main__":
     )
     
     check_vocab_basemodel_match(base_model_config, vocab)
-        
+
+    class_counts = torch.bincount(train_data_dict["batch_labels"], minlength=len(batch_vocab))
+    class_weights = 1.0 / (class_counts.float() + 1e-8)
+    class_weights = (class_weights / class_weights.sum() * len(class_weights)).to(accelerator.device)
+    loss_fn=torch.nn.CrossEntropyLoss(weight=class_weights)
+    
     wandb_config={
         "learning_rate": init_lr,
         "batch_size": batch_size,
@@ -195,12 +199,12 @@ if __name__ == "__main__":
         with open(model_config_path, "w") as f:
             json.dump(model_config, f, indent=4)
 
+    total_steps = (frozen_max_epochs + unfrozen_max_epochs) * len(train_loader)
     model, optimizer, scheduler, epoch, best_val_loss, patience_counter, extra_state = create_or_restore_training_state_wandb(
         model_config,
         init_lr,
         cosine_warmup_ratio_or_step,
-        frozen_max_epochs,
-        len(train_loader),
+        total_steps,
         checkpoint_dir,
         wandb_enabled,
         wandb_entity,
@@ -235,6 +239,7 @@ if __name__ == "__main__":
             scheduler=scheduler,
             best_dir=best_dir,
             best_val_loss=best_val_loss,
+            loss_fn=loss_fn,
         )
 
         # Log metrics to wandb
@@ -277,6 +282,7 @@ if __name__ == "__main__":
             scheduler=scheduler,
             best_dir=best_dir,
             best_val_loss=best_val_loss,
+            loss_fn=loss_fn,
         )
 
         # Log metrics to wandb

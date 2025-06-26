@@ -124,7 +124,7 @@ def pretrain(
                 loss_mse = masked_mse_loss(
                     gen_expr_preds, gen_values_target, positions_to_match
                 )
-                loss = 2 * loss_mse
+                loss = 2*loss_mse
                 accelerator.log({"train/loss_pcpt": loss_mse.item()}, step=global_iter)
 
                 if use_mvc:
@@ -171,10 +171,13 @@ def pretrain(
                         batch_labels=batch_labels,
                         # generative_training=True,
                     )
-                    env1_all = accelerator.gather(output_dict["cell_emb"])
-                    env2_all = accelerator.gather(output_dict_aux["cell_emb"])
+                    # gather doesn't work because it doesn't support backprop. do local contrastive loss only for now
+                    # env1_all = accelerator.gather(output_dict["cell_emb"])
+                    # env2_all = accelerator.gather(output_dict_aux["cell_emb"])
+                    env1 = output_dict["cell_emb"]
+                    env2 = output_dict_aux["cell_emb"]
                     loss_cce = 10 * env_contrastive_loss(
-                        env1_all, env2_all, 0.5
+                        env1, env2, 0.5
                     )
                     loss = loss + loss_cce
                     accelerator.log({"train/cce": loss_cce.item()}, step=global_iter)
@@ -186,6 +189,7 @@ def pretrain(
                     loss_mse_aux = masked_mse_loss(
                         gen_expr_preds_aux, gen_values_target_aux, positions_to_match_aux
                     )
+                    loss += loss_mse_aux
                     accelerator.log({"train/loss_pcpt_aux": loss_mse_aux.item()}, step=global_iter)
                 #     if MVC:
                 #         loss_mvc = criterion(
@@ -464,6 +468,7 @@ def create_or_restore_data_state(hmc_table_path, num_bins, data_restore_dir, voc
         with open(taxa_path, "r") as f:
             taxa_list = json.load(f)
         vocab = MicrobiomeVocab(taxa_list)
+        accelerator.wait_for_everyone()
         vocab.save_vocab_json(os.path.join(vocab_restore_dir, "vocab.json"), os.path.join(vocab_restore_dir, "vocab_metadata.json"))
 
     # next restore batch vocab
@@ -479,6 +484,7 @@ def create_or_restore_data_state(hmc_table_path, num_bins, data_restore_dir, voc
             if nrows:
                 batch_labels = batch_labels[:nrows]
             batch_vocab = BatchVocab(batch_labels)
+            accelerator.wait_for_everyone()
             batch_vocab.save_vocab_json(os.path.join(batch_restore_dir, "batch_vocab.json"))
         elif experiments_path and os.path.exists(experiments_path):
             logger.info(f"Processing study paths from {experiments_path}")
@@ -486,6 +492,7 @@ def create_or_restore_data_state(hmc_table_path, num_bins, data_restore_dir, voc
                 experiments_list = json.load(f)
             batch_labels = Preprocessor.get_studies_from_trials(experiments_list)[:nrows if nrows else None]
             batch_vocab = BatchVocab(batch_labels)
+            accelerator.wait_for_everyone()
             batch_vocab.save_vocab_json(os.path.join(batch_restore_dir, "batch_vocab.json"))
         else:
             raise ValueError("use_batch_labels is True but no experiments path provided")
@@ -578,7 +585,7 @@ def create_or_restore_data_state(hmc_table_path, num_bins, data_restore_dir, voc
     return train_data_dict, valid_data_dict, vocab, batch_vocab
 
 
-def create_or_restore_training_state_wandb(model_config, init_lr, warmup_ratio_or_step, total_epochs, trainloader_length, checkpoint_dir, wandb_enabled, wandb_entity, wandb_project, wandb_config, is_pretrain, accelerator: Accelerator, wandb_run_name=None, wandb_run_notes=None, base_state_dict=None, trainable_base_model=None):
+def create_or_restore_training_state_wandb(model_config, init_lr, warmup_ratio_or_step, total_steps, checkpoint_dir, wandb_enabled, wandb_entity, wandb_project, wandb_config, is_pretrain, accelerator: Accelerator, wandb_run_name=None, wandb_run_notes=None, base_state_dict=None, trainable_base_model=None):
     # initial configuration of the model
     # model = TransformerModel(
     #     d_model=512,
@@ -603,17 +610,16 @@ def create_or_restore_training_state_wandb(model_config, init_lr, warmup_ratio_o
     # setup scheduler
     # if warmup_ratio_or_step > 0:
     assert warmup_ratio_or_step > 0, "Warmup ratio or step must be positive"
-    total_num_batches = trainloader_length * total_epochs
 
     warmup_steps = (
-        int(total_num_batches * warmup_ratio_or_step)
+        int(total_steps * warmup_ratio_or_step)
         if warmup_ratio_or_step < 1
         else int(warmup_ratio_or_step)
     )
     scheduler = transformers.get_cosine_schedule_with_warmup(
         optimizer,
         num_warmup_steps=warmup_steps,
-        num_training_steps=total_num_batches,
+        num_training_steps=total_steps,
     )
 
     # else:

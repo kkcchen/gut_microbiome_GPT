@@ -3,7 +3,6 @@ from accelerate import Accelerator
 import json
 from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_score
 from data_utils.vocab import BatchVocab
-import torch
 import numpy as np
 import os
 
@@ -33,7 +32,7 @@ def main():
     parser.add_argument("--test-loc-labels-path", type=str, required=True, help="Path to the test location labels file.")
 
     parser.add_argument("--nrows", type=int, default=None, help="Number of rows to use from the npy file (for debugging)")
-    parser.add_argument("--output-dir", type=str, required=True, help="Directory to save the output files.")
+    parser.add_argument("--output-path", type=str, required=True, help="Path to save the output files.")
     
     args = parser.parse_args()
     
@@ -81,32 +80,45 @@ def main():
     
     # evaluate
     probs, targets = get_class_probs(model, dataloader, vocab.pad_index, accelerator)
-    predictions = torch.argmax(probs, dim=1)
-    accuracy = accuracy_score(targets, predictions)
-    region_scores = [{"accuracy": accuracy}]
-    for region, index in batch_vocab.stoi.items():
-        if region == "unknown":
-            continue
-        scores = probs[:, index]
-        binary_targets = np.array(targets == index).astype(int)
-        
-        auroc = roc_auc_score(binary_targets, scores)
-        aupr = average_precision_score(binary_targets, scores)
-        baseline_precision = np.mean(binary_targets)
-        region_scores.append({
-            "Region": region,
-            "AUC (ROC)": auroc,
-            "Average Precision": aupr,
-            "Baseline Precision": baseline_precision
-        })
+    probs = probs.cpu().numpy()
+    targets = targets.cpu().numpy()
     
-    # Save the scores to a file
-    scores_file = os.path.join(args.output_dir, "region_scores.json")
-    os.makedirs(args.output_dir, exist_ok=True)
-    with open(scores_file, "w") as f:
-        json.dump(region_scores, f, indent=4)
+    if accelerator.is_main_process:
+        print("shape of probs and targets is:", probs.shape, targets.shape)
+        print("location of probs and targets is", probs.device, targets.device)
+        predictions = np.argmax(probs, axis=1)
+        total_accuracy = accuracy_score(targets, predictions)
+        region_scores = []
+        for region, index in batch_vocab.stoi.items():
+            if region == "unknown":
+                continue
+            scores = probs[:, index]
+            binary_predictions = np.array((predictions == index), dtype=int)
+            binary_targets = np.array((targets == index), dtype=int)
+            accuracy = accuracy_score(binary_targets, binary_predictions)
+            auroc = roc_auc_score(binary_targets, scores)
+            aupr = average_precision_score(binary_targets, scores)
+            baseline_precision = np.mean(binary_targets)
+            
+            
+            region_scores.append({
+                "Region": region,
+                "Accuracy": accuracy,
+                "AUC (ROC)": auroc,
+                "Average Precision": aupr,
+                "Baseline Precision": baseline_precision
+            })
+        
+        # Save the scores to a file
+        region_scores.sort(key=lambda x: x["Region"])
+        region_scores.append({"Total Accuracy": total_accuracy})
+        os.makedirs(os.path.dirname(args.output_path), exist_ok=True)
+        with open(args.output_path, "w") as f:
+            json.dump(region_scores, f, indent=4)
 
-    print(f"Scores for all regions saved to {scores_file}")
+        print(f"Scores for all regions saved to {args.output_path}")
+    
+    
 
 
 if __name__ == "__main__":

@@ -132,6 +132,7 @@ if __name__ == "__main__":
         use_batch_labels=use_batch_labels,
         vocab=vocab,
         batch_size=batch_size,
+        gen_percent=0.15,
         shuffle=True,
         contrastive_embedding=do_contrastive,
     )
@@ -140,6 +141,7 @@ if __name__ == "__main__":
         use_batch_labels=use_batch_labels,
         vocab=vocab,
         batch_size=batch_size,
+        gen_percent=0.15,
         shuffle=False,
         contrastive_embedding=False,
     )
@@ -167,12 +169,12 @@ if __name__ == "__main__":
         with open(model_config_path, "w") as f:
             json.dump(model_config, f, indent=4)
 
+    total_steps = len(train_loader) * max_epochs
     model, optimizer, scheduler, epoch, best_val_loss, patience_counter, extra_state = create_or_restore_training_state_wandb(
         model_config,
         init_lr,
         cosine_warmup_ratio_or_step,
-        max_epochs,
-        len(train_loader),
+        total_steps,
         checkpoint_dir,
         wandb_enabled,
         wandb_entity,

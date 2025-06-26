@@ -79,11 +79,9 @@ def get_class_probs(model, dataloader, vocab_pad_index, accelerator):
                 class_logits = output_dict["logits"]
             # Convert logits to probabilities
             probs = torch.softmax(class_logits, dim=-1)
-            gathered_probs = accelerator.gather_for_metrics(probs)
-            gathered_targets = accelerator.gather_for_metrics(targets)
-            
-            all_probs.append(gathered_probs.cpu())
-            all_targets.append(gathered_targets.cpu())
+            probs, targets = accelerator.gather_for_metrics((probs, targets))
+            all_probs.append(probs)
+            all_targets.append(targets)
     
     all_probs = torch.cat(all_probs, dim=0)
     all_targets = torch.cat(all_targets, dim=0)

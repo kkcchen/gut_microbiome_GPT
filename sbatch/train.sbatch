@@ -9,6 +9,7 @@
 #SBATCH --output=logs/train_hmc/%j.out
 #SBATCH --error=logs/train_hmc/%j.err
 #SBATCH --gres=gpu:4
+#SBATCH --requeue
 
 # send this batch script a SIGUSR1 240 seconds
 # before we hit our time limit
@@ -36,7 +37,7 @@ python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not availabl
 
 # put your command here
 DATA_DIR="/projects/gutmodel/datasets"
-RUN_NAME=no-cellemb-pass-fair
+RUN_NAME="no-cellemb-pass-fair"
 NOTES="remove second step of forward pretrain pass where cell embs are passed back to model for loss_gen. also doubled loss for normal pcpt for fair comparison"
 
 EXPERIMENT_PATH=experiment_saves/$RUN_NAME
@@ -50,7 +51,6 @@ BEST_DIR="$SAVE_DIR/best_model"
 MODEL_CHECKPOINTS="$SAVE_DIR/current_checkpoints"
 DATA_RESTORE_DIR="$SAVE_DIR/data_checkpoint"
 MODEL_CONFIG_PATH="$SAVE_DIR/model_config.json"
-
 
 python -m wandb login 7559085cf6a63fa75982fe12e737bdd576c4fc62
 
@@ -82,3 +82,4 @@ accelerate launch -m scripts.trainer \
 
 child_pid=$!
 wait $child_pid
+echo "process has exited, and training should be finished"

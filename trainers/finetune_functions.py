@@ -24,6 +24,7 @@ def finetune(
         optimizer,
         scheduler,
         best_dir: str,
+        loss_fn,
         # save_interval: int = -1,
         best_val_loss: float = float("inf"),
     ):
@@ -55,7 +56,7 @@ def finetune(
                     src_key_padding_mask=key_padding_mask,
                 )
                 class_logits = output_dict["logits"]
-                loss = nn.CrossEntropyLoss()(class_logits, targets)
+                loss = loss_fn(class_logits, targets)
                 accelerator.log({"train/loss_ce": loss.item()}, step=global_iter)
 
             accelerator.backward(loss)
@@ -95,6 +96,7 @@ def finetune(
             best_val_loss=best_val_loss,
             global_iter=global_iter,
             accelerator=accelerator,
+            loss_fn=loss_fn,
         )
 
         best_val_loss = min(best_val_loss, val_loss)
@@ -116,10 +118,11 @@ def eval_and_save(
     best_val_loss: float,
     global_iter: int,
     accelerator: Accelerator,
+    loss_fn,
 ) -> None:
-    val_loss, val_acc = evaluate(model, valid_loader, vocab, accelerator).values()
+    val_loss, val_acc = evaluate(model, valid_loader, vocab, accelerator, loss_fn).values()
 
-    logger.info(f"valid loss/mse {val_loss:5.4f} | accuracy {val_acc:5.4f}")
+    # logger.info(f"valid loss/mse {val_loss:5.4f} | accuracy {val_acc:5.4f}")
     accelerator.log({
         "val/val_loss": val_loss,
         "val/val_acc": val_acc,
@@ -137,6 +140,7 @@ def evaluate(
     valid_loader: DataLoader,
     vocab: MicrobiomeVocab,
     accelerator: Accelerator,
+    loss_fn,
     ) -> Dict[str, Any]:
     """
     Evaluate the model on the validation set.
@@ -161,7 +165,7 @@ def evaluate(
                     src_key_padding_mask=key_padding_mask,
                 )
                 class_logits = output_dict["logits"]
-                loss = nn.CrossEntropyLoss()(class_logits, targets)
+                loss = loss_fn(class_logits, targets)
             val_losses.append(loss.item())
 
             # Calculate accuracy
