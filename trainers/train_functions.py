@@ -453,7 +453,7 @@ def commit_state(extra_state, epoch, best_val_loss, patience_counter, checkpoint
     logger.info("Training state committed to {} at time {}".format(actual_checkpoint_dir, time.ctime(time.time())))
 
 
-def create_or_restore_data_state(hmc_table_path, num_bins, data_restore_dir, vocab_restore_dir, batch_restore_dir, accelerator: Accelerator, taxa_path = None, use_batch_labels=False, experiments_path = None, direct_batch_path = None, nrows=None):
+def create_or_restore_data_state(hmc_table_path, num_bins, data_restore_dir, vocab_restore_dir, batch_restore_dir, accelerator: Accelerator, taxa_path = None, use_batch_labels=False, experiments_path = None, direct_batch_path = None, nrows=None, seed=None):
     os.makedirs(vocab_restore_dir, exist_ok=True)
     os.makedirs(batch_restore_dir, exist_ok=True)
     os.makedirs(data_restore_dir, exist_ok=True)
@@ -538,7 +538,9 @@ def create_or_restore_data_state(hmc_table_path, num_bins, data_restore_dir, voc
                 data_dict["values"],
                 data_dict["batch_labels"],
                 test_size=0.2,
-                shuffle=True
+                shuffle=True,
+                stratify=data_dict["batch_labels"],
+                random_state=seed,
             )
             train_data_dict = {
                 "taxa_ids": train_taxa_ids,
@@ -560,7 +562,9 @@ def create_or_restore_data_state(hmc_table_path, num_bins, data_restore_dir, voc
                 data_dict["taxa_ids"],
                 data_dict["values"],
                 test_size=0.2,
-                shuffle=True
+                shuffle=True,
+                stratify=data_dict["batch_labels"],
+                random_state=seed,
             )
             train_data_dict = {
                 "taxa_ids": train_taxa_ids,
@@ -585,7 +589,7 @@ def create_or_restore_data_state(hmc_table_path, num_bins, data_restore_dir, voc
     return train_data_dict, valid_data_dict, vocab, batch_vocab
 
 
-def create_or_restore_training_state_wandb(model_config, init_lr, warmup_ratio_or_step, total_steps, checkpoint_dir, wandb_enabled, wandb_entity, wandb_project, wandb_config, is_pretrain, accelerator: Accelerator, wandb_run_name=None, wandb_run_notes=None, base_state_dict=None, trainable_base_model=None):
+def create_or_restore_training_state_wandb(model_config, init_lr, warmup_ratio_or_step, total_steps, checkpoint_dir, wandb_enabled, wandb_entity, wandb_project, wandb_config, accelerator: Accelerator, wandb_run_name=None, wandb_run_notes=None, base_state_dict=None, trainable_base_model=None):
     # initial configuration of the model
     # model = TransformerModel(
     #     d_model=512,
@@ -597,14 +601,8 @@ def create_or_restore_training_state_wandb(model_config, init_lr, warmup_ratio_o
     #     use_generative_training=True,
     # )
 
-    if is_pretrain:
-        model = TransformerModel(**model_config)
-        trainable_params = model.parameters()
-    else:
-        assert base_state_dict is not None and trainable_base_model is not None, "Base state dict and set_base_model_trainable must be provided for finetuning"
-        model = FinetunedTransformer(model_config)
-        # freeze the base model parameters
-        trainable_params = model.set_base_model_trainable(trainable_base_model)
+    model = TransformerModel(**model_config)
+    trainable_params = model.parameters()
         
     optimizer = torch.optim.Adam(trainable_params, lr=init_lr)
     # setup scheduler
@@ -659,8 +657,6 @@ def create_or_restore_training_state_wandb(model_config, init_lr, warmup_ratio_o
         accelerator.init_trackers(wandb_project)
         if run:
             extra_state.data["wandb_id"] = run.id if wandb_enabled else None
-        if not is_pretrain:
-            model.load_base_state_dict(base_state_dict)
         accelerator.register_for_checkpointing(model, optimizer, scheduler, extra_state)
     else:
         if os.path.exists(new_checkpoint_dir):

@@ -5,6 +5,8 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 from models import FinetunedTransformer
+import transformers
+import wandb
 
 from accelerate import Accelerator
 
@@ -193,7 +195,9 @@ def unfreeze_base_model(model: FinetunedTransformer, optimizer) -> List[nn.Param
         List[nn.Parameter]: A list of trainable parameters in the base model.
     """
     model.set_base_model_trainable(trainable=True)
-    optimizer.add_param_group({"params": model.base_model.parameters()})
+    optimizer.add_param_group({
+        "params": model.base_model.parameters(),
+    })
     
 
 def load_model(
@@ -245,3 +249,42 @@ def load_test_data(
         "test_data": test_data,
         "loc_labels": loc_labels,
     }
+    
+def create_training_state_finetune(model_config, init_lr, warmup_ratio_or_step, total_steps, trainable_base_model: bool, base_state_dict=None, state_dict=None):
+    model = FinetunedTransformer(model_config)
+    if base_state_dict:
+        model.load_base_state_dict(base_state_dict)
+    elif state_dict:
+        model.load_state_dict(state_dict)
+    else:
+        raise ValueError("either base_state_dict or state_dict must be given")
+    trainable_params = model.set_base_model_trainable(trainable_base_model)
+    optimizer = torch.optim.Adam(trainable_params, lr=init_lr)
+    assert warmup_ratio_or_step > 0, "Warmup ratio or step must be positive"
+    warmup_steps = (
+        int(total_steps * warmup_ratio_or_step)
+        if warmup_ratio_or_step < 1
+        else int(warmup_ratio_or_step)
+    )
+    logger.info(f"len is {total_steps}")
+    logger.info(f"warmup is {warmup_steps}")
+
+    scheduler = transformers.get_cosine_schedule_with_warmup(
+        optimizer,
+        num_warmup_steps=warmup_steps,
+        num_training_steps=total_steps,
+    )
+    return model, optimizer, scheduler
+
+def init_wandb(wandb_enabled, wandb_entity, wandb_project, wandb_config, accelerator: Accelerator, wandb_run_name=None, wandb_run_notes=None):
+    if accelerator.is_main_process:
+        wandb.init(
+            mode="online" if wandb_enabled else "disabled",
+            name=wandb_run_name,
+            notes=wandb_run_notes,
+            entity=wandb_entity,
+            project=wandb_project,
+            config=wandb_config,
+            resume="allow"
+        )
+        accelerator.init_trackers(wandb_project)

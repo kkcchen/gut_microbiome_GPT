@@ -118,7 +118,6 @@
             "--train-loc-labels-path", "datasets_full/finetune/train/filtered_outputs/filtered_locs.json",
 
             "--best-dir", "experiment_saves/finetune_model_checkpoints_frozen/loc_finetune/best_model",
-            "--checkpoint-dir", "experiment_saves/finetune_model_checkpoints_frozen/loc_finetune/current_checkpoints",
             "--data-restore-dir", "experiment_saves/finetune_model_checkpoints_frozen/loc_finetune/data_checkpoint",
             "--batch-restore-dir", "experiment_saves/finetune_model_checkpoints_frozen/loc_finetune/data_checkpoint",
             "--model-config-path", "experiment_saves/finetune_model_checkpoints_frozen/loc_finetune/finetune_model_config.json",

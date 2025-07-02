@@ -4,7 +4,7 @@
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=8
 #SBATCH --partition=t4v1,t4v2,a40,rtx6000 
-#SBATCH --qos=normal
+#SBATCH --qos=m2
 #SBATCH --time=1:00:00
 #SBATCH --output=logs/finetune_locs/%j.out
 #SBATCH --error=logs/finetune_locs/%j.err
@@ -19,15 +19,17 @@ source ~/hmbenv/bin/activate
 python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not available. Exiting.'" || exit 1
 
 # === Set paths ===
-RUN_NAME=fourth_run
-BASEMODEL_PATH=experiment_saves/without_batches
+RUN_NAME=test_valid_long4
+NOTES="test if valid results match test results. dist shift?"
+BASEMODEL_PATH=experiment_saves/with_batches
 EXPERIMENT_PATH=experiment_saves/finetune/$RUN_NAME
 DATASET_PATH=/projects/gutmodel/datasets/finetune
 
+PORT=$((29500 + $SLURM_JOB_ID % 1000))
+
 # === Run the encoding script ===
-echThe section you provided is running a script called `scripts.trainer_finetune` using the `accelerate` command. Here is a breakdown of what it is doing:
-o "training on finetune data..."
-accelerate launch -m scripts.trainer_finetune \
+echo "training on finetune data..."
+accelerate launch --main_process_port $PORT -m scripts.trainer_finetune \
     --base-model-config-path $BASEMODEL_PATH/model_checkpoints/model_config.json \
     --base-model-path $BASEMODEL_PATH/model_checkpoints/best_model/model.safetensors \
     --vocab-restore-dir $BASEMODEL_PATH/model_checkpoints/data_checkpoint \
@@ -36,26 +38,26 @@ accelerate launch -m scripts.trainer_finetune \
     --train-loc-labels-path $DATASET_PATH/train/filtered_outputs/filtered_locs.json \
     \
     --best-dir $EXPERIMENT_PATH/best_model \
-    --checkpoint-dir $EXPERIMENT_PATH/current_checkpoints \
     --data-restore-dir $EXPERIMENT_PATH/data_checkpoint \
     --batch-restore-dir $EXPERIMENT_PATH/data_checkpoint \
     --model-config-path $EXPERIMENT_PATH/finetune_model_config.json \
     \
-    --frozen-max-epochs 30 \
-    --unfrozen-max-epochs 15 \
+    --frozen-max-epochs 10 \
+    --unfrozen-max-epochs 10 \
     \
+    \
+    --batch-size 64 \
+    --init-lr 0.001 \
+    \
+    --notes "$NOTES" \
     --wandb-enabled \
     --wandb-entity haoze-deng-university-of-toronto \
-    --wandb-project microbiome-finetune \
+    --wandb-project microbiome-finetune-test \
     --wandb-run-name $RUN_NAME \
-    \
-    --batch-size 128 \
-    --init-lr 0.0004 \
-    \
-    --notes "4th run"
+    --start-over
 
 
-accelerate launch -m scripts.tester_finetune \
+accelerate launch --main_process_port $PORT -m scripts.tester_finetune \
     --best-path $EXPERIMENT_PATH/best_model/model.safetensors \
     --model-config-path $EXPERIMENT_PATH/finetune_model_config.json \
     \

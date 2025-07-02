@@ -123,7 +123,7 @@ if __name__ == "__main__":
 
     # Create or restore data state
     train_data_dict, valid_data_dict, vocab, batch_vocab = create_or_restore_data_state(
-        hmc_table_path, num_bins, data_restore_dir, data_restore_dir, data_restore_dir, accelerator, taxa_path=taxa_path, use_batch_labels=use_batch_labels, experiments_path=samplename_path, nrows=nrows
+        hmc_table_path, num_bins, data_restore_dir, data_restore_dir, data_restore_dir, accelerator, taxa_path=taxa_path, use_batch_labels=use_batch_labels, experiments_path=samplename_path, nrows=nrows, seed=args.seed
     )
 
     logger.info("Preparing dataloaders...")

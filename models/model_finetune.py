@@ -30,9 +30,14 @@ class FinetunedTransformer(nn.Module):
             list: A list of trainable parameters in the base model.
         """
         for param in self.base_model.parameters():
-            param.requires_grad = trainable
+            param.requires_grad = False
+        if trainable:
+            encoder_blocks = [self.base_model.encoder, self.base_model.value_encoder, self.base_model.transformer_encoder]
+            for block in encoder_blocks:
+                for param in block.parameters():
+                    param.requires_grad = trainable
+        
         return [param for param in self.parameters() if param.requires_grad]
-            
         
 
     def forward(
