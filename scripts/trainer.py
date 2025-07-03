@@ -157,6 +157,7 @@ if __name__ == "__main__":
         "dropout": 0.1,
         "n_input_bins": num_bins,
         "do_mvc": do_mvc,
+        "do_attn_mask": False,
 
         "vocab_len": len(vocab),
         "vocab_pad_index": vocab.pad_index,

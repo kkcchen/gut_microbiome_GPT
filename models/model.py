@@ -50,6 +50,7 @@ class TransformerModel(nn.Module):
         vocab_pad_value: int,
         vocab_mask_value: int,
         n_input_bins: int,
+        do_attn_mask: bool,
         use_batch_labels: bool = False,
         num_batch_labels: Optional[int] = None,
         dropout: float = 0.5,
@@ -72,6 +73,7 @@ class TransformerModel(nn.Module):
         self.n_input_bins = n_input_bins
         self.mvc_decoder_style = mvc_decoder_style
         self.nhead = nhead
+        self.do_attn_mask = do_attn_mask
         if self.input_emb_style not in ["category", "continuous", "scaling"]:
             raise ValueError(
                 f"input_emb_style should be one of category, continuous, scaling, "
@@ -301,7 +303,6 @@ class TransformerModel(nn.Module):
         known_positions: Optional[Tensor] = None, # (batch, seq_len)
         # batch_labels: Optional[Tensor] = None,  # (batch,)
         input_cell_emb: Optional[Tensor] = None,  # (batch, embsize)
-        do_attn_mask: bool = True,
     ) -> Tuple[Tensor, Tensor]:
         # self._check_batch_labels(batch_labels)
 
@@ -348,7 +349,7 @@ class TransformerModel(nn.Module):
             # this is for the second step of pretraining, where we replace the cls token with the cell embedding
             total_embs[:, 0, :] = input_cell_emb
 
-        if do_attn_mask:
+        if self.do_attn_mask:
             assert known_positions is not None, "known_positions should not be None when do_attn_mask is True"
             attn_mask = TransformerModel.make_mask(known_positions, device=taxa.device)
             B, T1, T2 = attn_mask.shape
