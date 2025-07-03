@@ -27,6 +27,7 @@ if __name__ == "__main__":
     parser.add_argument("--best-dir", type=str, required=True, help="Directory to save best model so far")
     parser.add_argument("--checkpoint-dir", type=str, required=True, help="Directory to save checkpoints for preemption")
     parser.add_argument("--data-restore-dir", type=str, required=True, help="Directory to restore data state")
+    parser.add_argument("--intermediate-dir", type=str, required=True, help="Directory to store intermediate checkpoints")
     parser.add_argument("--samplename-path", type=str, default=None, help="Path to samplename files for training")
 
     # wandb
@@ -224,6 +225,11 @@ if __name__ == "__main__":
         if patience_counter >= patience:
             logger.info("Early stopping triggered. Stopping training.")
             break
+        
+        if epoch % 5 == 0:  # Save model every few epochs
+            subdir = os.path.join(args.intermediate_dir, f"epoch_{epoch}")
+            logger.info(f"Saving an intermediate checkpoint to {subdir}")
+            accelerator.save_model(model, subdir)
 
         epoch += 1
         if accelerator.is_main_process:

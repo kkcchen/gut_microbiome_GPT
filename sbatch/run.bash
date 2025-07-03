@@ -7,6 +7,7 @@ accelerate launch -m scripts.trainer \
     --best-dir experiment_saves/model_checkpoints/best_model \
     --checkpoint-dir experiment_saves/model_checkpoints/current_checkpoints \
     --data-restore-dir experiment_saves/model_checkpoints/data_checkpoint \
+    --intermediate-dir experiment_saves/model_checkpoints/intermediate_checkpoints \
     --samplename-path datasets/pretrain/sample_list.json \
     --batch-size 1 \
     --log-interval 4 \

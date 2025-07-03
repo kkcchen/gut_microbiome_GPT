@@ -16,9 +16,10 @@
             "--hmc-table-path", "datasets_full/pretrain/taxonomy_table_512.npy",
             "--taxa-path", "datasets_full/pretrain/pretrain_cols.json",
             "--best-dir", "experiment_saves/model_checkpoints/best_model",
+            "--intermediate-dir", "experiment_saves/model_checkpoints/intermediate_checkpoints",
             "--checkpoint-dir", "experiment_saves/model_checkpoints/current_checkpoints",
             "--data-restore-dir", "experiment_saves/model_checkpoints/data_checkpoint",
-            
+
             // "--samplename-path", "datasets_full/pretrain/sample_list.json",
             // "--use-batch-labels",
             // "--do-contrastive",
