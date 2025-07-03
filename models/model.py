@@ -48,6 +48,7 @@ class TransformerModel(nn.Module):
         vocab_len: int,
         vocab_pad_index: int,
         vocab_pad_value: int,
+        vocab_mask_value: int,
         n_input_bins: int,
         use_batch_labels: bool = False,
         num_batch_labels: Optional[int] = None,
@@ -70,6 +71,7 @@ class TransformerModel(nn.Module):
         self.do_mvc = do_mvc
         self.n_input_bins = n_input_bins
         self.mvc_decoder_style = mvc_decoder_style
+        self.nhead = nhead
         if self.input_emb_style not in ["category", "continuous", "scaling"]:
             raise ValueError(
                 f"input_emb_style should be one of category, continuous, scaling, "
@@ -88,16 +90,16 @@ class TransformerModel(nn.Module):
         # self.use_fast_transformer = use_fast_transformer
 
         # TODO: add dropout in the TaxaEncoder
-        self.flag_encoder = nn.Embedding(2, d_model)
+        # self.flag_encoder = nn.Embedding(2, d_model)
         self.encoder = TaxaEncoder(vocab_len, d_model, padding_idx=vocab_pad_index)
 
         # Value Encoder, NOTE: the scaling style is also handled in _encode method
         if input_emb_style == "continuous":
-            self.value_encoder = ContinuousValueEncoder(d_model, dropout)
+            self.value_encoder = ContinuousValueEncoder(d_model, vocab_mask_value, dropout)
         elif input_emb_style == "category":
             assert n_input_bins > 0
             self.value_encoder = CategoryValueEncoder(
-                n_input_bins, d_model, padding_idx=vocab_pad_value
+                n_input_bins, d_model, vocab_mask_value, padding_idx=vocab_pad_value
             )
         else: # input_emb_style == "scaling"
             self.value_encoder = nn.Identity()  # nn.Softmax(dim=1)
@@ -243,55 +245,86 @@ class TransformerModel(nn.Module):
 
         return cell_emb
     
-    @lru_cache(maxsize=1)
-    @staticmethod
-    def make_mask(mask_len, seq_len, device):
-        assert mask_len <= seq_len, "mask_len should be less than or equal to seq_len"
-        attention_mask = torch.zeros((seq_len, seq_len), device=device, dtype=torch.bool)
+    # @lru_cache(maxsize=1)
+    # @staticmethod
+    # def make_mask(mask_len, seq_len, device):
+    #     assert mask_len <= seq_len, "mask_len should be less than or equal to seq_len"
+    #     attention_mask = torch.zeros((seq_len, seq_len), device=device, dtype=torch.bool)
 
-        split = seq_len - mask_len
-        # Top part: mask right mask_len columns
-        if split > 0:
-            attention_mask[:split, split:] = True
+    #     split = seq_len - mask_len
+    #     # Top part: mask right mask_len columns
+    #     if split > 0:
+    #         attention_mask[:split, split:] = True
 
-        # Bottom mask_len x mask_len block: mask everything except diagonal
-        if mask_len > 0:
-            attention_mask[split:, split:] = ~torch.eye(mask_len, device=device, dtype=torch.bool)
+    #     # Bottom mask_len x mask_len block: mask everything except diagonal
+    #     if mask_len > 0:
+    #         attention_mask[split:, split:] = ~torch.eye(mask_len, device=device, dtype=torch.bool)
 
-        return attention_mask
+    #     return attention_mask
+    
+    def make_mask(known_positions: torch.Tensor, device: torch.device) -> torch.Tensor:
+        """
+        Create a custom attention mask.
+
+        Args:
+            known_positions (torch.Tensor): (B, T) boolean tensor. True where the position is "known".
+            device (torch.device): Device for output tensor.
+
+        Returns:
+            torch.Tensor: (B, T, T) boolean attention mask. True means attend, False means block.
+        """
+        B, T = known_positions.shape
+
+        # Expand known_positions for broadcasting
+        known_q = known_positions.unsqueeze(2)  # (B, T, 1) – whether the query is known
+        known_k = known_positions.unsqueeze(1)  # (B, 1, T) – whether the key is known
+
+        # known queries attend only to known keys
+        known_to_known = known_q & known_k  # (B, T, T)
+
+        # unknown queries attend to known keys and self
+        # ~known_q = queries that are unknown
+        eye = torch.eye(T, dtype=torch.bool, device=device).unsqueeze(0)  # (1, T, T)
+        unknown_to_known_and_self = (~known_q) & (known_k | eye)
+
+        # Combine both cases
+        attention_mask = ~(known_to_known | unknown_to_known_and_self)
+
+        return attention_mask # (B, T, T)
+    
     
     def transformer_generate(
         self,
-        pcpt_taxa: Tensor,
-        pcpt_values: Tensor,
-        pcpt_key_padding_mask: Tensor,
-        gen_taxa: Tensor,
-        gen_key_padding_mask: Tensor,
+        taxa: Tensor,
+        values: Tensor,
+        key_padding_mask: Tensor,
+        known_positions: Optional[Tensor] = None, # (batch, seq_len)
         # batch_labels: Optional[Tensor] = None,  # (batch,)
         input_cell_emb: Optional[Tensor] = None,  # (batch, embsize)
+        do_attn_mask: bool = True,
     ) -> Tuple[Tensor, Tensor]:
         # self._check_batch_labels(batch_labels)
 
-        pcpt_token_embs = self.encoder(pcpt_taxa)  # (batch, pcpt_len, embsize)
-        pcpt_values = self.value_encoder(pcpt_values)  # (batch, pcpt_len, embsize)
-        pcpt_total_embs = pcpt_token_embs + pcpt_values
+        token_embs = self.encoder(taxa)  # (batch, seq_len, embsize)
+        values = self.value_encoder(values)  # (batch, seq_len, embsize)
+        total_embs = token_embs + values
 
         assert self.input_emb_style != "scaling"
-        if gen_taxa is not None:
-            gen_token_embs = self.encoder(gen_taxa)  # (batch, gen_len, embsize)
-            cur_taxa_token_embs = torch.cat(
-                [pcpt_token_embs, gen_token_embs], dim=1
-            )
-            # this is a flag to let the model know that this is a generative training
-            gen_flags = self.flag_encoder(
-                torch.tensor(1).to(pcpt_values.device)
-            ).expand(gen_taxa.shape[0], gen_taxa.shape[1], -1)
+        # if gen_taxa is not None:
+        #     gen_token_embs = self.encoder(gen_taxa)  # (batch, gen_len, embsize)
+        #     cur_taxa_token_embs = torch.cat(
+        #         [pcpt_token_embs, gen_token_embs], dim=1
+        #     )
+        #     # this is a flag to let the model know that this is a generative training
+        #     gen_flags = self.flag_encoder(
+        #         torch.tensor(1).to(pcpt_values.device)
+        #     ).expand(gen_taxa.shape[0], gen_taxa.shape[1], -1)
 
-            gen_total_embs = gen_token_embs + gen_flags
-        else:
-            raise NotImplementedError(
-                "gen_taxa should not be none..."
-            )
+        #     gen_total_embs = gen_token_embs + gen_flags
+        # else:
+        #     raise NotImplementedError(
+        #         "gen_taxa should not be none..."
+        #     )
             # cur_taxa_token_embs = pcpt_token_embs
             # gen_total_embs = None
 
@@ -313,42 +346,32 @@ class TransformerModel(nn.Module):
 
         if input_cell_emb is not None:
             # this is for the second step of pretraining, where we replace the cls token with the cell embedding
-            pcpt_total_embs[:, 0, :] = input_cell_emb
-            
-        all_embs = torch.cat(
-            [pcpt_total_embs, gen_total_embs], dim=1
-        ) # (batch, pcpt_len + gen_len, embsize)
-        all_key_padding_mask = torch.cat(
-            [pcpt_key_padding_mask, gen_key_padding_mask], dim=1
-        )
+            total_embs[:, 0, :] = input_cell_emb
 
-        attn_mask = TransformerModel.make_mask(gen_total_embs.shape[1], all_embs.shape[1], device=pcpt_total_embs.device)
-        
-        # pcpt_output, gen_output = self.transformer_encoder(
-        #     pcpt_total_embs,
-        #     gen_total_embs,
-        #     pcpt_key_padding_mask=pcpt_key_padding_mask,
-        #     gen_key_padding_mask=gen_key_padding_mask,
-        # )
+        if do_attn_mask:
+            assert known_positions is not None, "known_positions should not be None when do_attn_mask is True"
+            attn_mask = TransformerModel.make_mask(known_positions, device=taxa.device)
+            B, T1, T2 = attn_mask.shape
+
+            attn_mask = attn_mask.unsqueeze(1).repeat(1, self.nhead, 1, 1)
+            attn_mask = attn_mask.reshape(B * self.nhead, T1, T2)
+        else:
+            attn_mask = None
         
         all_output = self.transformer_encoder(
-            all_embs,
-            src_key_padding_mask=all_key_padding_mask,
+            total_embs,
+            src_key_padding_mask=key_padding_mask,
             mask=attn_mask,
         )
         
-        # the first part of all_output refers to the perceptual part (pcpt_total_embs.shape[1])
-        # the rest of all_output refers to the generative part
-        
-        return all_output, cur_taxa_token_embs  # (batch, pcpt_len + gen_len, embsize), (batch, gen_len, embsize)
+        return all_output, token_embs  # (batch, seq_len, embsize)
     
     def forward(
         self,
-        pcpt_taxa: Tensor,
-        pcpt_values: Tensor,
-        pcpt_key_padding_mask: Tensor,
-        gen_taxa: Tensor = None,
-        gen_key_padding_mask: Tensor = None,
+        taxa: Tensor,
+        values: Tensor,
+        key_padding_mask: Tensor,
+        known_positions: Optional[Tensor] = None,
         batch_labels: Optional[Tensor] = None,
         # CLS: bool = False,
         MVC: bool = False,
@@ -357,33 +380,20 @@ class TransformerModel(nn.Module):
         input_cell_emb: Optional[Tensor] = None,
     ) -> Mapping[str, Tensor]:
         """
-        Args:
-            pcpt_taxa (:obj:`Tensor`): token ids of the perceptual part, shape
-                [batch_size, seq_len]
-            pcpt_values (:obj:`Tensor`): token values of the perceptual part, shape
-                [batch_size, seq_len]
-            pcpt_key_padding_mask (:obj:`Tensor`): mask for pcpt_taxa, shape
-                [batch_size, seq_len]
-            gen_taxa (:obj:`Tensor`): token ids of the generative part, shape
-                [batch_size, seq_len]
-            gen_key_padding_mask (:obj:`Tensor`): mask for gen_taxa, shape
-                [batch_size, seq_len]
-
-            CLS (:obj:`bool`): if True, return the celltype classification objective
-                (CLS) output
-            CCE (:obj:`bool`): if True, return the contrastive cell embedding objective
-                (CCE) output
-            MVC (:obj:`bool`): if True, return the masked value prediction for cell
-                embedding MVC output
-            ECS (:obj:`bool`): if True, return the elastic cell similarity objective
-                (ECS) output.
-
-            input_cell_emb (:obj:`Tensor`): cell embeddings, shape [batch_size, embsize]
-
-        Returns:
-            dict of output Tensors.
+        Forward pass of the model.
+            taxa (:obj:`Tensor`): Token IDs representing taxa, shape [batch_size, seq_len].
+            values (:obj:`Tensor`): Token values corresponding to taxa, shape [batch_size, seq_len].
+            key_padding_mask (:obj:`Tensor`): Mask for taxa tokens, shape [batch_size, seq_len].
+            known_positions (:obj:`Optional[Tensor]`): Known positions for the taxa, shape [batch_size, seq_len].
+            batch_labels (:obj:`Optional[Tensor]`): Batch labels for encoding, shape [batch_size]. 
+                Required if `use_batch_labels` is True.
+            MVC (:obj:`bool`): If True, perform masked value prediction for cell embedding (MVC).
+            input_cell_emb (:obj:`Optional[Tensor]`): Precomputed cell embeddings, shape [batch_size, embsize].
+            Mapping[str, Tensor]: A dictionary containing the following keys:
+                - "preds": Predictions for values, shape [batch_size, seq_len].
+                - "cell_emb": Cell embeddings, shape [batch_size, embsize].
+                - "mvc_preds" (optional): MVC predictions for values, shape [batch_size, seq_len].
         """
-        assert gen_taxa is not None and gen_key_padding_mask is not None, "gen_taxa and gen_key_padding_mask should not be None during pretraining"
         if self.use_batch_labels:
             assert batch_labels is not None, "batch_labels should not be None when use_batch_labels is True"
             batch_emb = self.batch_encoder(batch_labels) # (batch, embsize)
@@ -391,21 +401,13 @@ class TransformerModel(nn.Module):
             assert batch_labels is None, "batch_labels should be None when use_batch_labels is False"
         
         transformer_output, cur_taxa_token_embs = self.transformer_generate(
-            pcpt_taxa,
-            pcpt_values,
-            pcpt_key_padding_mask,
-            gen_taxa,
-            gen_key_padding_mask,
+            taxa,
+            values,
+            key_padding_mask,
+            known_positions,
             # batch_labels,
             input_cell_emb=input_cell_emb,
         )
-        # else: if not pretraining
-        #     transformer_output, cur_taxa_token_embs = self.encode(
-        #         pcpt_taxa,
-        #         pcpt_values,
-        #         pcpt_key_padding_mask,
-        #         # batch_labels,
-        #     )
 
         output = {}
         decoder_output = self.decoder(
@@ -426,9 +428,7 @@ class TransformerModel(nn.Module):
         # else:
         full_preds = decoder_output["pred"]  # (batch, seq_len)
 
-        # separate pcpt and gen predictions
-        output["pcpt_preds"] = full_preds[:, : pcpt_taxa.shape[1]]
-        output["gen_preds"] = full_preds[:, pcpt_taxa.shape[1] :]
+        output["preds"] = full_preds
         # if self.explicit_zero_prob:
         #     output["mlm_zero_probs"] = mlm_output["zero_probs"]
 
@@ -454,10 +454,7 @@ class TransformerModel(nn.Module):
             #     bernoulli = Bernoulli(probs=mvc_output["zero_probs"])
             #     output["mvc_output"] = bernoulli.sample() * mvc_output["pred"]
             # else:
-            mvc_full_preds = mvc_output["pred"]  # (batch, seq_len)
-            
-            output["mvc_pcpt_preds"] = mvc_full_preds[:, : pcpt_taxa.shape[1]]
-            output["mvc_gen_preds"] = mvc_full_preds[:, pcpt_taxa.shape[1] :]
+            output["mvc_preds"] = mvc_output["pred"]  # (batch, seq_len)
             if self.explicit_zero_prob:
                 raise NotImplementedError(
                         "Explicit zero prob is not implemented for MVC decoder"

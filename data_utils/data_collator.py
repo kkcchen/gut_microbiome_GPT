@@ -4,8 +4,6 @@ from data_utils.vocab import MicrobiomeVocab
 
 import torch
 
-
-@dataclass # syntactic sugar for defining a class with default values
 class DataCollator:
     def __init__(self, vocab: MicrobiomeVocab, sample_length: int, use_batch_labels: bool, do_binning: bool = True, do_padding: bool = True, gen_percent: float = 0.15, use_class_token: bool = True, contrastive_embedding: bool = False):
         """
@@ -69,14 +67,14 @@ class DataCollator:
             
             if self.generation_mode:
                 if self.contrastive_embedding:
-                    view1 = self.separate_pcpt_gen(ids_batch, values_batch)
-                    view2 = self.separate_pcpt_gen(ids_batch, values_batch)
+                    view1 = self.mlm_corrupt_values(ids_batch, values_batch)
+                    view2 = self.mlm_corrupt_values(ids_batch, values_batch)
                     out_dict = {
                         "view1": view1,
                         "view2": view2,
                     }
                 else:
-                    out_dict = self.separate_pcpt_gen(ids_batch, values_batch)
+                    out_dict = self.mlm_corrupt_values(ids_batch, values_batch)
             else:
                 out_dict = {
                     "ids": ids_batch,
@@ -112,52 +110,110 @@ class DataCollator:
     #     _max_len = self.max_len if max_ori_len < self.max_len else max_ori_len
         
 
-    def separate_pcpt_gen(self, ids: torch.Tensor, values: torch.Tensor) -> Dict[str, torch.Tensor]:
+    # def separate_pcpt_gen(self, ids: torch.Tensor, values: torch.Tensor) -> Dict[str, torch.Tensor]:
+    #     B, T = ids.shape
+    #     device = ids.device
+
+    #     # Step 1: Create a mask for valid positions (not pad or class)
+    #     valid_mask = (ids != self.vocab.pad_index) & (ids != self.vocab.class_index)
+
+    #     # Prepare tensors to hold the results
+    #     gen_ids = torch.full((B, self.gen_len), self.vocab.pad_index, dtype=ids.dtype, device=device)
+    #     gen_values = torch.full((B, self.gen_len), self.vocab.pad_value, dtype=values.dtype, device=device)
+    #     pcpt_ids = torch.full((B, self.pcpt_len), self.vocab.pad_index, dtype=ids.dtype, device=device)
+    #     pcpt_values = torch.full((B, self.pcpt_len), self.vocab.pad_value, dtype=values.dtype, device=device)
+
+    #     for i in range(B):
+    #         valid_indices = torch.nonzero(valid_mask[i], as_tuple=True)[0]
+    #         total_valid = len(valid_indices)
+
+    #         if total_valid == 0:
+    #             continue  # skip empty rows
+
+    #         gen_len = min(int(total_valid * self.gen_percent), self.gen_len)
+    #         pcpt_len = self.pcpt_len - (1 if self.use_class_token else 0)
+
+    #         perm = torch.randperm(total_valid, device=device)
+    #         gen_idx = valid_indices[perm[:gen_len]]
+    #         pcpt_idx = valid_indices[perm[gen_len:gen_len + pcpt_len]]
+
+    #         # Get actual values
+    #         gen_ids[i, :len(gen_idx)] = ids[i, gen_idx]
+    #         gen_values[i, :len(gen_idx)] = values[i, gen_idx]
+
+    #         pcpt_ids_i = ids[i, pcpt_idx]
+    #         pcpt_values_i = values[i, pcpt_idx]
+
+    #         if self.use_class_token:
+    #             pcpt_ids[i, 0] = self.vocab.class_index
+    #             pcpt_values[i, 0] = self.vocab.pad_value
+    #             pcpt_ids[i, 1:1 + len(pcpt_idx)] = pcpt_ids_i
+    #             pcpt_values[i, 1:1 + len(pcpt_idx)] = pcpt_values_i
+    #         else:
+    #             pcpt_ids[i, :len(pcpt_idx)] = pcpt_ids_i
+    #             pcpt_values[i, :len(pcpt_idx)] = pcpt_values_i
+
+    #     return {
+    #         "pcpt_ids": pcpt_ids,
+    #         "pcpt_values": pcpt_values,
+    #         "gen_ids": gen_ids,
+    #         "gen_values": gen_values
+    #     }
+        
+
+    def mlm_corrupt_values(self, ids: torch.Tensor, values: torch.Tensor) -> Dict:
         B, T = ids.shape
         device = ids.device
 
-        # Step 1: Create a mask for valid positions (not pad or class)
-        valid_mask = (ids != self.vocab.pad_index) & (ids != self.vocab.class_index)
+        # Clone inputs to avoid in-place modification
+        corrupted_values = values.clone()
+        target_values = torch.where(
+            ids != self.vocab.pad_index,
+            torch.tensor(float(self.vocab.mask_value), device=ids.device),
+            torch.tensor(float(self.vocab.pad_value), device=ids.device),
+        )
 
-        # Prepare tensors to hold the results
-        gen_ids = torch.full((B, self.gen_len), self.vocab.pad_index, dtype=ids.dtype, device=device)
-        gen_values = torch.full((B, self.gen_len), self.vocab.pad_value, dtype=values.dtype, device=device)
-        pcpt_ids = torch.full((B, self.pcpt_len), self.vocab.pad_index, dtype=ids.dtype, device=device)
-        pcpt_values = torch.full((B, self.pcpt_len), self.vocab.pad_value, dtype=values.dtype, device=device)
+        # Mask to find valid (non-pad, non-class) positions
+        valid_mask = (ids != self.vocab.pad_index) & (ids != self.vocab.class_index)
 
         for i in range(B):
             valid_indices = torch.nonzero(valid_mask[i], as_tuple=True)[0]
             total_valid = len(valid_indices)
 
             if total_valid == 0:
-                continue  # skip empty rows
+                continue
 
-            gen_len = min(int(total_valid * self.gen_percent), self.gen_len)
-            pcpt_len = self.pcpt_len - (1 if self.use_class_token else 0)
-
+            num_to_mask = max(1, int(total_valid * 0.15))
             perm = torch.randperm(total_valid, device=device)
-            gen_idx = valid_indices[perm[:gen_len]]
-            pcpt_idx = valid_indices[perm[gen_len:gen_len + pcpt_len]]
+            mask_indices = valid_indices[perm[:num_to_mask]]
 
-            # Get actual values
-            gen_ids[i, :len(gen_idx)] = ids[i, gen_idx]
-            gen_values[i, :len(gen_idx)] = values[i, gen_idx]
+            # Save original values for loss
+            target_values[i, mask_indices] = values[i, mask_indices]
 
-            pcpt_ids_i = ids[i, pcpt_idx]
-            pcpt_values_i = values[i, pcpt_idx]
+            probs = torch.rand(len(mask_indices), device=device)
 
-            if self.use_class_token:
-                pcpt_ids[i, 0] = self.vocab.class_index
-                pcpt_values[i, 0] = self.vocab.pad_value
-                pcpt_ids[i, 1:1 + len(pcpt_idx)] = pcpt_ids_i
-                pcpt_values[i, 1:1 + len(pcpt_idx)] = pcpt_values_i
-            else:
-                pcpt_ids[i, :len(pcpt_idx)] = pcpt_ids_i
-                pcpt_values[i, :len(pcpt_idx)] = pcpt_values_i
+            # 80% replace with [MASK] value
+            mask_mask = probs < 0.8
+            # 10% replace with random value
+            rand_mask = (probs >= 0.8) & (probs < 0.9)
+            # 10% unchanged (do nothing)
+
+            if mask_mask.any():
+                corrupted_values[i, mask_indices[mask_mask]] = self.vocab.mask_value
+
+            if rand_mask.any():
+                random_values = torch.randint(
+                    low=int(values[i].min().item()),
+                    high=int(values[i].max().item()) + 1,
+                    size=(rand_mask.sum().item(),),
+                    dtype=values.dtype,
+                    device=device
+                )
+                corrupted_values[i, mask_indices[rand_mask]] = random_values
 
         return {
-            "pcpt_ids": pcpt_ids,
-            "pcpt_values": pcpt_values,
-            "gen_ids": gen_ids,
-            "gen_values": gen_values
+            "ids": ids,
+            "corrupted_values": corrupted_values,
+            "target_values": target_values,
         }
+

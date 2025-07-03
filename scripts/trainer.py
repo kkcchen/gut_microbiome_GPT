@@ -160,6 +160,7 @@ if __name__ == "__main__":
         "vocab_len": len(vocab),
         "vocab_pad_index": vocab.pad_index,
         "vocab_pad_value": vocab.pad_value,
+        "vocab_mask_value": vocab.mask_value,
         "num_batch_labels": len(batch_vocab) if use_batch_labels else 0,
     }
     
@@ -180,7 +181,6 @@ if __name__ == "__main__":
         wandb_entity,
         wandb_project,
         wandb_config,
-        is_pretrain=True,
         accelerator=accelerator,
         wandb_run_name=wandb_run_name,
         wandb_run_notes=wandb_run_notes
