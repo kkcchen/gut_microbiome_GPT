@@ -95,6 +95,7 @@ def main():
             scores = probs[:, index]
             binary_predictions = np.array((predictions == index), dtype=int)
             binary_targets = np.array((targets == index), dtype=int)
+            n_samples = np.sum(binary_targets).item()
             accuracy = accuracy_score(binary_targets, binary_predictions)
             auroc = roc_auc_score(binary_targets, scores)
             aupr = average_precision_score(binary_targets, scores)
@@ -103,6 +104,7 @@ def main():
             
             region_scores.append({
                 "Region": region,
+                "n_samples": n_samples,
                 "Accuracy": accuracy,
                 "AUC (ROC)": auroc,
                 "Average Precision": aupr,

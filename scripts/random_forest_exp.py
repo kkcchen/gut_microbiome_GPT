@@ -159,6 +159,7 @@ def main():
         y_pred = best_model.predict(X_test)
 
         # Evaluate the model's accuracy on the test set
+        n_samples = np.sum(y_test_binary).item()
         accuracy = accuracy_score(y_test_binary, y_pred)
         auc = roc_auc_score(y_test_binary, y_pred)
         average_precision = average_precision_score(y_test_binary, y_pred)
@@ -167,6 +168,7 @@ def main():
         # Store the scores for the current region
         region_scores.append({
             "Region": list(label_dict.keys())[i],
+            "n_samples": n_samples,
             "Accuracy": accuracy,
             "AUC (ROC)": auc,
             "Average Precision": average_precision,
