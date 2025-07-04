@@ -16,10 +16,12 @@
             "--hmc-table-path", "datasets_full/pretrain/taxonomy_table_512.npy",
             "--taxa-path", "datasets_full/pretrain/pretrain_cols.json",
             "--best-dir", "experiment_saves/model_checkpoints/best_model",
+            "--intermediate-dir", "experiment_saves/model_checkpoints/intermediate_checkpoints",
             "--checkpoint-dir", "experiment_saves/model_checkpoints/current_checkpoints",
             "--data-restore-dir", "experiment_saves/model_checkpoints/data_checkpoint",
-            "--samplename-path", "datasets_full/pretrain/sample_list.json",
-            "--use-batch-labels",
+
+            // "--samplename-path", "datasets_full/pretrain/sample_list.json",
+            // "--use-batch-labels",
             // "--do-contrastive",
 
             "--batch-size", "3",
@@ -78,10 +80,10 @@
           "module": "scripts.random_forest_exp",
           "console": "integratedTerminal",
           "args": [
-            "--train-embed-path", "/home/kchen/microbiome/gut_microbiome_GPT/outputs/encoded_samples_train.npy",
-            "--train-loc-labels-path", "/home/kchen/microbiome/gut_microbiome_GPT/datasets/finetune/train/finetune_locs_train.json",
-            "--test-embed-path", "/home/kchen/microbiome/gut_microbiome_GPT/outputs/encoded_samples_test.npy",
-            "--test-loc-labels-path", "datasets/finetune/test/finetune_locs_test.json",
+            "--train-embed-path", "datasets_full/finetune/train/finetune_data_train_512.npy",
+            "--train-loc-labels-path", "datasets_full/finetune/train/finetune_locs_train.json",
+            "--test-embed-path", "datasets_full/finetune/test/finetune_data_test_512.npy",
+            "--test-loc-labels-path", "datasets_full/finetune/test/finetune_locs_test.json",
             "--output-dir", "experiment_saves/random_forest_exp",
           ],
           "python": "/home/kchen/miniconda3/envs/hmbGPT/bin/python"  // optional: usually auto-detected
@@ -129,15 +131,12 @@
             // "--wandb-entity", "vector-kevin",
             // "--wandb-project", "microbiome-finetune",
             // "--wandb-run-name", "test_run_001",
-            "--nrows", "10",
+            "--nrows", "1000",
 
             "--log-interval", "2",
             "--cosine-warmup-ratio-or-step", "0.1",
-            "--nrows", "10",
             "--seed", "42",
             "--start-over"
-          
-
           // "--wandb-enabled",
           // "--wandb-entity", "kevinkaiwen-chen-vector",
           // "--wandb-project", "hmb_testproject",

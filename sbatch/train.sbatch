@@ -51,6 +51,7 @@ BEST_DIR="$SAVE_DIR/best_model"
 MODEL_CHECKPOINTS="$SAVE_DIR/current_checkpoints"
 DATA_RESTORE_DIR="$SAVE_DIR/data_checkpoint"
 MODEL_CONFIG_PATH="$SAVE_DIR/model_config.json"
+INTERMEDIATE_DIR="$SAVE_DIR/intermediate_checkpoints"
 
 python -m wandb login 7559085cf6a63fa75982fe12e737bdd576c4fc62
 
@@ -60,6 +61,7 @@ accelerate launch -m scripts.trainer \
     --best-dir "$BEST_DIR" \
     --checkpoint-dir "$MODEL_CHECKPOINTS" \
     --data-restore-dir "$DATA_RESTORE_DIR" \
+    --intermediate-dir "$INTERMEDIATE_DIR" \
     --model-config-path "$MODEL_CONFIG_PATH" \
     --wandb-enabled \
     --wandb-entity "haoze-deng-university-of-toronto" \

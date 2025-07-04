@@ -77,26 +77,29 @@ def pretrain(
         global_iter = epoch * num_batches + batch
 
         with accelerator.accumulate(model):
-            # if USE_GENERATIVE_TRAINING:
             if use_contrastive:
                 data_dict_main = data_dict["view1"]
                 data_dict_aux = data_dict["view2"]
-                
-                pcpt_taxa_aux = data_dict_aux["pcpt_ids"]
-                pcpt_values_aux = data_dict_aux["pcpt_values"]
-                pcpt_key_padding_mask_aux = pcpt_taxa_aux.eq(vocab.pad_index)
-                gen_taxa_aux = data_dict_aux["gen_ids"]
-                gen_values_target_aux = data_dict_aux["gen_values"]
-                gen_key_padding_mask_aux = gen_taxa_aux.eq(vocab.pad_index)
+
+                # View 2 (auxiliary view for contrastive learning)
+                taxa_aux = data_dict_aux["ids"]
+                values_aux = data_dict_aux["corrupted_values"]
+                key_padding_mask_aux = taxa_aux.eq(vocab.pad_index)
+                values_target_aux = data_dict_aux["target_values"]
+                known_positions_aux = values_target_aux.eq(vocab.mask_value)  # positions that are not masked
+                positions_to_match_aux = (values_target != vocab.mask_value) & (values_target != vocab.pad_value)
+
             else:
                 data_dict_main = data_dict
-                
-            pcpt_taxa = data_dict_main["pcpt_ids"]
-            pcpt_values = data_dict_main["pcpt_values"]
-            pcpt_key_padding_mask = pcpt_taxa.eq(vocab.pad_index)
-            gen_taxa = data_dict_main["gen_ids"]
-            gen_values_target = target_values = data_dict_main["gen_values"]
-            gen_key_padding_mask = gen_taxa.eq(vocab.pad_index)
+
+            # View 1 (main)
+            taxa = data_dict_main["ids"]
+            values = data_dict_main["corrupted_values"]
+            key_padding_mask = taxa.eq(vocab.pad_index)
+            values_target = data_dict_main["target_values"]
+            known_positions = values_target.eq(vocab.mask_value)  # positions that are not masked
+            positions_to_match = (values_target != vocab.mask_value) & (values_target != vocab.pad_value)
+
             if use_batch_labels:
                 batch_labels = data_dict["batch_labels"]
             else:
@@ -110,27 +113,25 @@ def pretrain(
             with accelerator.autocast():
                 # if USE_GENERATIVE_TRAINING:
                 output_dict = model(
-                    pcpt_taxa,
-                    pcpt_values,
-                    pcpt_key_padding_mask,
-                    gen_taxa=gen_taxa,
-                    gen_key_padding_mask=gen_key_padding_mask,
+                    taxa,
+                    values,
+                    key_padding_mask,
+                    known_positions=known_positions,
                     MVC=use_mvc,
                     batch_labels=batch_labels,
                 )
-                gen_expr_preds = output_values = output_dict["gen_preds"]
+                abundance_preds = output_values = output_dict["preds"]
 
-                positions_to_match = ~gen_key_padding_mask
                 loss_mse = masked_mse_loss(
-                    gen_expr_preds, gen_values_target, positions_to_match
+                    abundance_preds, values_target, positions_to_match
                 )
                 loss = 2*loss_mse
                 accelerator.log({"train/loss_pcpt": loss_mse.item()}, step=global_iter)
 
                 if use_mvc:
                     loss_mvc = masked_mse_loss(
-                        output_dict["mvc_gen_preds"],
-                        gen_values_target,
+                        output_dict["mvc_preds"],
+                        values_target,
                         positions_to_match,
                     )
                     loss = loss + loss_mvc
@@ -161,11 +162,10 @@ def pretrain(
                 #         writer.add_scalar("train/cls", loss_cls, global_iter)
                 if use_contrastive:
                     output_dict_aux = model(
-                        pcpt_taxa_aux,
-                        pcpt_values_aux,
-                        pcpt_key_padding_mask_aux,
-                        gen_taxa_aux,
-                        gen_key_padding_mask_aux,
+                        taxa_aux,
+                        values_aux,
+                        key_padding_mask_aux,
+                        known_positions=known_positions_aux,
                         # CLS=False,
                         MVC=False,
                         batch_labels=batch_labels,
@@ -182,12 +182,11 @@ def pretrain(
                     loss = loss + loss_cce
                     accelerator.log({"train/cce": loss_cce.item()}, step=global_iter)
                     
-                    gen_expr_preds_aux = output_dict_aux["gen_preds"]
-                    output_values = (output_values + gen_expr_preds_aux) / 2
+                    abundance_preds_aux = output_dict_aux["preds"]
+                    # output_values = (output_values + abundance_preds_aux) / 2
 
-                    positions_to_match_aux = ~gen_key_padding_mask_aux
                     loss_mse_aux = masked_mse_loss(
-                        gen_expr_preds_aux, gen_values_target_aux, positions_to_match_aux
+                        abundance_preds_aux, values_target_aux, positions_to_match_aux
                     )
                     loss += loss_mse_aux
                     accelerator.log({"train/loss_pcpt_aux": loss_mse_aux.item()}, step=global_iter)
@@ -202,11 +201,10 @@ def pretrain(
                 # if global_iter > 500: # second pass with input_cell_embs
                 #     previous_cell_embs = output_dict["cell_emb"].detach()
                 #     output_dict = model(
-                #         pcpt_taxa,
-                #         pcpt_values,
-                #         pcpt_key_padding_mask,
-                #         gen_taxa,
-                #         gen_key_padding_mask,
+                #         taxa,
+                #         values,
+                #         key_padding_mask,
+                #         known_positions=known_positions,
                 #         # CLS=False,
                 #         MVC=False,
                 #         batch_labels=batch_labels,
@@ -240,7 +238,7 @@ def pretrain(
 
         with torch.no_grad():
             mre = masked_relative_error(
-                output_values, target_values, positions_to_match
+                output_values, values_target, positions_to_match
             )
             accelerator.log({"train/mre": mre.item()}, step=global_iter)
 
@@ -359,12 +357,12 @@ def evaluate(
     with torch.no_grad():
         for data_dict in valid_loader:
             # if USE_GENERATIVE_TRAINING:
-            pcpt_ids = data_dict["pcpt_ids"]
-            pcpt_values = data_dict["pcpt_values"]
-            pcpt_key_padding_mask = pcpt_ids.eq(vocab.pad_index)
-            gen_ids = data_dict["gen_ids"]
-            gen_values = data_dict["gen_values"]
-            gen_key_padding_mask = gen_ids.eq(vocab.pad_index)
+            taxa = data_dict["ids"]
+            values = data_dict["corrupted_values"]
+            key_padding_mask = taxa.eq(vocab.pad_index)
+            values_target = data_dict["target_values"]
+            known_positions = values_target.eq(vocab.mask_value)  # positions that are not masked
+            positions_to_match = (values_target != vocab.mask_value) & (values_target != vocab.pad_value)
             if use_batch_labels:
                 batch_labels = data_dict["batch_labels"]
             else:
@@ -378,19 +376,14 @@ def evaluate(
             with accelerator.autocast():
                 # if USE_GENERATIVE_TRAINING:
                 output_dict = model(
-                    pcpt_ids,
-                    pcpt_values,
-                    pcpt_key_padding_mask,
-                    gen_ids,
-                    gen_key_padding_mask,
+                    taxa,
+                    values,
+                    key_padding_mask,
+                    known_positions=known_positions,
                     batch_labels=batch_labels,
-                    # CLS=False,
                     MVC=False,
-                    # generative_training=True,
                 )
-                gen_expr_preds = output_values = output_dict["gen_preds"]
-
-                positions_to_match = ~gen_key_padding_mask
+                abundance_preds = output_dict["preds"]
                 # else:
                 #     output_dict = model(
                 #         input_gene_ids,
@@ -404,10 +397,10 @@ def evaluate(
                 #     output_values = output_dict["mlm_output"]
                 #     positions_to_match = input_values.eq(args.mask_value)
 
-            loss = masked_mse_loss(gen_expr_preds, gen_values, positions_to_match)
+            loss = masked_mse_loss(abundance_preds, values_target, positions_to_match)
             total_loss += loss.item()
             total_error += masked_relative_error(
-                gen_expr_preds, gen_values, positions_to_match
+                abundance_preds, values_target, positions_to_match
             ).item()
 
     total_loss = total_loss / len(valid_loader)
@@ -563,7 +556,6 @@ def create_or_restore_data_state(hmc_table_path, num_bins, data_restore_dir, voc
                 data_dict["values"],
                 test_size=0.2,
                 shuffle=True,
-                stratify=data_dict["batch_labels"],
                 random_state=seed,
             )
             train_data_dict = {
@@ -589,7 +581,7 @@ def create_or_restore_data_state(hmc_table_path, num_bins, data_restore_dir, voc
     return train_data_dict, valid_data_dict, vocab, batch_vocab
 
 
-def create_or_restore_training_state_wandb(model_config, init_lr, warmup_ratio_or_step, total_steps, checkpoint_dir, wandb_enabled, wandb_entity, wandb_project, wandb_config, accelerator: Accelerator, wandb_run_name=None, wandb_run_notes=None, base_state_dict=None, trainable_base_model=None):
+def create_or_restore_training_state_wandb(model_config, init_lr, warmup_ratio_or_step, total_steps, checkpoint_dir, wandb_enabled, wandb_entity, wandb_project, wandb_config, accelerator: Accelerator, wandb_run_name=None, wandb_run_notes=None):
     # initial configuration of the model
     # model = TransformerModel(
     #     d_model=512,

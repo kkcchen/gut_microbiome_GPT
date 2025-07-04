@@ -27,6 +27,7 @@ if __name__ == "__main__":
     parser.add_argument("--best-dir", type=str, required=True, help="Directory to save best model so far")
     parser.add_argument("--checkpoint-dir", type=str, required=True, help="Directory to save checkpoints for preemption")
     parser.add_argument("--data-restore-dir", type=str, required=True, help="Directory to restore data state")
+    parser.add_argument("--intermediate-dir", type=str, required=True, help="Directory to store intermediate checkpoints")
     parser.add_argument("--samplename-path", type=str, default=None, help="Path to samplename files for training")
 
     # wandb
@@ -156,10 +157,12 @@ if __name__ == "__main__":
         "dropout": 0.1,
         "n_input_bins": num_bins,
         "do_mvc": do_mvc,
+        "do_attn_mask": False,
 
         "vocab_len": len(vocab),
         "vocab_pad_index": vocab.pad_index,
         "vocab_pad_value": vocab.pad_value,
+        "vocab_mask_value": vocab.mask_value,
         "num_batch_labels": len(batch_vocab) if use_batch_labels else 0,
     }
     
@@ -180,7 +183,6 @@ if __name__ == "__main__":
         wandb_entity,
         wandb_project,
         wandb_config,
-        is_pretrain=True,
         accelerator=accelerator,
         wandb_run_name=wandb_run_name,
         wandb_run_notes=wandb_run_notes
@@ -224,6 +226,11 @@ if __name__ == "__main__":
         if patience_counter >= patience:
             logger.info("Early stopping triggered. Stopping training.")
             break
+        
+        if epoch % 5 == 0:  # Save model every few epochs
+            subdir = os.path.join(args.intermediate_dir, f"epoch_{epoch}")
+            logger.info(f"Saving an intermediate checkpoint to {subdir}")
+            accelerator.save_model(model, subdir)
 
         epoch += 1
         if accelerator.is_main_process:
