@@ -23,6 +23,7 @@ from .custom_losses import (
     masked_mse_loss,
     env_contrastive_loss
 )
+import torch.nn.functional as F
 
 from data_utils.vocab import MicrobiomeVocab, BatchVocab
 from trainers import logger
@@ -52,6 +53,7 @@ def pretrain(
         use_batch_labels: bool,
         best_dir: str,
         use_mvc: bool,
+        use_tcs: bool,
         use_contrastive: bool,
         # save_interval: int = -1,
         best_val_loss: float = float("inf"),
@@ -83,6 +85,7 @@ def pretrain(
 
                 # View 2 (auxiliary view for contrastive learning)
                 taxa_aux = data_dict_aux["ids"]
+                taxa_target_aux = data_dict_aux["target_ids"]
                 values_aux = data_dict_aux["corrupted_values"]
                 key_padding_mask_aux = taxa_aux.eq(vocab.pad_index)
                 values_target_aux = data_dict_aux["target_values"]
@@ -94,6 +97,7 @@ def pretrain(
 
             # View 1 (main)
             taxa = data_dict_main["ids"]
+            taxa_target = data_dict_main["target_ids"]
             values = data_dict_main["corrupted_values"]
             key_padding_mask = taxa.eq(vocab.pad_index)
             values_target = data_dict_main["target_values"]
@@ -118,6 +122,7 @@ def pretrain(
                     key_padding_mask,
                     known_positions=known_positions,
                     MVC=use_mvc,
+                    TCS=use_tcs,
                     batch_labels=batch_labels,
                 )
                 abundance_preds = output_values = output_dict["preds"]
@@ -125,7 +130,7 @@ def pretrain(
                 loss_mse = masked_mse_loss(
                     abundance_preds, values_target, positions_to_match
                 )
-                loss = 2*loss_mse
+                loss = loss_mse
                 accelerator.log({"train/loss_pcpt": loss_mse.item()}, step=global_iter)
 
                 if use_mvc:
@@ -160,6 +165,21 @@ def pretrain(
                 #         loss_cls = criterion_cls(output_dict["cls_output"], target_labels)
                 #         loss = loss + loss_cls
                 #         writer.add_scalar("train/cls", loss_cls, global_iter)
+                if use_tcs:
+                    flattened_preds = output_dict["taxa_preds"].view(-1, output_dict["taxa_preds"].shape[-1])
+                    flattened_target = taxa_target.view(-1)
+                    # loss_tcs = masked_mse_loss(
+                    #     output_dict["taxa_preds"],
+                    #     values_target,
+                    #     positions_to_match,
+                    # )
+                    loss_tcs = F.cross_entropy(
+                        flattened_preds,
+                        flattened_target,
+                        ignore_index=vocab.pad_index,
+                    )
+                    loss = loss + loss_tcs
+                    accelerator.log({"train/tcs": loss_tcs.item()}, step=global_iter)
                 if use_contrastive:
                     output_dict_aux = model(
                         taxa_aux,

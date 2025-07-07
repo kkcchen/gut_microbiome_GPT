@@ -23,6 +23,8 @@
             // "--samplename-path", "datasets_full/pretrain/sample_list.json",
             // "--use-batch-labels",
             // "--do-contrastive",
+            "--do-mvc",
+            "--do-taxa-decoder",
 
             "--batch-size", "3",
             "--log-interval", "5",

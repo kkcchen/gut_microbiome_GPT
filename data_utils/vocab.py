@@ -20,10 +20,14 @@ class MicrobiomeVocab():
             class_token (str): The token representing the class.
             mask_token (str): The token representing the mask.
         """
+        # IMPORTANT: special tokens must be at end of the vocabulary list
+        special_tokens = [class_token, mask_token, pad_token]
         if add_special_tokens:
-            self.itos = vocab_list + [class_token, mask_token, pad_token]
+            self.itos = vocab_list + special_tokens
+            self.num_special_tokens = len(special_tokens)
         else:
             self.itos = vocab_list
+            self.num_special_tokens = 0
         # assert there are no duplicates in the taxa names
         if len(self.itos) != len(set(self.itos)):
             raise ValueError("Duplicate taxa names found in the DataFrame.")
@@ -37,6 +41,7 @@ class MicrobiomeVocab():
         self.mask_value = mask_value
 
         self.pad_index = self.stoi[pad_token]
+        self.mask_index = self.stoi[mask_token]
         self.class_index = self.stoi[class_token]
 
     def __len__(self):

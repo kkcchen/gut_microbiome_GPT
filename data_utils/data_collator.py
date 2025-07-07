@@ -5,7 +5,7 @@ from data_utils.vocab import MicrobiomeVocab
 import torch
 
 class DataCollator:
-    def __init__(self, vocab: MicrobiomeVocab, sample_length: int, use_batch_labels: bool, do_binning: bool = True, do_padding: bool = True, gen_percent: float = 0.15, use_class_token: bool = True, contrastive_embedding: bool = False):
+    def __init__(self, vocab: MicrobiomeVocab, sample_length: int, use_batch_labels: bool, mask_ids: bool = False, do_binning: bool = True, do_padding: bool = True, gen_percent: float = 0.15, use_class_token: bool = True, contrastive_embedding: bool = False):
         """
         Initializes the data collator with specified parameters.
 
@@ -34,6 +34,7 @@ class DataCollator:
         self.use_class_token = use_class_token
         self.use_batch_labels = use_batch_labels
         self.contrastive_embedding = contrastive_embedding
+        self.mask_ids = mask_ids
 
         if self.gen_percent > 0:
             self.generation_mode = True
@@ -67,14 +68,14 @@ class DataCollator:
             
             if self.generation_mode:
                 if self.contrastive_embedding:
-                    view1 = self.mlm_corrupt_values(ids_batch, values_batch)
-                    view2 = self.mlm_corrupt_values(ids_batch, values_batch)
+                    view1 = self.mlm_corrupt_values(ids_batch, values_batch, self.mask_ids)
+                    view2 = self.mlm_corrupt_values(ids_batch, values_batch, self.mask_ids)
                     out_dict = {
                         "view1": view1,
                         "view2": view2,
                     }
                 else:
-                    out_dict = self.mlm_corrupt_values(ids_batch, values_batch)
+                    out_dict = self.mlm_corrupt_values(ids_batch, values_batch, self.mask_ids)
             else:
                 out_dict = {
                     "ids": ids_batch,
@@ -161,16 +162,23 @@ class DataCollator:
     #     }
         
 
-    def mlm_corrupt_values(self, ids: torch.Tensor, values: torch.Tensor) -> Dict:
+    def mlm_corrupt_values(self, ids: torch.Tensor, values: torch.Tensor, mask_ids=False) -> Dict:
         B, T = ids.shape
         device = ids.device
 
         # Clone inputs to avoid in-place modification
         corrupted_values = values.clone()
+        corrupted_ids = ids.clone() if not mask_ids else ids.clone()
         target_values = torch.where(
             ids != self.vocab.pad_index,
             torch.tensor(float(self.vocab.mask_value), device=ids.device),
             torch.tensor(float(self.vocab.pad_value), device=ids.device),
+        )
+        target_ids = torch.full(
+            ids.shape,
+            self.vocab.pad_index,
+            dtype=torch.long,
+            device=ids.device,
         )
 
         # Mask to find valid (non-pad, non-class) positions
@@ -187,16 +195,33 @@ class DataCollator:
             perm = torch.randperm(total_valid, device=device)
             mask_indices = valid_indices[perm[:num_to_mask]]
 
-            # Save original values for loss
-            target_values[i, mask_indices] = values[i, mask_indices]
 
             probs = torch.rand(len(mask_indices), device=device)
 
-            # 80% replace with [MASK] value
-            mask_mask = probs < 0.8
-            # 10% replace with random value
-            rand_mask = (probs >= 0.8) & (probs < 0.9)
-            # 10% unchanged (do nothing)
+            if mask_ids:
+                # 40% replace with [MASK] value for value
+                mask_mask = probs < 0.4
+                # 5% replace with random value
+                rand_mask = (probs >= 0.4) & (probs < 0.45)
+                # 40% replace id with [MASK] id
+                id_mask_mask = (probs >= 0.45) & (probs < 0.85)
+                # 5% replace id with random id
+                id_rand_mask = (probs >= 0.85) & (probs < 0.9)
+                # 10% unchanged (do nothing)
+                unchanged_mask = (probs >= 0.9)
+                
+                # save original ids for target
+                target_ids[i, mask_indices[id_mask_mask | id_rand_mask | unchanged_mask]] = ids[i, mask_indices[id_mask_mask | id_rand_mask | unchanged_mask]]
+            else:
+                # 80% replace with [MASK] value
+                mask_mask = probs < 0.8
+                # 10% replace with random value
+                rand_mask = (probs >= 0.8) & (probs < 0.9)
+                # 10% unchanged (do nothing)
+                unchanged_mask = (probs >= 0.9)
+            
+            # save original values for target
+            target_values[i, mask_indices[mask_mask | rand_mask | unchanged_mask]] = values[i, mask_indices[mask_mask | rand_mask | unchanged_mask]]
 
             if mask_mask.any():
                 corrupted_values[i, mask_indices[mask_mask]] = self.vocab.mask_value
@@ -211,8 +236,27 @@ class DataCollator:
                 )
                 corrupted_values[i, mask_indices[rand_mask]] = random_values
 
+            if mask_ids:
+                if id_mask_mask.any():
+                    corrupted_ids[i, mask_indices[id_mask_mask]] = self.vocab.mask_index
+
+                if id_rand_mask.any():
+                    all_indices = torch.arange(len(self.vocab), device=device)
+                    valid_indices = all_indices[(all_indices != self.vocab.pad_index) & (all_indices != self.vocab.class_index)]
+
+                    # Randomly sample from valid indices
+                    random_ids = valid_indices[torch.randint(
+                        low=0,
+                        high=valid_indices.size(0),
+                        size=(id_rand_mask.sum().item(),),
+                        dtype=torch.long,
+                        device=device
+                    )]
+                    corrupted_ids[i, mask_indices[id_rand_mask]] = random_ids
+
         return {
-            "ids": ids,
+            "ids": corrupted_ids,
+            "target_ids": target_ids,
             "corrupted_values": corrupted_values,
             "target_values": target_values,
         }

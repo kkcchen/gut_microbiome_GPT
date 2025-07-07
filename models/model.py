@@ -30,7 +30,7 @@ from .encoders import (
 )
 
 from .decoders import (
-    AbundanceDecoder,
+    OutputMulticlassDecoder,
     MVCDecoder,
     # AdversarialDiscriminator
 )
@@ -58,8 +58,10 @@ class TransformerModel(nn.Module):
         cell_emb_style: str = "cls",
         explicit_zero_prob: bool = False,
         do_mvc: bool = False,
+        do_taxa_decoder: bool = False,
         mvc_decoder_style: str = "inner product",
         pre_norm: bool = False,
+        vocab_num_special_tokens: int = 3,
     ):
         super().__init__()
         self.model_type = "Transformer"
@@ -74,6 +76,7 @@ class TransformerModel(nn.Module):
         self.mvc_decoder_style = mvc_decoder_style
         self.nhead = nhead
         self.do_attn_mask = do_attn_mask
+        self.do_taxa_decoder = do_taxa_decoder
         if self.input_emb_style not in ["category", "continuous", "scaling"]:
             raise ValueError(
                 f"input_emb_style should be one of category, continuous, scaling, "
@@ -173,11 +176,20 @@ class TransformerModel(nn.Module):
         self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
 
         # MLP to get from abundance embedding (not just the <cls> token) to quantity prediction
-        self.decoder = AbundanceDecoder(
+        self.abundance_decoder = OutputMulticlassDecoder(
             d_model,
+            d_out=1,
             explicit_zero_prob=explicit_zero_prob,
             use_batch_labels=use_batch_labels,
         )
+        
+        if do_taxa_decoder:
+            self.taxa_decoder = OutputMulticlassDecoder(
+                d_model,
+                d_out=vocab_len - vocab_num_special_tokens,  # exclude special tokens
+                explicit_zero_prob=explicit_zero_prob,
+                use_batch_labels=use_batch_labels,
+            )
 
         self.init_weights()
 
@@ -376,6 +388,7 @@ class TransformerModel(nn.Module):
         batch_labels: Optional[Tensor] = None,
         # CLS: bool = False,
         MVC: bool = False,
+        TCS: bool = False,  # Taxa Classification, i.e. taxa decoder
         # ECS: bool = False,
         # do_sample: bool = False,
         input_cell_emb: Optional[Tensor] = None,
@@ -411,7 +424,7 @@ class TransformerModel(nn.Module):
         )
 
         output = {}
-        decoder_output = self.decoder(
+        decoder_output = self.abundance_decoder(
             transformer_output
             if not self.use_batch_labels
             else torch.cat(
@@ -461,6 +474,25 @@ class TransformerModel(nn.Module):
                         "Explicit zero prob is not implemented for MVC decoder"
                     )
                 output["mvc_zero_probs"] = mvc_output["zero_probs"]
+        if TCS:
+            if not self.do_taxa_decoder:
+                raise ValueError("TCS is not enabled for this model, so do not call TCS in the forward pass!")
+            taxa_output = self.taxa_decoder(
+                transformer_output
+                if not self.use_batch_labels
+                else torch.cat(
+                    [
+                        transformer_output,
+                        batch_emb.unsqueeze(1).repeat(1, transformer_output.shape[1], 1),
+                    ],
+                    dim=2,
+                ),
+            )
+            # if self.explicit_zero_prob and do_sample:
+            #     bernoulli = Bernoulli(probs=taxa_output["zero_probs"])
+            #     output["taxa_output"] = bernoulli.sample() * taxa_output["pred"]
+            # else:
+            output["taxa_preds"] = taxa_output["pred"]
         # if ECS:
         #     raise NotImplementedError(
         #         "Elastic cell similarity is not implemented yet. "

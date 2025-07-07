@@ -5,10 +5,11 @@ from torch import nn, Tensor
 from typing import Dict, Mapping, Optional, Tuple, Any, Union
 
 # MLP to get from encoder output to abundance prediction
-class AbundanceDecoder(nn.Module):
+class OutputMulticlassDecoder(nn.Module):
     def __init__(
         self,
         d_model: int,
+        d_out: int,
         explicit_zero_prob: bool = False,
         use_batch_labels: bool = False,
     ):
@@ -19,7 +20,7 @@ class AbundanceDecoder(nn.Module):
             nn.LeakyReLU(),
             nn.Linear(d_model, d_model),
             nn.LeakyReLU(),
-            nn.Linear(d_model, 1),
+            nn.Linear(d_model, d_out),
         )
         self.explicit_zero_prob = explicit_zero_prob
         if explicit_zero_prob:
@@ -28,7 +29,7 @@ class AbundanceDecoder(nn.Module):
                 nn.LeakyReLU(),
                 nn.Linear(d_model, d_model),
                 nn.LeakyReLU(),
-                nn.Linear(d_model, 1),
+                nn.Linear(d_model, d_out),
             )
 
     def forward(self, x: Tensor) -> Dict[str, Tensor]:

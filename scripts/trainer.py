@@ -51,6 +51,7 @@ if __name__ == "__main__":
     parser.add_argument("--num-bins", type=int, default=15, help="Number of bins for binning")
     parser.add_argument("--use-batch-labels", action="store_true", help="Use batch labels in the dataset")
     parser.add_argument("--do-mvc", action="store_true", help="do mvc task for pretraining")
+    parser.add_argument("--do-taxa-decoder", action="store_true", help="do taxa task for pretraining")
     parser.add_argument("--do-contrastive", action="store_true", help="Use contrastive embedding in the model")
 
     # for debugging
@@ -85,6 +86,7 @@ if __name__ == "__main__":
     grad_accumulation_steps = args.grad_accumulation_steps
     enable_fp16 = args.enable_fp16
     do_mvc = args.do_mvc
+    do_taxa_decoder = args.do_taxa_decoder
     do_contrastive = args.do_contrastive
     
     use_batch_labels = args.use_batch_labels
@@ -131,6 +133,7 @@ if __name__ == "__main__":
     train_loader = prepare_dataloader(
         train_data_dict,
         use_batch_labels=use_batch_labels,
+        mask_ids=do_taxa_decoder,
         vocab=vocab,
         batch_size=batch_size,
         gen_percent=0.15,
@@ -157,9 +160,11 @@ if __name__ == "__main__":
         "dropout": 0.1,
         "n_input_bins": num_bins,
         "do_mvc": do_mvc,
+        "do_taxa_decoder": do_taxa_decoder,
         "do_attn_mask": False,
 
         "vocab_len": len(vocab),
+        "vocab_num_special_tokens": vocab.num_special_tokens,
         "vocab_pad_index": vocab.pad_index,
         "vocab_pad_value": vocab.pad_value,
         "vocab_mask_value": vocab.mask_value,
@@ -211,6 +216,7 @@ if __name__ == "__main__":
             best_dir=best_dir,
             best_val_loss=best_val_loss,
             use_mvc=do_mvc,
+            use_tcs=do_taxa_decoder,
             use_contrastive=do_contrastive,
         )
 
