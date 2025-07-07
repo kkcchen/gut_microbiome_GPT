@@ -101,11 +101,11 @@ if __name__ == "__main__":
     np.random.seed(args.seed)
     
     wandb_config={
-        "learning_rate": init_lr,
-        "batch_size": batch_size,
-        "max_epochs": max_epochs,
-        "cosine_warmup_ratio_or_step": cosine_warmup_ratio_or_step,
-        "binning": num_bins
+        "do_mvc": do_mvc,
+        "do_taxa_decoder": do_taxa_decoder,
+        "do_contrastive": do_contrastive,
+        "num_bins": num_bins,
+        "use_batch_labels": use_batch_labels,
     }
 
     accelerator = Accelerator(gradient_accumulation_steps=grad_accumulation_steps, mixed_precision="fp16" if enable_fp16 else "no", log_with="wandb" if wandb_enabled else None)
