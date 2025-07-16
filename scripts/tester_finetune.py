@@ -5,6 +5,7 @@ from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_sco
 from data_utils.vocab import BatchVocab
 import numpy as np
 import os
+from trainers import logger
 
 from trainers.finetune_functions import (
     load_model,
@@ -90,6 +91,7 @@ def main():
         total_accuracy = accuracy_score(targets, predictions)
         region_scores = []
         for region, index in batch_vocab.stoi.items():
+            logger.info(f"region {region} is {index}")
             if region == "unknown":
                 continue
             scores = probs[:, index]

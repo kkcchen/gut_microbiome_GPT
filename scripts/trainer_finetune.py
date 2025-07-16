@@ -330,8 +330,50 @@ if __name__ == "__main__":
     targets = targets.cpu().numpy()
     
     if accelerator.is_main_process:
-        print("shape of probs and targets is:", probs.shape, targets.shape)
-        print("location of probs and targets is", probs.device, targets.device)
+        print("shape of eval probs and targets is:", probs.shape, targets.shape)
+        print("location of eval probs and targets is", probs.device, targets.device)
+        predictions = np.argmax(probs, axis=1)
+        total_accuracy = accuracy_score(targets, predictions)
+        region_scores = []
+        for region, index in batch_vocab.stoi.items():
+            logger.info(f"region {region} is {index}")
+            if region == "unknown":
+                continue
+            scores = probs[:, index]
+            binary_predictions = np.array((predictions == index), dtype=int)
+            binary_targets = np.array((targets == index), dtype=int)
+            n_samples = np.sum(binary_targets).item()
+            accuracy = accuracy_score(binary_targets, binary_predictions)
+            auroc = roc_auc_score(binary_targets, scores)
+            aupr = average_precision_score(binary_targets, scores)
+            baseline_precision = np.mean(binary_targets)
+            
+            region_scores.append({
+                "Region": region,
+                "n_samples": n_samples,
+                "Accuracy": accuracy,
+                "AUC (ROC)": auroc,
+                "Average Precision": aupr,
+                "Baseline Precision": baseline_precision
+            })
+        
+        # Save the scores to a file
+        region_scores.sort(key=lambda x: x["Region"])
+        region_scores.append({"Total Accuracy": total_accuracy})
+        with open(os.path.join(args.best_dir, "valid_results.json"), "w") as f:
+            json.dump(region_scores, f, indent=4)
+
+        print(f"Scores for all regions saved to {args.best_dir}")
+        
+    # evaluate on train set
+    accelerator.wait_for_everyone()
+    probs, targets = get_class_probs(new_model, train_loader, vocab.pad_index, accelerator)
+    probs = probs.cpu().numpy()
+    targets = targets.cpu().numpy()
+    
+    if accelerator.is_main_process:
+        print("shape of train probs and targets is:", probs.shape, targets.shape)
+        print("location of train probs and targets is", probs.device, targets.device)
         predictions = np.argmax(probs, axis=1)
         total_accuracy = accuracy_score(targets, predictions)
         region_scores = []
@@ -359,7 +401,7 @@ if __name__ == "__main__":
         # Save the scores to a file
         region_scores.sort(key=lambda x: x["Region"])
         region_scores.append({"Total Accuracy": total_accuracy})
-        with open(os.path.join(args.best_dir, "valid_results.json"), "w") as f:
+        with open(os.path.join(args.best_dir, "train_results.json"), "w") as f:
             json.dump(region_scores, f, indent=4)
 
         print(f"Scores for all regions saved to {args.best_dir}")

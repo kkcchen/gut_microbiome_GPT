@@ -40,7 +40,7 @@ if __name__ == "__main__":
     # optional training arguments
     parser.add_argument("--init-lr", type=float, default=1e-3, help="Initial learning rate")
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size for training")
-    parser.add_argument("--max-epochs", type=int, default=25, help="Maximum number of epochs")
+    parser.add_argument("--max-epochs", type=int, default=15, help="Maximum number of epochs")
     parser.add_argument("--cosine-warmup-ratio-or-step", type=float, default=0.1, help="Scheduler warmup ratio or step")
     parser.add_argument("--log-interval", type=int, default=10, help="Interval for logging")
     parser.add_argument("--patience", type=int, default=None, help="Patience for early stopping")
@@ -196,8 +196,15 @@ if __name__ == "__main__":
     train_loader, valid_loader, model, optimizer, scheduler = accelerator.prepare(
         train_loader, valid_loader, model, optimizer, scheduler
     )
+    
+    checkpoint_at = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 14}
 
     while epoch < max_epochs:
+        if epoch in checkpoint_at: # Save model every few epochs
+            subdir = os.path.join(args.intermediate_dir, f"epoch_{epoch}")
+            logger.info(f"Saving an intermediate checkpoint to {subdir}")
+            accelerator.save_model(model, subdir)
+            
         logger.info(f"Epoch {epoch + 1}/{max_epochs}")
         epoch_start_time = time.time()
 
@@ -232,11 +239,6 @@ if __name__ == "__main__":
         if patience_counter >= patience:
             logger.info("Early stopping triggered. Stopping training.")
             break
-        
-        if epoch % 5 == 0:  # Save model every few epochs
-            subdir = os.path.join(args.intermediate_dir, f"epoch_{epoch}")
-            logger.info(f"Saving an intermediate checkpoint to {subdir}")
-            accelerator.save_model(model, subdir)
 
         epoch += 1
         if accelerator.is_main_process:
