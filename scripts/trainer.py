@@ -53,6 +53,7 @@ if __name__ == "__main__":
     parser.add_argument("--do-mvc", action="store_true", help="do mvc task for pretraining")
     parser.add_argument("--do-taxa-decoder", action="store_true", help="do taxa task for pretraining")
     parser.add_argument("--do-contrastive", action="store_true", help="Use contrastive embedding in the model")
+    parser.add_argument("--train-mask-ratio", type=float, default=0.15, help="train mask ratio")
 
     # for debugging
     parser.add_argument("--nrows", type=int, default=None, help="For debugging to limit number of samples in set")
@@ -88,6 +89,7 @@ if __name__ == "__main__":
     do_mvc = args.do_mvc
     do_taxa_decoder = args.do_taxa_decoder
     do_contrastive = args.do_contrastive
+    train_mask_ratio = args.train_mask_ratio
     
     use_batch_labels = args.use_batch_labels
     if use_batch_labels:
@@ -136,7 +138,7 @@ if __name__ == "__main__":
         mask_ids=do_taxa_decoder,
         vocab=vocab,
         batch_size=batch_size,
-        gen_percent=0.15,
+        gen_percent=train_mask_ratio,
         shuffle=True,
         contrastive_embedding=do_contrastive,
     )

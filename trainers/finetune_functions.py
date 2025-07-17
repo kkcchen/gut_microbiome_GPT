@@ -257,7 +257,7 @@ def create_training_state_finetune(model_config, init_lr, warmup_ratio_or_step, 
     elif state_dict:
         model.load_state_dict(state_dict)
     else:
-        raise ValueError("either base_state_dict or state_dict must be given")
+        logger.info("loading model from scratch!")
     trainable_params = model.set_base_model_trainable(trainable_base_model)
     optimizer = torch.optim.Adam(trainable_params, lr=init_lr)
     assert warmup_ratio_or_step > 0, "Warmup ratio or step must be positive"

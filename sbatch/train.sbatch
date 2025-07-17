@@ -37,8 +37,8 @@ python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not availabl
 
 # put your command here
 DATA_DIR="/projects/gutmodel/datasets"
-RUN_NAME="no-cellemb-pass-fair"
-NOTES="remove second step of forward pretrain pass where cell embs are passed back to model for loss_gen. also doubled loss for normal pcpt for fair comparison"
+RUN_NAME="taxa-mask-30"
+NOTES="30% masking with taxa masking and mvc"
 
 EXPERIMENT_PATH=experiment_saves/$RUN_NAME
 
@@ -55,7 +55,7 @@ INTERMEDIATE_DIR="$SAVE_DIR/intermediate_checkpoints"
 
 python -m wandb login 7559085cf6a63fa75982fe12e737bdd576c4fc62
 
-accelerate launch -m scripts.trainer \
+accelerate launch --main_process_port 0 -m scripts.trainer \
     --hmc-table-path "$HMC_TABLE_PATH" \
     --taxa-path "$TAXA_JSON_PATH" \
     --best-dir "$BEST_DIR" \
@@ -77,10 +77,12 @@ accelerate launch -m scripts.trainer \
     --enable-fp16 \
     --seed 42 \
     --notes "$NOTES" \
-    --do-mvc \
-    --do-contrastive &
-    # --use-batch-labels \
-    # --samplename-path "$STUDY_PATH" \
+    --train-mask-ratio 0.3 \
+    --use-batch-labels \
+    --samplename-path "$STUDY_PATH" \
+    --do-taxa-decoder \
+    --do-mvc &
+    # --do-contrastive &
 
 child_pid=$!
 wait $child_pid

@@ -165,7 +165,7 @@
           "--test-loc-labels-path", "datasets_full/finetune/test/filtered_outputs/filtered_locs.json",
 
           "--nrows", "10",
-          "--output-dir", "experiment_saves/finetune_model_checkpoints/loc_finetune/test_outputs",
+          "--output-dir", "experiment_saves/finetune_model_checkpoints/loc_finetune",
 
         // "--wandb-enabled",
         // "--wandb-entity", "kevinkaiwen-chen-vector",

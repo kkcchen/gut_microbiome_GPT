@@ -1,7 +1,7 @@
 import argparse
 from accelerate import Accelerator
 import json
-from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_score
+from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_score, confusion_matrix
 from data_utils.vocab import BatchVocab
 import numpy as np
 import os
@@ -89,6 +89,7 @@ def main():
         print("location of probs and targets is", probs.device, targets.device)
         predictions = np.argmax(probs, axis=1)
         total_accuracy = accuracy_score(targets, predictions)
+        conf_mat = confusion_matrix(targets, predictions)
         region_scores = []
         for region, index in batch_vocab.stoi.items():
             logger.info(f"region {region} is {index}")
@@ -114,8 +115,12 @@ def main():
             })
         
         # Save the scores to a file
+        conf_row_strs = [str(row) for row in conf_mat]
+
         region_scores.sort(key=lambda x: x["Region"])
-        region_scores.append({"Total Accuracy": total_accuracy})
+        region_scores.append({"Total Accuracy": total_accuracy,
+                              "Categories": batch_vocab.itos,
+                              "Confusion Matrix": conf_row_strs})
         os.makedirs(os.path.dirname(args.output_path), exist_ok=True)
         with open(args.output_path, "w") as f:
             json.dump(region_scores, f, indent=4)

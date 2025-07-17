@@ -56,7 +56,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Train TransformerModel on microbiome data")
     parser.add_argument("--base-model-config-path", type=str, required=True, help="Path to base model configuration file")
-    parser.add_argument("--base-model-path", type=str, required=True, help="Path to the base model state dictionary")
+    parser.add_argument("--base-model-path", type=str, default=None, help="Path to the base model state dictionary")
     parser.add_argument("--train-input", type=str, required=True, help="Path to train .npy file (samples, taxa, 2)")
     parser.add_argument("--best-dir", type=str, required=True, help="Directory to save best model so far")
     parser.add_argument("--data-restore-dir", type=str, required=True, help="Directory to restore data state")
@@ -119,7 +119,7 @@ if __name__ == "__main__":
     model_config_path = args.model_config_path
     
     start_over = args.start_over
-    
+        
     accelerator = Accelerator(gradient_accumulation_steps=grad_accumulation_steps, mixed_precision="fp16" if enable_fp16 else "no", log_with="wandb" if wandb_enabled else None)
         
     # Set random seed for reproducibility
@@ -157,6 +157,8 @@ if __name__ == "__main__":
     train_data_dict, valid_data_dict, vocab, batch_vocab = create_or_restore_data_state(
         train_input, num_bins, data_restore_dir, vocab_restore_dir, batch_restore_dir, accelerator, taxa_path=None, use_batch_labels=True, direct_batch_path=train_loc_labels_path, nrows=nrows, seed=args.seed
     )
+    
+    print(f"rank {accelerator.process_index} has vocab {batch_vocab.itos}")
     
     check_vocab_basemodel_match(base_model_config, vocab)
 
@@ -196,7 +198,10 @@ if __name__ == "__main__":
     
     trainloader_len = len(train_loader)
 
-    base_state_dict = load_file(base_model_path)
+    if base_model_path:
+        base_state_dict = load_file(base_model_path)
+    else:
+        base_state_dict = None
     
     model_config = {
         'base_model_config': base_model_config,
@@ -228,11 +233,18 @@ if __name__ == "__main__":
         wandb_run_notes=args.notes,
     )
     
-    # torch.save(model.state_dict(), "testdir/model_weights1.pth")
+    load_test = False
+    save_path = os.path.join(os.path.dirname(best_dir), "initial_model.pth")
+    if not load_test:
+        torch.save(model.state_dict(), save_path)
+    else:
+        initial_state_dict = torch.load(save_path)
+        model.load_state_dict(initial_state_dict)
 
     train_loader, valid_loader, model, optimizer, scheduler = accelerator.prepare(
         train_loader, valid_loader, model, optimizer, scheduler
     )
+    accelerator.save_model(model, best_dir)
     epoch = 0
     best_val_loss = float("inf")
     patience_counter = 0
@@ -273,7 +285,8 @@ if __name__ == "__main__":
         epoch += 1
         accelerator.wait_for_everyone()
         
-    # now, train with base model unfrozen   
+    # now, train with base model unfrozen
+    accelerator.wait_for_everyone()
     new_state_dict = load_file(os.path.join(best_dir, "model.safetensors"))
     new_model, new_optimizer, new_scheduler = create_training_state_finetune(
         model_config,
@@ -283,6 +296,8 @@ if __name__ == "__main__":
         trainable_base_model=True,  # Set to False to freeze base model initially
         state_dict=new_state_dict,
     )
+    # for i, (name, param) in enumerate(new_model.named_parameters()):
+    #     logger.info(f"{i}: {name}, requires_grad={param.requires_grad}")
     new_model, new_optimizer, new_scheduler = accelerator.prepare(
         new_model, new_optimizer, new_scheduler
     )

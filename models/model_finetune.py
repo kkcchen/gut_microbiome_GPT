@@ -34,8 +34,11 @@ class FinetunedTransformer(nn.Module):
         if trainable:
             encoder_blocks = [self.base_model.encoder, self.base_model.value_encoder, self.base_model.transformer_encoder]
             for block in encoder_blocks:
-                for param in block.parameters():
-                    param.requires_grad = trainable
+                for name, param in block.named_parameters():
+                    if "mask_embedding" in name:
+                        param.requires_grad = False  # Always freeze unused embedding
+                    else:
+                        param.requires_grad = trainable
         
         return [param for param in self.parameters() if param.requires_grad]
         
