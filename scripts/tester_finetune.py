@@ -8,7 +8,7 @@ import os
 from trainers import logger
 
 from trainers.finetune_functions import (
-    load_model,
+    load_finetuned_model,
 )
 from trainers.test_functions import (
     restore_vocab,
@@ -41,7 +41,7 @@ def main():
     accelerator = Accelerator()
 
     # load model config and then model
-    model = load_model(args.model_config_path, args.best_path)
+    model = load_finetuned_model(args.model_config_path, args.best_path)
     model.eval()
     
     # read test location labels
@@ -119,8 +119,8 @@ def main():
 
         region_scores.sort(key=lambda x: x["Region"])
         region_scores.append({"Total Accuracy": total_accuracy,
-                              "Categories": batch_vocab.itos,
-                              "Confusion Matrix": conf_row_strs})
+                            "Categories": batch_vocab.itos,
+                            "Confusion Matrix": conf_row_strs})
         os.makedirs(os.path.dirname(args.output_path), exist_ok=True)
         with open(args.output_path, "w") as f:
             json.dump(region_scores, f, indent=4)

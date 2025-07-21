@@ -116,9 +116,9 @@ def main():
         
         param_distributions = {
             "min_samples_leaf": randint(1, 11),            # integer between 1 and 10
-            "max_samples": uniform(0.5, 1),              # float between 0.5 and 1.0
-            "max_features": uniform(0.1, 0.3),             # float between 0.1 and 0.3
-            "n_estimators": randint(200, 1000)               # integer between 50 and 500
+            "max_samples": uniform(0.5, 0.5),              # float between 0.5 and 1.0
+            "max_features": uniform(0.1, 0.3),             # float between 0.1 and 0.4
+            "n_estimators": randint(200, 1000)               # integer between 50 and 1000
         }
 
         # Perform random search with cross-validation
@@ -156,13 +156,14 @@ def main():
         joblib.dump(best_model, os.path.join(region_dir, "best_model.pkl"))
 
         # Predict the labels for the test set using the best model
+        y_probs = best_model.predict_proba(X_test)
         y_pred = best_model.predict(X_test)
 
         # Evaluate the model's accuracy on the test set
         n_samples = np.sum(y_test_binary).item()
         accuracy = accuracy_score(y_test_binary, y_pred)
-        auc = roc_auc_score(y_test_binary, y_pred)
-        average_precision = average_precision_score(y_test_binary, y_pred)
+        auc = roc_auc_score(y_test_binary, y_probs)
+        average_precision = average_precision_score(y_test_binary, y_probs)
         baseline_precision = np.mean(y_test_binary)
 
         # Store the scores for the current region

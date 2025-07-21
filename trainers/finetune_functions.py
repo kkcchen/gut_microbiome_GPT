@@ -200,7 +200,7 @@ def unfreeze_base_model(model: FinetunedTransformer, optimizer) -> List[nn.Param
     })
     
 
-def load_model(
+def load_finetuned_model(
     model_config_path: str,
     model_path: str,
 ) -> FinetunedTransformer:

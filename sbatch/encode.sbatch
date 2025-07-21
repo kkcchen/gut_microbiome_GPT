@@ -17,12 +17,27 @@ source ~/hmbenv/bin/activate
 python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not available. Exiting.'" || exit 1
 
 # === Set paths ===
-EXPERIMENT_PATH=experiment_saves/no_mvc
+# EXPERIMENT_PATH=experiment_saves/finetune_tests/taxa-mask-real-mvc
 
-SAFETENSORS_PATH=$EXPERIMENT_PATH/model_checkpoints/best_model/model.safetensors
-VOCAB_PATH=$EXPERIMENT_PATH/model_checkpoints/data_checkpoint/vocab.json
-VOCAB_METADATA_PATH=$EXPERIMENT_PATH/model_checkpoints/data_checkpoint/vocab_metadata.json
-MODEL_CONFIG_PATH=$EXPERIMENT_PATH/model_checkpoints/model_config.json
+# SAFETENSORS_PATH=$EXPERIMENT_PATH/model_checkpoints/best_model/model.safetensors
+# VOCAB_PATH=$EXPERIMENT_PATH/model_checkpoints/data_checkpoint/vocab.json
+# VOCAB_METADATA_PATH=$EXPERIMENT_PATH/model_checkpoints/data_checkpoint/vocab_metadata.json
+# MODEL_CONFIG_PATH=$EXPERIMENT_PATH/model_checkpoints/model_config.json
+
+# TRAIN_NPY_PATH=/projects/gutmodel/datasets/finetune/train/finetune_data_train_512.npy
+# TEST_NPY_PATH=/projects/gutmodel/datasets/finetune/test/finetune_data_test_512.npy
+
+# TRAIN_OUTPUT_PATH=$EXPERIMENT_PATH/encoded_samples/encoded_samples_train.npy
+# TEST_OUTPUT_PATH=$EXPERIMENT_PATH/encoded_samples/encoded_samples_test.npy
+
+# below is for encoding with a finetuned model, taking only the transformer layers of a finetuned model. make sure to add --is-finetune
+EXPERIMENT_PATH=experiment_saves/finetune_tests/run10-best
+VOCAB_RESTORE_PATH=experiment_saves/taxa-mask-real-mvc/model_checkpoints/data_checkpoint
+
+SAFETENSORS_PATH=$EXPERIMENT_PATH/best_model/model.safetensors
+VOCAB_PATH=$VOCAB_RESTORE_PATH/vocab.json
+VOCAB_METADATA_PATH=$VOCAB_RESTORE_PATH/vocab_metadata.json
+MODEL_CONFIG_PATH=$EXPERIMENT_PATH/finetune_model_config.json
 
 TRAIN_NPY_PATH=/projects/gutmodel/datasets/finetune/train/finetune_data_train_512.npy
 TEST_NPY_PATH=/projects/gutmodel/datasets/finetune/test/finetune_data_test_512.npy
@@ -39,6 +54,7 @@ accelerate launch -m scripts.encode_samples \
   --vocab-metadata-path $VOCAB_METADATA_PATH \
   --model-config-path $MODEL_CONFIG_PATH \
   --npy-path $TRAIN_NPY_PATH \
+  --is-finetune \
 
 
 echo "Running encoding for finetune train set..."
@@ -49,5 +65,6 @@ accelerate launch -m scripts.encode_samples \
   --vocab-metadata-path $VOCAB_METADATA_PATH \
   --model-config-path $MODEL_CONFIG_PATH \
   --npy-path $TEST_NPY_PATH \
+  --is-finetune \
 
 echo "Encoding complete."
