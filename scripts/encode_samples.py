@@ -63,6 +63,7 @@ def main():
     dataloader = prepare_dataloader(
         data_dict,
         use_batch_labels=False,
+        use_continuous_labels=False,
         gen_percent=0.0,  # No generation for encoding
         vocab=vocab,
         batch_size=64,  # Adjust batch size as needed

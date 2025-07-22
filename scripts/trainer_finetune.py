@@ -17,7 +17,7 @@ from trainers.finetune_functions import (
 )
 
 from trainers.test_functions import (
-    get_class_probs
+    evaluate_classification
 )
 
 from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_score
@@ -61,7 +61,7 @@ if __name__ == "__main__":
     parser.add_argument("--best-dir", type=str, required=True, help="Directory to save best model so far")
     parser.add_argument("--data-restore-dir", type=str, required=True, help="Directory to restore data state")
     parser.add_argument("--vocab-restore-dir", type=str, required=True, help="Directory to restore vocab state")
-    parser.add_argument("--batch-restore-dir", type=str, required=True, help="Directory to restore batch vocab state")
+    parser.add_argument("--batch-restore-dir", type=str, default=None, help="Directory to restore batch vocab state")
     # wandb
     parser.add_argument("--wandb-enabled", action="store_true", help="Enable Weights & Biases logging")
     parser.add_argument("--wandb-entity", type=str, default=None, help="wandb entity name")
@@ -88,7 +88,9 @@ if __name__ == "__main__":
     # for finetuning
     parser.add_argument("--train-loc-labels-path", type=str, required=True, help="Path to the train location labels file.")
     parser.add_argument("--model-config-path", type=str, required=True, help="Path to save model configuration file")
-
+    
+    parser.add_argument("--task-type", type=str, choices=["classification", "regression"], required=True, help="Specify the task type: classification or regression")
+    
     args = parser.parse_args()
 
     base_model_config_path = args.base_model_config_path
@@ -118,8 +120,9 @@ if __name__ == "__main__":
     train_loc_labels_path = args.train_loc_labels_path
     model_config_path = args.model_config_path
     
-    start_over = args.start_over
-        
+    task_type = args.task_type
+    is_classification = (task_type == "classification")
+            
     accelerator = Accelerator(gradient_accumulation_steps=grad_accumulation_steps, mixed_precision="fp16" if enable_fp16 else "no", log_with="wandb" if wandb_enabled else None)
         
     # Set random seed for reproducibility
@@ -130,7 +133,6 @@ if __name__ == "__main__":
         
     num_bins = base_model_config["n_input_bins"]
 
-
     # Save notes to a markdown file in the save directory
     if accelerator.is_main_process and args.notes:
         notes_path = os.path.join(best_dir, "training_notes.md")
@@ -138,7 +140,7 @@ if __name__ == "__main__":
         with open(notes_path, "w") as notes_file:
             notes_file.write(args.notes)
 
-    if start_over and accelerator.is_main_process:
+    if args.start_over and accelerator.is_main_process:
         logger.info("Starting over from scratch, deleting existing training state.")
         if os.path.exists(data_restore_dir):
             # The above code is using the `shutil.rmtree()` function in Python to recursively remove a
@@ -146,26 +148,33 @@ if __name__ == "__main__":
             # the variable `data_restore_dir`.
             shutil.rmtree(data_restore_dir)
         os.makedirs(data_restore_dir, exist_ok=True)
-        if os.path.exists(batch_restore_dir):
-            shutil.rmtree(batch_restore_dir)
-        os.makedirs(batch_restore_dir, exist_ok=True)
+        if is_classification:
+            assert batch_restore_dir is not None, "batch_restore_dir must be specified for classification task"
+            if os.path.exists(batch_restore_dir):
+                shutil.rmtree(batch_restore_dir)
+            os.makedirs(batch_restore_dir, exist_ok=True)
+        else:
+            assert batch_restore_dir is None, "batch_restore_dir should not be specified for regression task"
         # don't remove vocab_restore_dir, as it is from pretraining
     
     accelerator.wait_for_everyone()
 
     # Create or restore data state
     train_data_dict, valid_data_dict, vocab, batch_vocab = create_or_restore_data_state(
-        train_input, num_bins, data_restore_dir, vocab_restore_dir, batch_restore_dir, accelerator, taxa_path=None, use_batch_labels=True, direct_batch_path=train_loc_labels_path, nrows=nrows, seed=args.seed
+        train_input, num_bins, data_restore_dir, vocab_restore_dir, batch_restore_dir, accelerator, taxa_path=None, use_batch_labels=is_classification, direct_batch_path=train_loc_labels_path, nrows=nrows, seed=args.seed
     )
-    
-    print(f"rank {accelerator.process_index} has vocab {batch_vocab.itos}")
-    
+        
     check_vocab_basemodel_match(base_model_config, vocab)
+    
+    if is_classification:
+        print(f"rank {accelerator.process_index} has vocab {batch_vocab.itos}")
 
-    class_counts = torch.bincount(train_data_dict["batch_labels"], minlength=len(batch_vocab))
-    class_weights = 1.0 / (class_counts.float() + 1e-8)
-    class_weights = (class_weights / class_weights.sum() * len(class_weights)).to(accelerator.device)
-    loss_fn=torch.nn.CrossEntropyLoss(weight=class_weights)
+        class_counts = torch.bincount(train_data_dict["batch_labels"], minlength=len(batch_vocab))
+        class_weights = 1.0 / (class_counts.float() + 1e-8)
+        class_weights = (class_weights / class_weights.sum() * len(class_weights)).to(accelerator.device)
+        loss_fn=torch.nn.CrossEntropyLoss(weight=class_weights)
+    else:
+        loss_fn = torch.nn.MSELoss()
     
     wandb_config={
         "learning_rate": init_lr,
@@ -179,7 +188,8 @@ if __name__ == "__main__":
     logger.info("Preparing dataloaders...")
     train_loader = prepare_dataloader(
         train_data_dict,
-        use_batch_labels=True,
+        use_batch_labels=is_classification,
+        use_continuous_labels=(not is_classification),
         vocab=vocab,
         batch_size=batch_size,
         shuffle=True,
@@ -188,7 +198,8 @@ if __name__ == "__main__":
     )
     valid_loader = prepare_dataloader(
         valid_data_dict,
-        use_batch_labels=True,
+        use_batch_labels=is_classification,
+        use_continuous_labels=(not is_classification),
         vocab=vocab,
         batch_size=batch_size,
         shuffle=False,
@@ -205,7 +216,7 @@ if __name__ == "__main__":
     
     model_config = {
         'base_model_config': base_model_config,
-        'num_classes': len(batch_vocab),
+        'num_classes': len(batch_vocab) if is_classification else 1,
     }
     
     # save model config to file
@@ -339,90 +350,13 @@ if __name__ == "__main__":
 
     logger.info("Training complete with best validation loss: {:.4f}".format(best_val_loss))    
     
-    # evaluate on eval set... test differences
-    probs, targets = get_class_probs(new_model, valid_loader, vocab.pad_index, accelerator)
-    probs = probs.cpu().numpy()
-    targets = targets.cpu().numpy()
-    
-    if accelerator.is_main_process:
-        print("shape of eval probs and targets is:", probs.shape, targets.shape)
-        print("location of eval probs and targets is", probs.device, targets.device)
-        predictions = np.argmax(probs, axis=1)
-        total_accuracy = accuracy_score(targets, predictions)
-        region_scores = []
-        for region, index in batch_vocab.stoi.items():
-            logger.info(f"region {region} is {index}")
-            if region == "unknown":
-                continue
-            scores = probs[:, index]
-            binary_predictions = np.array((predictions == index), dtype=int)
-            binary_targets = np.array((targets == index), dtype=int)
-            n_samples = np.sum(binary_targets).item()
-            accuracy = accuracy_score(binary_targets, binary_predictions)
-            auroc = roc_auc_score(binary_targets, scores)
-            aupr = average_precision_score(binary_targets, scores)
-            baseline_precision = np.mean(binary_targets)
-            
-            region_scores.append({
-                "Region": region,
-                "n_samples": n_samples,
-                "Accuracy": accuracy,
-                "AUC (ROC)": auroc,
-                "Average Precision": aupr,
-                "Baseline Precision": baseline_precision
-            })
+    if is_classification:
+        # evaluate on eval set... test differences
+        evaluate_classification(new_model, valid_loader, batch_vocab, vocab.pad_index, os.path.join(args.best_dir, "valid_results.json"), accelerator)
+        accelerator.wait_for_everyone()
         
-        # Save the scores to a file
-        region_scores.sort(key=lambda x: x["Region"])
-        region_scores.append({"Total Accuracy": total_accuracy})
-        with open(os.path.join(args.best_dir, "valid_results.json"), "w") as f:
-            json.dump(region_scores, f, indent=4)
-
-        print(f"Scores for all regions saved to {args.best_dir}")
-        
-    # evaluate on train set
-    accelerator.wait_for_everyone()
-    probs, targets = get_class_probs(new_model, train_loader, vocab.pad_index, accelerator)
-    probs = probs.cpu().numpy()
-    targets = targets.cpu().numpy()
-    
-    if accelerator.is_main_process:
-        print("shape of train probs and targets is:", probs.shape, targets.shape)
-        print("location of train probs and targets is", probs.device, targets.device)
-        predictions = np.argmax(probs, axis=1)
-        total_accuracy = accuracy_score(targets, predictions)
-        region_scores = []
-        for region, index in batch_vocab.stoi.items():
-            if region == "unknown":
-                continue
-            scores = probs[:, index]
-            binary_predictions = np.array((predictions == index), dtype=int)
-            binary_targets = np.array((targets == index), dtype=int)
-            n_samples = np.sum(binary_targets).item()
-            accuracy = accuracy_score(binary_targets, binary_predictions)
-            auroc = roc_auc_score(binary_targets, scores)
-            aupr = average_precision_score(binary_targets, scores)
-            baseline_precision = np.mean(binary_targets)
-            
-            region_scores.append({
-                "Region": region,
-                "n_samples": n_samples,
-                "Accuracy": accuracy,
-                "AUC (ROC)": auroc,
-                "Average Precision": aupr,
-                "Baseline Precision": baseline_precision
-            })
-        
-        # Save the scores to a file
-        region_scores.sort(key=lambda x: x["Region"])
-        region_scores.append({"Total Accuracy": total_accuracy})
-        with open(os.path.join(args.best_dir, "train_results.json"), "w") as f:
-            json.dump(region_scores, f, indent=4)
-
-        print(f"Scores for all regions saved to {args.best_dir}")
+        # evaluate on train set
+        evaluate_classification(new_model, train_loader, batch_vocab, vocab.pad_index, os.path.join(args.best_dir, "train_results.json"), accelerator)
+    else:
         
     accelerator.end_training()
-    
-    
-    
-    

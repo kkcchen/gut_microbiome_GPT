@@ -468,7 +468,7 @@ def commit_state(extra_state, epoch, best_val_loss, patience_counter, checkpoint
     logger.info("Training state committed to {} at time {}".format(actual_checkpoint_dir, time.ctime(time.time())))
 
 
-def create_or_restore_data_state(hmc_table_path, num_bins, data_restore_dir, vocab_restore_dir, batch_restore_dir, accelerator: Accelerator, taxa_path = None, use_batch_labels=False, experiments_path = None, direct_batch_path = None, nrows=None, seed=None):
+def create_or_restore_data_state(hmc_table_path, num_bins, data_restore_dir, vocab_restore_dir, batch_restore_dir, accelerator: Accelerator, taxa_path = None, use_batch_labels=False, use_continuous_labels=False, experiments_path = None, label_path = None, nrows=None, seed=None):
     if accelerator.is_main_process:
         os.makedirs(vocab_restore_dir, exist_ok=True)
         os.makedirs(batch_restore_dir, exist_ok=True)
@@ -492,9 +492,9 @@ def create_or_restore_data_state(hmc_table_path, num_bins, data_restore_dir, voc
                 assert os.path.exists(os.path.join(data_restore_dir, "data_state.pt")), "batch labels should be also stored in the data state"
                 batch_vocab = BatchVocab.get_vocab_from_json(os.path.join(batch_restore_dir, "batch_vocab.json"))
                 logger.info("Batch vocab restored from {}".format(os.path.join(batch_restore_dir, "batch_vocab.json")))
-            elif direct_batch_path and os.path.exists(direct_batch_path):
-                logger.info(f"Processing batch label paths from {direct_batch_path}")
-                with open(direct_batch_path, 'r') as f:
+            elif label_path and os.path.exists(label_path):
+                logger.info(f"Processing batch label paths from {label_path}")
+                with open(label_path, 'r') as f:
                     batch_labels = json.load(f)
                 if nrows:
                     batch_labels = batch_labels[:nrows]
@@ -512,6 +512,19 @@ def create_or_restore_data_state(hmc_table_path, num_bins, data_restore_dir, voc
         else:
             batch_vocab = None
             batch_labels = None
+            
+        if use_continuous_labels:
+            # if using continuous targets, we don't need batch labels
+            assert not use_batch_labels, "use_batch_labels should be False when using continuous targets"
+            batch_vocab = None
+            with open(label_path, 'r') as f:
+                    continuous_labels = json.load(f)
+            if nrows:
+                continuous_labels = continuous_labels[:nrows]
+            
+            continuous_labels = [float(label) for label in continuous_labels]
+        else:
+            continuous_labels = None
 
         # finally restore data
         if os.path.exists(os.path.join(data_restore_dir, "data_state.pt")):
@@ -534,58 +547,38 @@ def create_or_restore_data_state(hmc_table_path, num_bins, data_restore_dir, voc
             _, _ = preprocessor.process_from_np(hmc_npy)
             # create tokenizer
             tokenizer = Tokenizer(vocab, batch_vocab=batch_vocab)
-            data_dict = tokenizer.tokenize_and_pad_batch(hmc_npy, batch_labels=batch_labels)
-            # Assuming data_dict is a dictionary with keys 'taxa_ids', 'values', (and 'batch_labels' if batch_labels are being used)
+            data_dict = tokenizer.tokenize_and_pad_batch(hmc_npy, batch_labels=batch_labels, labels=continuous_labels)
+            # Assuming data_dict is a dictionary with keys 'taxa_ids', 'values', (and 'batch_labels' and 'labels' if batch_labels and labels are being used repectively)
 
             # train and validation split
+            split_keys = ["taxa_ids", "values"]
+            stratify_target = None
+
+            if use_continuous_labels:
+                split_keys.append("continuous_labels")  # assuming continuous regression targets
             if use_batch_labels:
-                (
-                    train_taxa_ids,
-                    valid_taxa_ids,
-                    train_values,
-                    valid_values,
-                    train_study_ids,
-                    valid_study_ids
-                ) = train_test_split(
-                    data_dict["taxa_ids"],
-                    data_dict["values"],
-                    data_dict["batch_labels"],
-                    test_size=0.2,
-                    shuffle=True,
-                    stratify=data_dict["batch_labels"],
-                    random_state=seed,
-                )
-                train_data_dict = {
-                    "taxa_ids": train_taxa_ids,
-                    "values": train_values,
-                    "batch_labels": train_study_ids
-                }
-                valid_data_dict = {
-                    "taxa_ids": valid_taxa_ids,
-                    "values": valid_values,
-                    "batch_labels": valid_study_ids
-                }
-            else:
-                (
-                    train_taxa_ids,
-                    valid_taxa_ids,
-                    train_values,
-                    valid_values
-                ) = train_test_split(
-                    data_dict["taxa_ids"],
-                    data_dict["values"],
-                    test_size=0.2,
-                    shuffle=True,
-                    random_state=seed,
-                )
-                train_data_dict = {
-                    "taxa_ids": train_taxa_ids,
-                    "values": train_values,
-                }
-                valid_data_dict = {
-                    "taxa_ids": valid_taxa_ids,
-                    "values": valid_values,
-                }
+                split_keys.append("batch_labels")
+                stratify_target = data_dict["batch_labels"]  # for stratification
+
+            # Prepare inputs for train_test_split
+            split_inputs = [data_dict[key] for key in split_keys]
+
+            # Perform the split
+            splits = train_test_split(
+                *split_inputs,
+                test_size=0.2,
+                shuffle=True,
+                stratify=stratify_target,
+                random_state=seed,
+            )
+
+            # Unpack the results back into train/val dicts
+            train_data_dict = {}
+            valid_data_dict = {}
+
+            for key, train_val in zip(split_keys, zip(*([iter(splits)]*2))):
+                train_data_dict[key] = train_val[0]
+                valid_data_dict[key] = train_val[1]
 
             # save the train and validation data dicts
             data_state = {

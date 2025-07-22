@@ -29,6 +29,7 @@ def finetune(
         loss_fn,
         # save_interval: int = -1,
         best_val_loss: float = float("inf"),
+        is_classification: bool = True,
     ):
     """
     Train the finetune model for one epoch.
@@ -49,7 +50,7 @@ def finetune(
             taxa = data_dict["ids"]
             values = data_dict["values"]
             key_padding_mask = taxa.eq(vocab.pad_index)
-            targets = data_dict["batch_labels"]
+            targets = data_dict["batch_labels"] if is_classification else data_dict["continuous_labels"]
 
             with accelerator.autocast():
                 output_dict = model(
@@ -143,6 +144,7 @@ def evaluate(
     vocab: MicrobiomeVocab,
     accelerator: Accelerator,
     loss_fn,
+    is_classification: bool = True,
     ) -> Dict[str, Any]:
     """
     Evaluate the model on the validation set.
@@ -158,7 +160,7 @@ def evaluate(
             taxa = data_dict["ids"]
             values = data_dict["values"]
             key_padding_mask = taxa.eq(vocab.pad_index)
-            targets = data_dict["batch_labels"]
+            targets = data_dict["batch_labels"] if is_classification else data_dict["continuous_labels"]
 
             with accelerator.autocast():
                 output_dict = model(

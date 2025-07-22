@@ -5,7 +5,7 @@ from data_utils.vocab import MicrobiomeVocab
 import torch
 
 class DataCollator:
-    def __init__(self, vocab: MicrobiomeVocab, sample_length: int, use_batch_labels: bool, mask_ids: bool = False, do_binning: bool = True, do_padding: bool = True, gen_percent: float = 0.15, use_class_token: bool = True, contrastive_embedding: bool = False):
+    def __init__(self, vocab: MicrobiomeVocab, sample_length: int, use_batch_labels: bool, use_continuous_labels: bool, mask_ids: bool = False, do_binning: bool = True, do_padding: bool = True, gen_percent: float = 0.15, use_class_token: bool = True, contrastive_embedding: bool = False):
         """
         Initializes the data collator with specified parameters.
 
@@ -33,6 +33,7 @@ class DataCollator:
         self.gen_percent = gen_percent
         self.use_class_token = use_class_token
         self.use_batch_labels = use_batch_labels
+        self.use_continuous_labels = use_continuous_labels
         self.contrastive_embedding = contrastive_embedding
         self.mask_ids = mask_ids
 
@@ -54,9 +55,9 @@ class DataCollator:
                 examples (:obj:`List[Dict[str, torch.Tensor]]`): a list of data dicts.
                     Each dict is for one cell. It contains multiple 1 dimensional tensors
                     like the following exmaple:
-                        {'id': tensor(184117),
-                        'taxa': tensor([36572, 17868, ..., 17072]),
-                        'values': tensor([ 0.,  2., ..., 18.])}
+                        {'taxa_ids': tensor(184117),
+                        'values': tensor([36572, 17868, ..., 17072]),
+                        'batch_labels': tensor([ 0.,  2., ..., 18.])}
 
             Returns:
                 :obj:`Dict[str, torch.Tensor]`: a dict of tensors.
@@ -64,7 +65,6 @@ class DataCollator:
 
             ids_batch = torch.stack([example["taxa_ids"] for example in examples])
             values_batch = torch.stack([example["values"] for example in examples])
-            batch_labels = torch.tensor([example["batch_labels"] for example in examples], dtype=torch.long) if self.use_batch_labels else None
             
             if self.generation_mode:
                 if self.contrastive_embedding:
@@ -83,7 +83,10 @@ class DataCollator:
                 }
 
             if self.use_batch_labels:
-                out_dict["batch_labels"] = batch_labels
+                out_dict["batch_labels"] = torch.tensor([example["batch_labels"] for example in examples], dtype=torch.long)
+            
+            if self.use_continuous_labels:
+                out_dict["continuous_labels"] = torch.stack([example["continuous_labels"] for example in examples], dtype=torch.float)
 
             return out_dict
 

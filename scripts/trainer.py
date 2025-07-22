@@ -135,6 +135,7 @@ if __name__ == "__main__":
     train_loader = prepare_dataloader(
         train_data_dict,
         use_batch_labels=use_batch_labels,
+        use_continuous_labels=False,
         mask_ids=do_taxa_decoder,
         vocab=vocab,
         batch_size=batch_size,
@@ -145,6 +146,7 @@ if __name__ == "__main__":
     valid_loader = prepare_dataloader(
         valid_data_dict,
         use_batch_labels=use_batch_labels,
+        use_continuous_labels=False,
         vocab=vocab,
         batch_size=batch_size,
         gen_percent=0.15,

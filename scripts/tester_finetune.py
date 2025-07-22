@@ -1,7 +1,6 @@
 import argparse
 from accelerate import Accelerator
 import json
-from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_score, confusion_matrix
 from data_utils.vocab import BatchVocab
 import numpy as np
 import os
@@ -13,7 +12,7 @@ from trainers.finetune_functions import (
 from trainers.test_functions import (
     restore_vocab,
     create_testdata_state,
-    get_class_probs
+    evaluate_classification
 )
 from data_utils.dataloader import (
     prepare_dataloader
@@ -70,6 +69,7 @@ def main():
     dataloader = prepare_dataloader(
         data_dict,
         use_batch_labels=True,
+        use_continuous_labels=False,
         gen_percent=0.0,  # No generation for encoding
         vocab=vocab,
         batch_size=64,  # Adjust batch size as needed
@@ -78,54 +78,9 @@ def main():
     
     # Prepare model and dataloader with accelerate
     model, dataloader = accelerator.prepare(model, dataloader)
-    
+
     # evaluate
-    probs, targets = get_class_probs(model, dataloader, vocab.pad_index, accelerator)
-    probs = probs.cpu().numpy()
-    targets = targets.cpu().numpy()
-    
-    if accelerator.is_main_process:
-        print("shape of probs and targets is:", probs.shape, targets.shape)
-        print("location of probs and targets is", probs.device, targets.device)
-        predictions = np.argmax(probs, axis=1)
-        total_accuracy = accuracy_score(targets, predictions)
-        conf_mat = confusion_matrix(targets, predictions)
-        region_scores = []
-        for region, index in batch_vocab.stoi.items():
-            logger.info(f"region {region} is {index}")
-            if region == "unknown":
-                continue
-            scores = probs[:, index]
-            binary_predictions = np.array((predictions == index), dtype=int)
-            binary_targets = np.array((targets == index), dtype=int)
-            n_samples = np.sum(binary_targets).item()
-            accuracy = accuracy_score(binary_targets, binary_predictions)
-            auroc = roc_auc_score(binary_targets, scores)
-            aupr = average_precision_score(binary_targets, scores)
-            baseline_precision = np.mean(binary_targets)
-            
-            
-            region_scores.append({
-                "Region": region,
-                "n_samples": n_samples,
-                "Accuracy": accuracy,
-                "AUC (ROC)": auroc,
-                "Average Precision": aupr,
-                "Baseline Precision": baseline_precision
-            })
-        
-        # Save the scores to a file
-        conf_row_strs = [str(row) for row in conf_mat]
-
-        region_scores.sort(key=lambda x: x["Region"])
-        region_scores.append({"Total Accuracy": total_accuracy,
-                              "Categories": batch_vocab.itos,
-                              "Confusion Matrix": conf_row_strs})
-        os.makedirs(os.path.dirname(args.output_path), exist_ok=True)
-        with open(args.output_path, "w") as f:
-            json.dump(region_scores, f, indent=4)
-
-        print(f"Scores for all regions saved to {args.output_path}")
+    evaluate_classification(model, dataloader, batch_vocab, vocab.pad_index, args.output_path, accelerator)
     
     
 
