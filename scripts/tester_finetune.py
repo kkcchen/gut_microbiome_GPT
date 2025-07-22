@@ -7,7 +7,7 @@ import os
 from trainers import logger
 
 from trainers.finetune_functions import (
-    load_model,
+    load_finetuned_model,
 )
 from trainers.test_functions import (
     restore_vocab,
@@ -40,7 +40,7 @@ def main():
     accelerator = Accelerator()
 
     # load model config and then model
-    model = load_model(args.model_config_path, args.best_path)
+    model = load_finetuned_model(args.model_config_path, args.best_path)
     model.eval()
     
     # read test location labels
@@ -81,9 +81,6 @@ def main():
 
     # evaluate
     evaluate_classification(model, dataloader, batch_vocab, vocab.pad_index, args.output_path, accelerator)
-    
-    
-
 
 if __name__ == "__main__":
     main()

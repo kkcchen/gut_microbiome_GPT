@@ -100,46 +100,6 @@ def evaluate_random_forest(params):
     return binomtest_ret.pvalue, weighted_f1_score, params
 
 
-# rf_model = RandomForestClassifier(random_state=42)
-# instead of doing random forest over all categories, we follow the HMC paper and do per category one-vs-all classification
-# for i in range(7):
-#     print(f"Starting Random Forest classifier on region {i}")
-#     # Y_binary = (Y == i).astype(np.int64)
-#
-#     # # Split the data into training (80%) and testing (20%) sets.
-#     # X_train, X_test, y_train, y_test = train_test_split(X, Y_binary, test_size=0.2, random_state=42)
-#     # # Initialize the RandomForestClassifier.
-#     # rf_model = RandomForestClassifier(n_estimators=100, random_state=42, verbose=1)
-#     # # Train the model on the training data.
-#     # rf_model.fit(X_train, y_train)
-#     # # Predict the labels for the test set.
-#     # y_pred = rf_model.predict(X_test)
-#     # # Evaluate the model's accuracy on the test set.
-#     # accuracy = accuracy_score(y_test, y_pred)
-#     print("Test Accuracy:", accuracy)
-#     auc = roc_auc_score(y_test, y_pred)
-#     print("AUC:", auc)
-
-# results = []
-# for params in params_list:
-#     print(f"Evaluating {params}")
-#     ret = evaluate_random_forest(params)
-#     if ret is not None:
-#         results.append(ret)
-#     print(f"finished with p={ret[0]}, acc={ret[1]}")
-# best_result = min(results, key=lambda x: x[0])
-# best_p_value, best_f1_score, best_params = best_result
-#
-# print("Best Parameters:", best_params)
-# print("Best p-value:", best_p_value)
-# print("Best f1-score:", best_f1_score)
-#
-# best_f1_result = max(results, key=lambda x: x[1])
-# best_p_value, best_f1_score, best_params = best_f1_result
-# print("Best Parameters:", best_params)
-# print("Best p-value:", best_p_value)
-# print("Best f1-score:", best_f1_score)
-
 # --------- final inference
 for i in range(7):
     print(f"Starting Random Forest classifier on region {i}")

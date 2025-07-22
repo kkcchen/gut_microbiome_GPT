@@ -14,14 +14,24 @@ cd ~/gut_microbiome_GPT
 source ~/hmbenv/bin/activate
 
 # === Paths to your data ===
-EXPERIMENT_PATH=experiment_saves/no-cellemb-pass-fair
-EMB_SAVE_PATH=experiment_saves/no-cellemb-pass-fair/encoded_samples
+EXPERIMENT_PATH=experiment_saves/taxa-mask-real-mvc
+EMB_SAVE_PATH=$EXPERIMENT_PATH/encoded_samples
 
 TRAIN_EMBED_PATH=$EMB_SAVE_PATH/encoded_samples_train.npy
 TRAIN_LABELS_PATH=/projects/gutmodel/datasets/finetune/train/finetune_locs_train.json
 
 TEST_EMBED_PATH=$EMB_SAVE_PATH/encoded_samples_test.npy
 TEST_LABELS_PATH=/projects/gutmodel/datasets/finetune/test/finetune_locs_test.json
+
+# below is for encoding raw abundances only.
+# EXPERIMENT_PATH=experiment_saves/raw_abundances
+# EMB_SAVE_PATH=$EXPERIMENT_PATH/encoded_samples
+
+# TRAIN_EMBED_PATH=$EMB_SAVE_PATH/raw_encoded_train.npy
+# TRAIN_LABELS_PATH=/projects/gutmodel/datasets/finetune/train/finetune_locs_train.json
+
+# TEST_EMBED_PATH=$EMB_SAVE_PATH/raw_encoded_test.npy
+# TEST_LABELS_PATH=/projects/gutmodel/datasets/finetune/test/finetune_locs_test.json
 
 OUTPUT_DIR=$EXPERIMENT_PATH/random_forest_results
 

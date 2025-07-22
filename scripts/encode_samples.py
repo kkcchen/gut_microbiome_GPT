@@ -14,6 +14,10 @@ from trainers.test_functions import (
     create_testdata_state,
 )
 
+from trainers.finetune_functions import (
+    load_finetuned_model
+)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Encode data with a model using safetensors weights.")
@@ -23,6 +27,7 @@ def main():
     parser.add_argument("--vocab-metadata-path", type=str, required=True, help="Path to the vocabulary metadata JSON file")
     parser.add_argument("--model-config-path", type=str, required=True, help="Path to the model configuration file (not used in this script but can be useful for reference)")
     parser.add_argument("--npy-path", type=str, required=True, help="Path to the training data numpy file")
+    parser.add_argument("--is-finetune", action="store_true", help="Path to the training data numpy file")
     parser.add_argument("--nrows", type=int, default=None, help="Number of rows to use from the npy file (for debugging)")
     args = parser.parse_args()
     
@@ -40,22 +45,28 @@ def main():
     
     # restore vocab
     vocab = restore_vocab(vocab_path, vocab_metadata_path)
-    
-    with open(model_config_path, 'r') as f:
-        model_config = json.load(f)
 
     # === Load model ===
     from models import TransformerModel
-    model = TransformerModel(**model_config)
+    
+    if args.is_finetune:
+        finetuned_model = load_finetuned_model(model_config_path, safetensors_path)
+        model = finetuned_model.base_model
+        num_bins = model.n_input_bins
 
-    state_dict = load_file(safetensors_path)
-    model.load_state_dict(state_dict)
+    else:
+        with open(model_config_path, 'r') as f:
+            model_config = json.load(f)
+        model = TransformerModel(**model_config)
+        state_dict = load_file(safetensors_path)
+        model.load_state_dict(state_dict)
     model.eval()
+    num_bins = model.n_input_bins
 
     # === Load test dataloader ===
     data_dict = create_testdata_state(
         npy_path=npy_path,
-        num_bins=model_config["n_input_bins"],
+        num_bins=num_bins,
         vocab=vocab,
         nrows=nrows  # Set to None to use all rows
     )
