@@ -33,7 +33,7 @@ TEST_LABELS_PATH=/projects/gutmodel/datasets/finetune/test/finetune_locs_test.js
 # TEST_EMBED_PATH=$EMB_SAVE_PATH/raw_encoded_test.npy
 # TEST_LABELS_PATH=/projects/gutmodel/datasets/finetune/test/finetune_locs_test.json
 
-OUTPUT_DIR=$EXPERIMENT_PATH/random_forest_results
+OUTPUT_DIR=$EXPERIMENT_PATH/random_forest_multiclass
 
 # === Run the Random Forest classifier ===
 echo "Running Random Forest classification..."
@@ -42,6 +42,7 @@ python -m scripts.random_forest_exp \
   --train-loc-labels-path $TRAIN_LABELS_PATH \
   --test-embed-path $TEST_EMBED_PATH \
   --test-loc-labels-path $TEST_LABELS_PATH \
-  --output-dir $OUTPUT_DIR
+  --output-dir $OUTPUT_DIR \
+  --multiclass
 
 echo "Random Forest job finished."

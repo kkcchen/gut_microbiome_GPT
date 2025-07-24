@@ -161,7 +161,7 @@ if __name__ == "__main__":
 
     # Create or restore data state
     train_data_dict, valid_data_dict, vocab, batch_vocab = create_or_restore_data_state(
-        train_input, num_bins, data_restore_dir, vocab_restore_dir, batch_restore_dir, accelerator, taxa_path=None, use_batch_labels=is_classification, direct_batch_path=train_loc_labels_path, nrows=nrows, seed=args.seed
+        train_input, num_bins, data_restore_dir, vocab_restore_dir, batch_restore_dir, accelerator, taxa_path=None, use_batch_labels=is_classification, label_path=train_loc_labels_path, nrows=nrows, seed=args.seed
     )
         
     check_vocab_basemodel_match(base_model_config, vocab)
@@ -174,6 +174,7 @@ if __name__ == "__main__":
         class_weights = (class_weights / class_weights.sum() * len(class_weights)).to(accelerator.device)
         loss_fn=torch.nn.CrossEntropyLoss(weight=class_weights)
     else:
+        raise ValueError("continuous hasn't been implemented yet!")
         loss_fn = torch.nn.MSELoss()
     
     wandb_config={
@@ -358,5 +359,5 @@ if __name__ == "__main__":
         # evaluate on train set
         evaluate_classification(new_model, train_loader, batch_vocab, vocab.pad_index, os.path.join(args.best_dir, "train_results.json"), accelerator)
     else:
-        
+        raise ValueError("continuous hasn't been implemented yet!")
     accelerator.end_training()

@@ -7,7 +7,7 @@ class FinetunedTransformer(nn.Module):
         super(FinetunedTransformer, self).__init__()
         base_model_config = model_config['base_model_config']
         self.base_model = TransformerModel(**base_model_config)
-        self.finetune_head = ClsDecoder(
+        self.classification_head = ClsDecoder(
             d_model=base_model_config['d_model'],
             n_cls=model_config['num_classes'],
         )
@@ -56,7 +56,7 @@ class FinetunedTransformer(nn.Module):
             src_key_padding_mask,
         )
         env_emb = self.base_model.get_cell_emb_from_layer(encoded_output)  # (batch, embsize)
-        output_dict['logits'] = self.finetune_head(env_emb)
+        output_dict['logits'] = self.classification_head(env_emb)
         return output_dict
 
 class ClsDecoder(nn.Module):
