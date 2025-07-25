@@ -5,10 +5,6 @@ import os
 import json
 import argparse
 from sklearn.model_selection import train_test_split
-# os.environ["GOOGLE_API_KEY"] = "AIzaSyB41iEts_InBYR3sHz1bywFYN2JjxlBTJ0"
-# GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-# if not GOOGLE_API_KEY:
-#     raise ValueError("Please set your GOOGLE_API_KEY environment variable.")
 
 
 def get_loc_labels(samples_list_path, sample_metadata_path):
@@ -160,33 +156,6 @@ def read_taxonomic_table(file_path, df1_save_path, df2_save_path, split_ratio, n
         json.dump(df2_studies, f2, indent=4)
 
     return col_names
-
-
-# def create_vocab_embeddings_biowordvec(col_names, npy_save_dir, batch_size=256):
-#     """
-#     takes in a list of column names, generates an embedding for each column name
-#     use biowordvec embeddings
-#     GOOGLE GEMINI API KEY: AIzaSyB41iEts_InBYR3sHz1bywFYN2JjxlBTJ0
-#     """
-#     # Replace the file path with the location of your downloaded BioWordVec model.
-#     model_path = "/home/kevin/Desktop/gut_microbiome/pretrained_models/BioWordVec_PubMed_MIMICIII_d200.bin"
-
-#     bio_model = fasttext.load_model(model_path)
-
-#     # Retrieve the vector for a word (works even if the word is OOV due to subword features)
-#     words = [bacteria.split(".")[-1] for bacteria in col_names]
-#     all_embeddings = []
-#     for i in range(0, len(words), batch_size):
-#         batch = words[i : i + batch_size]
-#         batch_embeddings = [bio_model.get_word_vector(word) for word in batch]
-#         all_embeddings.extend(batch_embeddings)
-
-#     embedding = np.array(all_embeddings)
-#     print("Embedding shape:", embedding.shape)
-#     if not os.path.exists(npy_save_dir):
-#         os.makedirs(npy_save_dir)
-#     save_name = os.path.join(npy_save_dir, "bac_vocab.npy")
-#     np.save(save_name, embedding)
 
 
 if __name__ == '__main__':

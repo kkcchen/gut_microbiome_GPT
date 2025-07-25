@@ -1,10 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=encode_hmc
-#SBATCH --ntasks=1
+#SBATCH -A aip-rahulgk
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=8
-#SBATCH --partition=t4v1,t4v2,a40,rtx6000 
-#SBATCH --qos=normal
 #SBATCH --time=1:00:00
 #SBATCH --output=logs/encode_hmc/%j.out
 #SBATCH --error=logs/encode_hmc/%j.err
@@ -24,8 +22,8 @@ python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not availabl
 # VOCAB_METADATA_PATH=$EXPERIMENT_PATH/model_checkpoints/data_checkpoint/vocab_metadata.json
 # MODEL_CONFIG_PATH=$EXPERIMENT_PATH/model_checkpoints/model_config.json
 
-# TRAIN_NPY_PATH=/projects/gutmodel/datasets/finetune/train/finetune_data_train_512.npy
-# TEST_NPY_PATH=/projects/gutmodel/datasets/finetune/test/finetune_data_test_512.npy
+# TRAIN_NPY_PATH=/project/aip-rahulgk/gutmodel/datasets/finetune/train/finetune_data_train_512.npy
+# TEST_NPY_PATH=/project/aip-rahulgk/gutmodel/datasets/finetune/test/finetune_data_test_512.npy
 
 # TRAIN_OUTPUT_PATH=$EXPERIMENT_PATH/encoded_samples/encoded_samples_train.npy
 # TEST_OUTPUT_PATH=$EXPERIMENT_PATH/encoded_samples/encoded_samples_test.npy
@@ -39,8 +37,8 @@ VOCAB_PATH=$VOCAB_RESTORE_PATH/vocab.json
 VOCAB_METADATA_PATH=$VOCAB_RESTORE_PATH/vocab_metadata.json
 MODEL_CONFIG_PATH=$EXPERIMENT_PATH/finetune_model_config.json
 
-TRAIN_NPY_PATH=/projects/gutmodel/datasets/finetune/train/finetune_data_train_512.npy
-TEST_NPY_PATH=/projects/gutmodel/datasets/finetune/test/finetune_data_test_512.npy
+TRAIN_NPY_PATH=/project/aip-rahulgk/gutmodel/datasets/finetune/train/finetune_data_train_512.npy
+TEST_NPY_PATH=/project/aip-rahulgk/gutmodel/datasets/finetune/test/finetune_data_test_512.npy
 
 TRAIN_OUTPUT_PATH=$EXPERIMENT_PATH/encoded_samples/encoded_samples_train.npy
 TEST_OUTPUT_PATH=$EXPERIMENT_PATH/encoded_samples/encoded_samples_test.npy

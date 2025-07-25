@@ -1,10 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=finetune_locs
-#SBATCH --ntasks=1
+#SBATCH -A aip-rahulgk
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=8
-#SBATCH --partition=t4v1,t4v2,a40,rtx6000 
-#SBATCH --qos=m2
 #SBATCH --time=1:00:00
 #SBATCH --output=logs/finetune_locs/%j.out
 #SBATCH --error=logs/finetune_locs/%j.err
@@ -23,7 +21,7 @@ RUN_NAME=run11-scratch
 NOTES="from scratch 12 epochs"
 BASEMODEL_PATH=experiment_saves/taxa-mask-real-mvc
 EXPERIMENT_PATH=experiment_saves/finetune_tests/run11/$RUN_NAME
-DATASET_PATH=/projects/gutmodel/datasets/finetune
+DATASET_PATH=/project/aip-rahulgk/gutmodel/datasets/finetune
 
 PORT=$((29500 + $SLURM_JOB_ID % 1000))
 

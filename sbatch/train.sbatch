@@ -1,33 +1,12 @@
 #!/bin/bash
 #SBATCH --job-name=train_hmc
-#SBATCH --ntasks=1
+#SBATCH -A aip-rahulgk
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=8
-#SBATCH --partition=t4v1,t4v2,a40,rtx6000 
-#SBATCH --qos=m
 #SBATCH --time=12:00:00
 #SBATCH --output=logs/train_hmc/%j.out
 #SBATCH --error=logs/train_hmc/%j.err
 #SBATCH --gres=gpu:4
-#SBATCH --requeue
-
-# send this batch script a SIGUSR1 240 seconds
-# before we hit our time limit
-#SBATCH --signal=B:USR1@240
-
-# Kill training process and resubmit job if it receives a SIGUSR1
-handle_timeout_or_preemption() {
-  date +"%Y-%m-%d %T"
-  echo "Caught timeout or preemption signal"
-  echo "Sending SIGINT to child process"
-  scancel $SLURM_JOB_ID --signal=SIGINT
-  wait $child_pid
-  echo "Job step terminated gracefully"
-  echo $(date +"%Y-%m-%d %T") "Resubmitting job"
-  scontrol requeue $SLURM_JOB_ID
-  exit 0
-}
-trap handle_timeout_or_preemption SIGUSR1
 
 # prepare your environment here
 cd ~/gut_microbiome_GPT
@@ -36,7 +15,7 @@ source ~/hmbenv/bin/activate
 python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not available. Exiting.'" || exit 1
 
 # put your command here
-DATA_DIR="/projects/gutmodel/datasets"
+DATA_DIR="/project/aip-rahulgk/gutmodel/datasets"
 RUN_NAME="taxa-mask-30"
 NOTES="30% masking with taxa masking and mvc"
 
@@ -81,9 +60,5 @@ accelerate launch --main_process_port 0 -m scripts.trainer \
     --use-batch-labels \
     --samplename-path "$STUDY_PATH" \
     --do-taxa-decoder \
-    --do-mvc &
+    --do-mvc
     # --do-contrastive &
-
-child_pid=$!
-wait $child_pid
-echo "process has exited, and training should be finished"

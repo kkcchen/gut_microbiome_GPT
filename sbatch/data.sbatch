@@ -1,24 +1,23 @@
 #!/bin/bash
-#SBATCH --ntasks=1
+#SBATCH -A aip-rahulgk
 #SBATCH --job-name=preprocess_hmc
 #SBATCH --output=logs/preprocess_hmc/%j.out
 #SBATCH --error=logs/preprocess_hmc/%j.err
 #SBATCH --time=01:00:00
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=128G
-#SBATCH --qos=cpu_qos
-#SBATCH --partition=cpu
 
 # Activate your virtual environment
 source ~/hmbenv/bin/activate
 
 # Arguments
-TAXONOMIC_TABLE_PATH="/projects/gutmodel/taxonomic_table.csv"
-PRETRAIN_SAVE_DIR="/projects/gutmodel/datasets/pretrain"
-FINETUNE_SAVE_DIR="/projects/gutmodel/datasets/finetune"
+TAXONOMIC_TABLE_PATH="/project/aip-rahulgk/gutmodel/taxonomic_table.csv"
+METADATA_PATH="/project/aip-rahulgk/gutmodel/sample_metadata.tsv"
+
+PRETRAIN_SAVE_DIR="/project/aip-rahulgk/gutmodel/datasets/pretrain"
+FINETUNE_SAVE_DIR="/project/aip-rahulgk/gutmodel/datasets/finetune"
 NPY_PRETRAIN_FILE="taxonomy_table_pretrain"
 NPY_FINETUNE_FILE="taxonomy_table_finetune"
-METADATA_PATH="/projects/gutmodel/sample_metadata.tsv"
 
 # Run the script
 echo starting now
