@@ -16,8 +16,8 @@ METADATA_PATH="/project/aip-rahulgk/gutmodel/sample_metadata.tsv"
 
 PRETRAIN_SAVE_DIR="/project/aip-rahulgk/gutmodel/datasets/pretrain"
 FINETUNE_SAVE_DIR="/project/aip-rahulgk/gutmodel/datasets/finetune"
-NPY_PRETRAIN_FILE="taxonomy_table_pretrain"
-NPY_FINETUNE_FILE="taxonomy_table_finetune"
+NPY_PRETRAIN_FILENAME="taxonomy_table_pretrain.npy"
+NPY_FINETUNE_FILENAME="taxonomy_table_finetune.npy"
 
 # Run the script
 echo starting now
@@ -25,8 +25,11 @@ python -m scripts.preprocess_hmc \
     --taxonomic_table_path "$TAXONOMIC_TABLE_PATH" \
     --pretrain_save_dir "$PRETRAIN_SAVE_DIR" \
     --finetune_save_dir "$FINETUNE_SAVE_DIR" \
-    --npy_pretrain_file "$NPY_PRETRAIN_FILE" \
-    --npy_finetune_file "$NPY_FINETUNE_FILE"\
-    --sample_metadata_path "$METADATA_PATH"\
+    --npy_pretrain_filename "$NPY_PRETRAIN_FILE" \
+    --npy_finetune_filename "$NPY_FINETUNE_FILE" \
+    --sample_metadata_path "$METADATA_PATH" \
+    --seed 42 \
+    --split_ratio 0.5 \
+    --split_finetune_by_study \
 
 echo finished
