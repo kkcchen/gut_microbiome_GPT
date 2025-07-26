@@ -11,3 +11,4 @@ joblib
 scikit-bio
 scipy
 wandb
+anndata

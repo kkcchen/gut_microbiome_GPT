@@ -66,14 +66,14 @@
           "console": "integratedTerminal",
           "args": [
             "--taxonomic_table_path", "/home/kchen/microbiome/gut_microbiome_GPT/datasets/taxonomic_table.csv",
-            "--pretrain_save_dir", "/home/kchen/microbiome/gut_microbiome_GPT/datasets/pretrain",
-            "--finetune_save_dir", "/home/kchen/microbiome/gut_microbiome_GPT/datasets/finetune",
-            "--npy_pretrain_filename", "taxonomy_table_pretrain.npy",
-            "--npy_finetune_filename", "taxonomy_table_finetune.npy",
+            "--save_dir", "/home/kchen/microbiome/gut_microbiome_GPT/datasets/anndatas",
+            "--npy_pretrain_filename", "taxonomy_table_pretrain.h5ad",
+            "--npy_finetune_filename", "taxonomy_table_finetune.h5ad",
             "--sample_metadata_path", "/home/kchen/microbiome/gut_microbiome_GPT/datasets/sample_metadata.tsv",
             "--nrows", "5000",
             "--split_ratio", "0.5",
-            "--split_finetune_by_study"
+            "--split_finetune_by_study",
+            "--add_loc_labels"
           ],
           "python": "/home/kchen/miniconda3/envs/hmbGPT/bin/python"  // optional: usually auto-detected
         },
