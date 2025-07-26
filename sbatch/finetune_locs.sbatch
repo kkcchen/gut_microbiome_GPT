@@ -11,7 +11,7 @@
 set -e  # <--- Exit immediately on error
 
 # prepare your environment here
-cd ~/gut_microbiome_GPT
+cd /project/aip-rahulgk/kchen13/gutmodel/gut_microbiome_GPT
 source ~/hmbenv/bin/activate
 
 python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not available. Exiting.'" || exit 1

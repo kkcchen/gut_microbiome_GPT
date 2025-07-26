@@ -69,11 +69,19 @@ def save_taxonomy_table(col_names, stacked_data, sample_list, studies_list, save
     file_name = os.path.join(save_path, f"{save_name_npy}")
     np.save(file_name, stacked_data)
     
+    zero_rows = np.where((stacked_data == 0).all(axis=1))
+    print(f"zero rows in {save_path}: {zero_rows}")
+    
     print(f"Saved to {save_path} and numpy array with shape {stacked_data.shape}")
 
 
 def make_npy_from_df(df, cols_to_drop):
+    zero_rows = np.where((df == 0).all(axis=1))
+    print(f"zero rows in df before drop: {zero_rows}")
     sample_list = df["sample"].tolist()
+    
+    zero_rows = np.where((df == 0).all(axis=1))
+    print(f"zero rows in df after drop: {zero_rows}")
     
     df = df.drop(columns=cols_to_drop)
     data = df.to_numpy()
@@ -158,6 +166,8 @@ def split_array_by_samples(data_array, sample_ids, locations, remove_agp=True, s
     """
     assert len(data_array) == len(sample_ids) == len(locations), "Array and sample_ids and locations must be same length"
 
+    zero_rows = np.where((data_array == 0).all(axis=1))
+    print(f"zero rows before split: {zero_rows}")
     # Extract study_ids
     study_ids = [sid.split('_')[0] for sid in sample_ids]
 
@@ -193,6 +203,14 @@ def split_array_by_samples(data_array, sample_ids, locations, remove_agp=True, s
 
     group1_array = data_array[group1_indices]
     group2_array = data_array[group2_indices]
+    
+    zero_rows1 = np.where((group1_array == 0).all(axis=1))
+    print(f"zero rows in split1: {zero_rows1}")
+    
+    zero_rows2 = np.where((group2_array == 0).all(axis=1))
+    print(f"zero rows in split2: {zero_rows2}")
+    
+    assert len(data_array) == len(group1_array) + len(group2_array)
 
     return group1_array, group2_array, group1_ids, group2_ids, group1_locs, group2_locs
 
@@ -206,6 +224,10 @@ def read_taxonomic_table(file_path, split_ratio, nrows = None):
     - a list of row names (sample names)
     """
     df = pd.read_csv(file_path, index_col=0, nrows=nrows)
+    # Drop rows where all taxa counts are zero
+    zero_rows = (df == 0).all(axis=1)
+    print(f"zero rows in df: {np.where(zero_rows)}")
+    df = df.loc[~zero_rows]
     # 1. shuffle the dataframe
     df_shuffled = df.sample(frac=1, random_state=42).reset_index(drop=True)
     # 2. split by sample

@@ -40,6 +40,11 @@ def main():
     if X_filtered.shape[1] == 0:
         raise ValueError("No taxa passed the filtering thresholds.")
 
+    nonzero_rows = ~(X_filtered[:, :, 1] == 0).all(axis=1)
+    X_filtered = X_filtered[nonzero_rows]
+    print(f"Total rows before filtering: {X.shape[0]}")
+    print(f"Rows with all zeros removed: {X_filtered.shape[0]}")
+    
     # CLR transform using skbio
     X_filtered[:, :, 1] = preprocess_clr(X_filtered[:, :, 1])
 

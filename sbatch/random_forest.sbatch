@@ -8,7 +8,7 @@
 #SBATCH --time=6:00:00              
 
 # Activate your virtual environment
-cd ~/gut_microbiome_GPT
+cd /project/aip-rahulgk/kchen13/gutmodel/gut_microbiome_GPT
 source ~/hmbenv/bin/activate
 
 # === Paths to your data ===

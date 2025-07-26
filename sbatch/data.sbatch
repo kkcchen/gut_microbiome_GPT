@@ -14,8 +14,8 @@ source ~/hmbenv/bin/activate
 TAXONOMIC_TABLE_PATH="/project/aip-rahulgk/gutmodel/taxonomic_table.csv"
 METADATA_PATH="/project/aip-rahulgk/gutmodel/sample_metadata.tsv"
 
-PRETRAIN_SAVE_DIR="/project/aip-rahulgk/gutmodel/datasets/pretrain"
-FINETUNE_SAVE_DIR="/project/aip-rahulgk/gutmodel/datasets/finetune"
+PRETRAIN_SAVE_DIR="/project/aip-rahulgk/gutmodel/datasets_halfsplit/pretrain"
+FINETUNE_SAVE_DIR="/project/aip-rahulgk/gutmodel/datasets_halfsplit/finetune"
 NPY_PRETRAIN_FILENAME="taxonomy_table_pretrain.npy"
 NPY_FINETUNE_FILENAME="taxonomy_table_finetune.npy"
 
