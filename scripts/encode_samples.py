@@ -10,7 +10,7 @@ from data_utils.dataloader import prepare_dataloader
 from accelerate import Accelerator
 
 from trainers.test_functions import (
-    restore_vocab,
+    restore_vocab_test,
     create_testdata_state,
 )
 
@@ -23,19 +23,17 @@ def main():
     parser = argparse.ArgumentParser(description="Encode data with a model using safetensors weights.")
     parser.add_argument("--safetensors-path", type=str, required=True, help="Path to the .safetensors file")
     parser.add_argument("--output-path", type=str, required=True, help="Where to save the output tensor")
-    parser.add_argument("--vocab-path", type=str, required=True, help="Path to the vocabulary JSON file")
-    parser.add_argument("--vocab-metadata-path", type=str, required=True, help="Path to the vocabulary metadata JSON file")
+    parser.add_argument("--vocab-path", type=str, required=True, help="dir of vocab h5ad")
     parser.add_argument("--model-config-path", type=str, required=True, help="Path to the model configuration file (not used in this script but can be useful for reference)")
-    parser.add_argument("--npy-path", type=str, required=True, help="Path to the training data numpy file")
+    parser.add_argument("--adata-path", type=str, required=True, help="Path to the training data h5ad file")
     parser.add_argument("--is-finetune", action="store_true", help="Path to the training data numpy file")
-    parser.add_argument("--nrows", type=int, default=None, help="Number of rows to use from the npy file (for debugging)")
+    parser.add_argument("--nrows", type=int, default=None, help="Number of rows to use from the anndata file (for debugging)")
     args = parser.parse_args()
     
     safetensors_path = args.safetensors_path
     output_path = args.output_path
     vocab_path = args.vocab_path
-    vocab_metadata_path = args.vocab_metadata_path
-    npy_path = args.npy_path
+    adata_path = args.adata_path
     model_config_path = args.model_config_path
     
     nrows = args.nrows
@@ -44,7 +42,7 @@ def main():
     accelerator = Accelerator()
     
     # restore vocab
-    vocab = restore_vocab(vocab_path, vocab_metadata_path)
+    vocab, _, adata = restore_vocab_test(adata_path, vocab_path)
 
     # === Load model ===
     from models import TransformerModel
@@ -65,9 +63,10 @@ def main():
 
     # === Load test dataloader ===
     data_dict = create_testdata_state(
-        npy_path=npy_path,
+        adata=adata,
         num_bins=num_bins,
         vocab=vocab,
+        batch_obskey=None,  # No batch key needed for encoding
         nrows=nrows  # Set to None to use all rows
     )
     
@@ -104,10 +103,11 @@ def main():
     # === Save result (only main process) ===
     if accelerator.is_main_process:
         final_tensor = torch.cat(all_cell_embs, dim=0)
-        print(f"number of samples is {final_tensor.shape[0]}")
+        adata.obsm["embedding"] = np.array(final_tensor)
+        print(f"shape of samples is {final_tensor.shape}")
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        np.save(output_path, final_tensor.cpu().numpy())
-        print(f"Saved cell embeddings as NumPy array to {output_path}")
+        adata.write_h5ad(output_path)
+        print(f"Saved cell embeddings as anndata to {output_path}")
 
 
 if __name__ == "__main__":

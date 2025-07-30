@@ -104,13 +104,13 @@ class Preprocessor:
         return np.stack(binned_rows), np.stack(bin_edges)
     
 
-    def process_from_np(self, unprocessed_data: np.ndarray) -> Dict:
+    def process_from_np(self, unprocessed_data: np.ndarray, taxa_ids) -> Dict:
         """
         Process the unprocessed data from a numpy array.
 
         Args:
         unprocessed_data (:class:`np.ndarray`):
-            The unprocessed data. size (num_samples, num_taxa, 2), {:,:, 0} is the taxa id, {:,:, 1} is the value
+            The unprocessed data. size (num_samples, num_taxa)
 
 
         Returns:
@@ -119,6 +119,8 @@ class Preprocessor:
         :class:`np.ndarray`:
             The bin edges of the data.
         """
+        assert len(taxa_ids) == unprocessed_data.shape[1], "The number of taxa IDs must match the number of columns in the data."
+        
         if not isinstance(unprocessed_data, np.ndarray):
             raise ValueError("The unprocessed data must be a numpy array.")
         
@@ -131,12 +133,11 @@ class Preprocessor:
         bin_edges = []
 
         # Iterate over each row 
-        for sample in unprocessed_data:
-            row = sample[:, 1]
+        for row in unprocessed_data:
             if row.max() == 0:
-                # raise ValueError(
-                #     "The data has all zero values, please check the data."
-                # )
+                raise ValueError(
+                    "The data has all zero values, please check the data."
+                )
                 binned_rows.append(np.zeros_like(row, dtype=np.int64))
                 bin_edges.append(np.array([0] * n_bins))
                 continue
@@ -157,25 +158,7 @@ class Preprocessor:
             binned_rows.append(binned_row)
             bin_edges.append(np.concatenate([[0], bins]))
                 
-        # update original array
-        unprocessed_data[:,:,1] = np.stack(binned_rows)
         return np.stack(binned_rows), np.stack(bin_edges)
-    
-    @staticmethod
-    def get_studies_from_trials(trials: List["str"]) -> List[str]:
-        """
-        Get the study from the trials list.
-
-        Args:
-        trials: list of trials. study path is "_" separated, e.g. "study1_experiment1"
-
-        Returns:
-        :class:`List[str]`:
-            A list of study paths.
-        """
-        # split the trials by "_"
-        studies = [trial.split("_")[0] for trial in trials]
-        return studies
 
 
 def _digitize(x: np.ndarray, bins: np.ndarray, side="both") -> np.ndarray:

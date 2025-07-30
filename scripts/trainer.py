@@ -22,13 +22,11 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Train TransformerModel on microbiome data")
     parser.add_argument("--model-config-path", type=str, required=True, help="Path to model configuration file")
-    parser.add_argument("--hmc-table-path", type=str, required=True, help="Path to HMC table file")
-    parser.add_argument("--taxa-path", type=str, required=True, help="Path to taxa file")
+    parser.add_argument("--ann-table-path", type=str, required=True, help="Path to HMC table file")
     parser.add_argument("--best-dir", type=str, required=True, help="Directory to save best model so far")
     parser.add_argument("--checkpoint-dir", type=str, required=True, help="Directory to save checkpoints for preemption")
     parser.add_argument("--data-restore-dir", type=str, required=True, help="Directory to restore data state")
     parser.add_argument("--intermediate-dir", type=str, required=True, help="Directory to store intermediate checkpoints")
-    parser.add_argument("--samplename-path", type=str, default=None, help="Path to samplename files for training")
 
     # wandb
     parser.add_argument("--wandb-enabled", action="store_true", help="Enable Weights & Biases logging")
@@ -64,12 +62,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     model_config_path = args.model_config_path
-    hmc_table_path = args.hmc_table_path
-    taxa_path = args.taxa_path
+    ann_table_path = args.ann_table_path
     best_dir = args.best_dir
     checkpoint_dir = args.checkpoint_dir
     data_restore_dir = args.data_restore_dir
-    samplename_path = args.samplename_path
 
     wandb_enabled = args.wandb_enabled
     wandb_entity = args.wandb_entity
@@ -92,11 +88,6 @@ if __name__ == "__main__":
     train_mask_ratio = args.train_mask_ratio
     
     use_batch_labels = args.use_batch_labels
-    if use_batch_labels:
-        assert samplename_path is not None, "Experiments path must be provided when using batch labels."
-    else:
-        assert samplename_path is None, "Experiments path should not be provided when not using batch labels."
-
     nrows = args.nrows
     # Set random seed for reproducibility
     torch.manual_seed(args.seed)
@@ -128,7 +119,12 @@ if __name__ == "__main__":
 
     # Create or restore data state
     train_data_dict, valid_data_dict, vocab, batch_vocab = create_or_restore_data_state(
-        hmc_table_path, num_bins, data_restore_dir, data_restore_dir, data_restore_dir, accelerator, taxa_path=taxa_path, use_batch_labels=use_batch_labels, experiments_path=samplename_path, nrows=nrows, seed=args.seed
+        ann_table_path, 
+        num_bins, 
+        data_restore_dir, 
+        accelerator, 
+        batch_obskey="study_id" if use_batch_labels else None, 
+        nrows=nrows, 
     )
 
     logger.info("Preparing dataloaders...")

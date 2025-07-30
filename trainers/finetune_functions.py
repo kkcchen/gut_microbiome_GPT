@@ -8,7 +8,14 @@ from models import FinetunedTransformer
 import transformers
 import wandb
 
+import os
+import anndata as ad
+
+from data_utils.preprocessor import Preprocessor
+from data_utils.tokenizer import Tokenizer
+
 from accelerate import Accelerator
+from accelerate.utils import broadcast_object_list
 
 from data_utils.vocab import MicrobiomeVocab, BatchVocab
 from trainers import logger
@@ -226,31 +233,6 @@ def load_finetuned_model(
     
     return model
 
-
-def load_test_data(
-    test_input: str,
-    test_loc_labels_path: str,
-) -> Dict[str, np.ndarray]:
-    """
-    Load the test data from the given input file and location labels.
-    
-    Args:
-        test_input (str): Path to the test input .npy file (samples, taxa, 2).
-        test_loc_labels_path (str): Path to the test location labels file.
-    
-    Returns:
-        Dict[str, np.ndarray]: A dictionary containing the test data.
-    """
-    # Load the test input data
-    test_data = np.load(test_input, allow_pickle=True)
-    
-    # Load the location labels
-    loc_labels = np.load(test_loc_labels_path, allow_pickle=True)
-    
-    return {
-        "test_data": test_data,
-        "loc_labels": loc_labels,
-    }
     
 def create_training_state_finetune(model_config, init_lr, warmup_ratio_or_step, total_steps, trainable_base_model: bool, base_state_dict=None, state_dict=None):
     model = FinetunedTransformer(model_config)
@@ -277,6 +259,95 @@ def create_training_state_finetune(model_config, init_lr, warmup_ratio_or_step, 
         num_training_steps=total_steps,
     )
     return model, optimizer, scheduler
+
+
+def create_data_state_finetune(anndata_path, num_bins, vocab_restore_dir, data_restore_dir, accelerator: Accelerator, batch_obskey, use_continuous_labels=False, nrows=None):
+    if accelerator.is_main_process:
+        assert not use_continuous_labels, "Continuous labels are not supported yet"
+        
+        if os.path.exists(os.path.join(vocab_restore_dir, "augmented_data.h5ad")):
+            # load the vocab from the file
+            adata_vocab = ad.read_h5ad(os.path.join(vocab_restore_dir, "augmented_data.h5ad"))
+            assert "vocab_metadata" in adata_vocab.uns and "taxa_id" in adata_vocab.var, "vocab metadata or taxa_id not found in the adata"
+            vocab = MicrobiomeVocab.restore_vocab(adata_vocab)
+            logger.info(f"Vocab restored from {vocab_restore_dir}")
+        else:
+            raise FileNotFoundError(f"Vocab file not found at {vocab_restore_dir}")
+        
+        # finally restore data
+        if os.path.exists(os.path.join(data_restore_dir, "augmented_data_finetune.h5ad")):
+            adata = ad.read_h5ad(os.path.join(data_restore_dir, "augmented_data_finetune.h5ad"))
+            
+            # restore batch vocab
+            if f"{batch_obskey}_batch_vocab" in adata.uns:
+                batch_vocab = BatchVocab.restore_batchvocab(adata)
+                logger.info(f"Batch vocab restored from {data_restore_dir}")
+            else:
+                raise FileNotFoundError(f"Batch vocab file not found at {data_restore_dir}")
+            
+            # load the data state from the file
+            assert "split" in adata.obs and "binned_rows" in adata.layers, "The AnnData object must have 'split' in obs."
+            logger.info("Data state can be restored from {}".format(data_restore_dir))
+        else:
+            os.makedirs(data_restore_dir, exist_ok=True)
+            adata = ad.read_h5ad(anndata_path)
+            if nrows:
+                adata = adata[:nrows, :].copy()
+            
+            # batch vocab
+            batch_vocab = BatchVocab.create_batchvocab_from_scratch(batch_obskey, adata)
+            
+            # create the data state
+            preprocessor = Preprocessor(
+                binning=num_bins,
+            )
+            hmc_npy = np.array(adata.layers["top_512"].todense(), dtype=np.float32)
+            
+            adata.uns["vocab_metadata"] = adata_vocab.uns["vocab_metadata"]
+            adata.var["taxa_id"] = adata.var_names.map(vocab.stoi)
+            taxa_ids = np.array(adata.var["taxa_id"])
+            
+            stacked_rows, _ = preprocessor.process_from_np(hmc_npy, taxa_ids)
+            # create tokenizer
+            adata.layers["binned_rows"] = stacked_rows
+            tokenizer = Tokenizer(vocab)
+            data_dict = tokenizer.tokenize_and_pad_batch(adata, batch_obskey=batch_obskey)
+            
+            # Randomly select exactly n_train indices without replacement
+            train_indices = np.random.choice(adata.n_obs, size=int(adata.n_obs * 0.8), replace=False)
+            is_train = np.zeros(adata.n_obs, dtype=bool)
+            is_train[train_indices] = True            
+            adata.obs["split"] = np.where(is_train, "train", "val")
+        
+        adata.write_h5ad(os.path.join(data_restore_dir, "augmented_data_finetune.h5ad"))
+        # Create train and validation splits
+        train_data_dict = {}
+        valid_data_dict = {}
+        # train and validation split
+        split_keys = ["taxa_ids", "values"]
+
+        if use_continuous_labels:
+            split_keys.append("continuous_labels")  # assuming continuous regression targets
+        if batch_obskey:
+            split_keys.append("batch_labels")
+        
+        # Split data_dict based on adata.obs["split"]
+        split_mask = adata.obs["split"].values
+        train_mask = split_mask == "train"
+        val_mask = split_mask == "val"
+        for key in split_keys:
+            train_data_dict[key] = data_dict[key][train_mask]
+            valid_data_dict[key] = data_dict[key][val_mask]
+    
+        data_list = [train_data_dict, valid_data_dict, vocab, batch_vocab]
+    else:
+        data_list = [None, None, None, None]
+    # broadcast to all other ranks
+    accelerator.wait_for_everyone()
+    broadcast_object_list(data_list)
+    
+    return tuple(data_list)
+
 
 def init_wandb(wandb_enabled, wandb_entity, wandb_project, wandb_config, accelerator: Accelerator, wandb_run_name=None, wandb_run_notes=None):
     if accelerator.is_main_process:

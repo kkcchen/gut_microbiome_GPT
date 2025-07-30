@@ -2,50 +2,64 @@ import numpy as np
 import os
 import torch
 import json
+import anndata as ad
 
 from data_utils.preprocessor import Preprocessor
 from data_utils.tokenizer import Tokenizer
 from trainers import logger
-from data_utils.vocab import MicrobiomeVocab
+from data_utils.vocab import MicrobiomeVocab, BatchVocab
+
 
 from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_score, confusion_matrix
 
-def restore_vocab(vocab_path, vocab_metadata_path):
-    # vocab should always already exist
-    if not os.path.exists(vocab_path) or not os.path.exists(vocab_metadata_path):
-        raise FileNotFoundError(f"Vocab files not found at {vocab_path} or {vocab_metadata_path}")
+def restore_vocab_test(anndata_path, vocab_restore_path, batch_obskey=None):
+    if os.path.exists(vocab_restore_path):
+        # load the vocab from the file
+        adata_vocab = ad.read_h5ad(vocab_restore_path)
+        assert "vocab_metadata" in adata_vocab.uns and "taxa_id" in adata_vocab.var, "vocab metadata or taxa_id not found in the adata"
+        vocab = MicrobiomeVocab.restore_vocab(adata_vocab)
+        
+        if batch_obskey is not None:
+            batch_vocab = BatchVocab.restore_batchvocab(adata_vocab, batch_obskey)
+        else:
+            batch_vocab = None
+        
+        logger.info(f"Vocab and/or batch vocab restored from {vocab_restore_path}")
+    else:
+        raise FileNotFoundError(f"Vocab file not found at {vocab_restore_path}")
+
+    adata = ad.read_h5ad(anndata_path)
+    adata.var["taxa_id"] = adata.var["taxa"].map(vocab.stoi)
     
-    vocab = MicrobiomeVocab.get_vocab_from_json(vocab_path, vocab_metadata_path)
-    logger.info(f"Vocab loaded from {vocab_path} and {vocab_metadata_path}")
+    if batch_obskey:
+        batch_obskey_id = f"{batch_obskey}_id"
+        adata.obs[batch_obskey_id] = adata.obs[batch_obskey].map(batch_vocab.stoi)
+        # remove samples with NaN in batch_obskey_id
+        adata = adata[~adata.obs[batch_obskey_id].isna(), :].copy()
     
-    return vocab
+    return vocab, batch_vocab, adata
 
 
-def create_testdata_state(npy_path, num_bins, vocab, batch_labels=None, batch_vocab=None, nrows=None):
+def create_testdata_state(adata, num_bins, vocab, batch_obskey, nrows=None):
     # create the data dict
     if nrows:
-        hmc_npy = np.load(npy_path)[:nrows,:,:] # shape (num_samples, num_taxa, 2) where (:,:,0) is taxa_id and (:,:,1) is counts
-    else:
-        hmc_npy = np.load(npy_path)
-
+        adata = adata[:nrows, :].copy()
+    
     preprocessor = Preprocessor(
         binning=num_bins,
     )
-
-    _, _ = preprocessor.process_from_np(hmc_npy)
+    
+    hmc_npy = np.array(adata.layers["top_512"].todense(), dtype=np.float32)
+    taxa_ids = np.array(adata.var["taxa_id"])
+    
+    stacked_rows, _ = preprocessor.process_from_np(hmc_npy, taxa_ids)
 
     # create tokenizer
-    tokenizer = Tokenizer(vocab, batch_vocab=batch_vocab)
-    data_dict = tokenizer.tokenize_and_pad_batch(hmc_npy, batch_labels=batch_labels)
-    # Assuming data_dict is a dictionary with keys 'taxa_ids', 'values', and 'batch_labels' if added
-    
-    if batch_labels:
-        # remove rows where batch_labels are not in the vocab (marked as -1)
-        valid_indices = data_dict["batch_labels"] != -1
-        data_dict["taxa_ids"] = data_dict["taxa_ids"][valid_indices]
-        data_dict["values"] = data_dict["values"][valid_indices]
-        data_dict["batch_labels"] = data_dict["batch_labels"][valid_indices]
+    adata.layers["binned_rows"] = stacked_rows
 
+    tokenizer = Tokenizer(vocab)
+    data_dict = tokenizer.tokenize_and_pad_batch(adata, batch_obskey=batch_obskey)
+    
     return data_dict
 
 
@@ -97,7 +111,6 @@ def evaluate_classification(model, dataloader, batch_vocab, vocab_pad_index, out
     
     if accelerator.is_main_process:
         print("shape of probs and targets is:", probs.shape, targets.shape)
-        print("location of probs and targets is", probs.device, targets.device)
         predictions = np.argmax(probs, axis=1)
         total_accuracy = accuracy_score(targets, predictions)
         conf_mat = confusion_matrix(targets, predictions)

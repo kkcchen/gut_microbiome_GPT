@@ -10,10 +10,10 @@ from safetensors.torch import load_file
 from data_utils.dataloader import prepare_dataloader
 
 from trainers.train_functions import (
-    create_or_restore_data_state, epoch_end_logs
+    epoch_end_logs
 )
 from trainers.finetune_functions import (
-    finetune, create_training_state_finetune, init_wandb
+    finetune, create_training_state_finetune, init_wandb, create_data_state_finetune
 )
 
 from trainers.test_functions import (
@@ -57,11 +57,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train TransformerModel on microbiome data")
     parser.add_argument("--base-model-config-path", type=str, required=True, help="Path to base model configuration file")
     parser.add_argument("--base-model-path", type=str, default=None, help="Path to the base model state dictionary")
-    parser.add_argument("--train-input", type=str, required=True, help="Path to train .npy file (samples, taxa, 2)")
+    parser.add_argument("--train-input", type=str, required=True, help="Path to train .h5ad file with X shape (samples, taxa)")
     parser.add_argument("--best-dir", type=str, required=True, help="Directory to save best model so far")
     parser.add_argument("--data-restore-dir", type=str, required=True, help="Directory to restore data state")
     parser.add_argument("--vocab-restore-dir", type=str, required=True, help="Directory to restore vocab state")
-    parser.add_argument("--batch-restore-dir", type=str, default=None, help="Directory to restore batch vocab state")
     # wandb
     parser.add_argument("--wandb-enabled", action="store_true", help="Enable Weights & Biases logging")
     parser.add_argument("--wandb-entity", type=str, default=None, help="wandb entity name")
@@ -86,7 +85,6 @@ if __name__ == "__main__":
     parser.add_argument("--notes", type=str, default="", help="Notes for the current training run")
     
     # for finetuning
-    parser.add_argument("--train-loc-labels-path", type=str, required=True, help="Path to the train location labels file.")
     parser.add_argument("--model-config-path", type=str, required=True, help="Path to save model configuration file")
     
     parser.add_argument("--task-type", type=str, choices=["classification", "regression"], required=True, help="Specify the task type: classification or regression")
@@ -99,7 +97,6 @@ if __name__ == "__main__":
     best_dir = args.best_dir
     data_restore_dir = args.data_restore_dir
     vocab_restore_dir = args.vocab_restore_dir
-    batch_restore_dir = args.batch_restore_dir
 
     wandb_enabled = args.wandb_enabled
     wandb_entity = args.wandb_entity
@@ -117,7 +114,6 @@ if __name__ == "__main__":
     enable_fp16 = args.enable_fp16
     nrows = args.nrows
     
-    train_loc_labels_path = args.train_loc_labels_path
     model_config_path = args.model_config_path
     
     task_type = args.task_type
@@ -148,20 +144,19 @@ if __name__ == "__main__":
             # the variable `data_restore_dir`.
             shutil.rmtree(data_restore_dir)
         os.makedirs(data_restore_dir, exist_ok=True)
-        if is_classification:
-            assert batch_restore_dir is not None, "batch_restore_dir must be specified for classification task"
-            if os.path.exists(batch_restore_dir):
-                shutil.rmtree(batch_restore_dir)
-            os.makedirs(batch_restore_dir, exist_ok=True)
-        else:
-            assert batch_restore_dir is None, "batch_restore_dir should not be specified for regression task"
         # don't remove vocab_restore_dir, as it is from pretraining
     
     accelerator.wait_for_everyone()
 
     # Create or restore data state
-    train_data_dict, valid_data_dict, vocab, batch_vocab = create_or_restore_data_state(
-        train_input, num_bins, data_restore_dir, vocab_restore_dir, batch_restore_dir, accelerator, taxa_path=None, use_batch_labels=is_classification, label_path=train_loc_labels_path, nrows=nrows, seed=args.seed
+    train_data_dict, valid_data_dict, vocab, batch_vocab = create_data_state_finetune(
+        train_input, 
+        num_bins, 
+        vocab_restore_dir, 
+        data_restore_dir, 
+        accelerator, 
+        batch_obskey="location", 
+        nrows=nrows, 
     )
         
     check_vocab_basemodel_match(base_model_config, vocab)
