@@ -15,15 +15,13 @@ source ~/hmbenv/bin/activate
 python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not available. Exiting.'" || exit 1
 
 # put your command here
-DATA_DIR="/project/aip-rahulgk/gutmodel/datasets"
+DATA_DIR="/project/aip-rahulgk/gutmodel/datasets_halfsplit"
 RUN_NAME="taxa-mask-30"
 NOTES="30% masking with taxa masking and mvc"
 
 EXPERIMENT_PATH=experiment_saves/$RUN_NAME
 
-HMC_TABLE_PATH="$DATA_DIR/pretrain/taxonomy_table_512.npy"
-TAXA_JSON_PATH="$DATA_DIR/pretrain/pretrain_cols.json"
-STUDY_PATH="$DATA_DIR/pretrain/sample_list.json"
+ANN_TABLE_PATH="$DATA_DIR/taxonomy_table_pretrain.h5ad"
 
 SAVE_DIR="$EXPERIMENT_PATH/model_checkpoints"
 BEST_DIR="$SAVE_DIR/best_model"
@@ -35,13 +33,12 @@ INTERMEDIATE_DIR="$SAVE_DIR/intermediate_checkpoints"
 python -m wandb login 7559085cf6a63fa75982fe12e737bdd576c4fc62
 
 accelerate launch --main_process_port 0 -m scripts.trainer \
-    --hmc-table-path "$HMC_TABLE_PATH" \
-    --taxa-path "$TAXA_JSON_PATH" \
+    --model-config-path "$MODEL_CONFIG_PATH" \
+    --ann-table-path "$HMC_TABLE_PATH" \
     --best-dir "$BEST_DIR" \
     --checkpoint-dir "$MODEL_CHECKPOINTS" \
     --data-restore-dir "$DATA_RESTORE_DIR" \
     --intermediate-dir "$INTERMEDIATE_DIR" \
-    --model-config-path "$MODEL_CONFIG_PATH" \
     --wandb-enabled \
     --wandb-entity "haoze-deng-university-of-toronto" \
     --wandb-project "hmbgpt_oncluster" \
@@ -58,7 +55,6 @@ accelerate launch --main_process_port 0 -m scripts.trainer \
     --notes "$NOTES" \
     --train-mask-ratio 0.3 \
     --use-batch-labels \
-    --samplename-path "$STUDY_PATH" \
     --do-taxa-decoder \
     --do-mvc
     # --do-contrastive &

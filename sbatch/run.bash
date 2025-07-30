@@ -1,22 +1,52 @@
 #!/bin/bash
 
-accelerate launch -m scripts.trainer \
-    --model-config-path experiment_saves/model_checkpoints/model_config.json \
-    --hmc-table-path datasets/pretrain/taxonomy_table_512.npy \
-    --best-dir experiment_saves/model_checkpoints/best_model \
-    --checkpoint-dir experiment_saves/model_checkpoints/current_checkpoints \
-    --data-restore-dir experiment_saves/model_checkpoints/data_checkpoint \
-    --intermediate-dir experiment_saves/model_checkpoints/intermediate_checkpoints \
-    --batch-size 1 \
-    --log-interval 4 \
-    --cosine-warmup-ratio-or-step 0.1 \
-    --nrows 100 \
-    --seed 1 \
+# prepare your environment here
+cd /project/aip-rahulgk/kchen13/gutmodel/gut_microbiome_GPT
+source ~/hmbenv/bin/activate
+
+python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not available. Exiting.'" || exit 1
+
+# put your command here
+DATA_DIR="/project/aip-rahulgk/gutmodel/datasets_halfsplit"
+RUN_NAME="taxa-mask-30"
+NOTES="30% masking with taxa masking and mvc"
+
+EXPERIMENT_PATH=experiment_saves/$RUN_NAME
+
+ANN_TABLE_PATH="$DATA_DIR/taxonomy_table_pretrain.h5ad"
+
+SAVE_DIR="$EXPERIMENT_PATH/model_checkpoints"
+BEST_DIR="$SAVE_DIR/best_model"
+MODEL_CHECKPOINTS="$SAVE_DIR/current_checkpoints"
+DATA_RESTORE_DIR="$SAVE_DIR/data_checkpoint"
+MODEL_CONFIG_PATH="$SAVE_DIR/model_config.json"
+INTERMEDIATE_DIR="$SAVE_DIR/intermediate_checkpoints"
+
+python -m wandb login 7559085cf6a63fa75982fe12e737bdd576c4fc62
+
+accelerate launch --main_process_port 0 -m scripts.trainer \
+    --model-config-path "$MODEL_CONFIG_PATH" \
+    --ann-table-path "$HMC_TABLE_PATH" \
+    --best-dir "$BEST_DIR" \
+    --checkpoint-dir "$MODEL_CHECKPOINTS" \
+    --data-restore-dir "$DATA_RESTORE_DIR" \
+    --intermediate-dir "$INTERMEDIATE_DIR" \
+    --wandb-enabled \
+    --wandb-entity "haoze-deng-university-of-toronto" \
+    --wandb-project "hmbgpt_oncluster" \
+    --wandb-run-name "$RUN_NAME" \
+    --wandb-run-notes "$NOTES" \
+    --init-lr 1e-3 \
+    --batch-size 64 \
+    --max-epochs 25 \
+    --cosine-warmup-ratio-or-step 100 \
     --num-bins 15 \
+    --log-interval 10 \
+    --enable-fp16 \
+    --seed 42 \
+    --notes "$NOTES" \
+    --train-mask-ratio 0.3 \
     --use-batch-labels \
-    --start-over \
-    --max-epochs 1 \
-    --do-contrastive \
-    # --wandb-enabled \
-    # --wandb-entity kevinkaiwen-chen-vector \
-    # --wandb-project hmb_testproject \
+    --do-taxa-decoder \
+    --do-mvc
+    # --do-contrastive &

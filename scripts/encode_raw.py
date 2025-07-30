@@ -83,8 +83,8 @@ def main():
     train_filtered.write_h5ad(train_path)
     test_filtered.write_h5ad(test_path)
 
-    print(f"Saved CLR-transformed train data to {train_path}, shape: {train_filtered.shape}")
-    print(f"Saved CLR-transformed test data to {test_path}, shape: {test_filtered.shape}")
+    print(f"Saved CLR-transformed train data to {train_path}, shape: {train_filtered.obsm['embedding'].shape}")
+    print(f"Saved CLR-transformed test data to {test_path}, shape: {test_filtered.obsm['embedding'].shape}")
 
 if __name__ == "__main__":
     main()

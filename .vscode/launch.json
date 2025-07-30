@@ -152,7 +152,7 @@
 
           "--best-path", "experiment_saves/finetune_model_checkpoints_frozen/loc_finetune/best_model/model.safetensors",
           "--model-config-path", "experiment_saves/finetune_model_checkpoints_frozen/loc_finetune/finetune_model_config.json",      
-          "--finetune-vocab-dir", "experiment_saves/finetune_model_checkpoints_frozen/loc_finetune/data_checkpoint/augmented_data_finetune.h5ad",
+          "--finetune-vocab-path", "experiment_saves/finetune_model_checkpoints_frozen/loc_finetune/data_checkpoint/augmented_data_finetune.h5ad",
 
           "--anndata-path", "datasets/anndatas/finetune_data_test.h5ad",
 

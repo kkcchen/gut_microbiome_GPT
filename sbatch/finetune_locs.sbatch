@@ -21,7 +21,7 @@ RUN_NAME=run11-scratch
 NOTES="from scratch 12 epochs"
 BASEMODEL_PATH=experiment_saves/taxa-mask-real-mvc
 EXPERIMENT_PATH=experiment_saves/finetune_tests/run11/$RUN_NAME
-DATASET_PATH=/project/aip-rahulgk/gutmodel/datasets/finetune
+DATASET_PATH=/project/aip-rahulgk/gutmodel/datasets_halfsplit
 
 PORT=$((29500 + $SLURM_JOB_ID % 1000))
 
@@ -31,12 +31,10 @@ accelerate launch --main_process_port $PORT -m scripts.trainer_finetune \
     --base-model-config-path $BASEMODEL_PATH/model_checkpoints/model_config.json \
     --vocab-restore-dir $BASEMODEL_PATH/model_checkpoints/data_checkpoint \
     \
-    --train-input $DATASET_PATH/train/filtered_outputs/filtered_data_512.npy \
-    --train-loc-labels-path $DATASET_PATH/train/filtered_outputs/filtered_locs.json \
+    --train-input $DATASET_PATH/finetune_data_train.h5ad \
     \
     --best-dir $EXPERIMENT_PATH/best_model \
     --data-restore-dir experiment_saves/finetune_tests/run11/data_checkpoint \
-    --batch-restore-dir experiment_saves/finetune_tests/run11/data_checkpoint \
     \
     --model-config-path $EXPERIMENT_PATH/finetune_model_config.json \
     \
@@ -70,18 +68,11 @@ accelerate launch --main_process_port $PORT -m scripts.tester_finetune \
     --best-path $EXPERIMENT_PATH/best_model/model.safetensors \
     --model-config-path $EXPERIMENT_PATH/finetune_model_config.json \
     \
-    --batch-vocab-path experiment_saves/finetune_tests/run11/data_checkpoint/batch_vocab.json \
+    --finetune-vocab-path experiment_saves/finetune_tests/run11/data_checkpoint/augmented_data_finetune.h5ad \
     \
-    --vocab-path $BASEMODEL_PATH/model_checkpoints/data_checkpoint/vocab.json \
-    --vocab-metadata-path $BASEMODEL_PATH/model_checkpoints/data_checkpoint/vocab_metadata.json \
-    \
-    --npy-path $DATASET_PATH/test/filtered_outputs/filtered_data_512.npy \
-    --test-loc-labels-path $DATASET_PATH/test/filtered_outputs/filtered_locs.json \
+    --anndata-path $DATASET_PATH/finetune_data_test.h5ad \
     \
     --output-path $EXPERIMENT_PATH/test_results.json \
-
-    # --batch-vocab-path experiment_saves/finetune_tests/run11/data_checkpoint/data_checkpoint/batch_vocab.json \
-    # --batch-vocab-path $EXPERIMENT_PATH/data_checkpoint/batch_vocab.json \
 
 echo "testing complete."
 

@@ -22,11 +22,11 @@ python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not availabl
 # VOCAB_METADATA_PATH=$EXPERIMENT_PATH/model_checkpoints/data_checkpoint/vocab_metadata.json
 # MODEL_CONFIG_PATH=$EXPERIMENT_PATH/model_checkpoints/model_config.json
 
-# TRAIN_NPY_PATH=/project/aip-rahulgk/gutmodel/datasets/finetune/train/finetune_data_train_512.npy
-# TEST_NPY_PATH=/project/aip-rahulgk/gutmodel/datasets/finetune/test/finetune_data_test_512.npy
+# TRAIN_ANN_PATH=/project/aip-rahulgk/gutmodel/datasets_halfsplit/finetune_data_train.h5ad
+# TEST_ANN_PATH=/project/aip-rahulgk/gutmodel/datasets_halfsplit/finetune_data_test.h5ad
 
-# TRAIN_OUTPUT_PATH=$EXPERIMENT_PATH/encoded_samples/encoded_samples_train.npy
-# TEST_OUTPUT_PATH=$EXPERIMENT_PATH/encoded_samples/encoded_samples_test.npy
+# TRAIN_OUTPUT_PATH=$EXPERIMENT_PATH/encoded_samples/encoded_samples_train.h5ad
+# TEST_OUTPUT_PATH=$EXPERIMENT_PATH/encoded_samples/encoded_samples_test.h5ad
 
 # below is for encoding with a finetuned model, taking only the transformer layers of a finetuned model. make sure to add --is-finetune
 EXPERIMENT_PATH=experiment_saves/finetune_tests/run10-best
@@ -37,11 +37,11 @@ VOCAB_PATH=$VOCAB_RESTORE_PATH/vocab.json
 VOCAB_METADATA_PATH=$VOCAB_RESTORE_PATH/vocab_metadata.json
 MODEL_CONFIG_PATH=$EXPERIMENT_PATH/finetune_model_config.json
 
-TRAIN_NPY_PATH=/project/aip-rahulgk/gutmodel/datasets/finetune/train/finetune_data_train_512.npy
-TEST_NPY_PATH=/project/aip-rahulgk/gutmodel/datasets/finetune/test/finetune_data_test_512.npy
+TRAIN_ANN_PATH=/project/aip-rahulgk/gutmodel/datasets_halfsplit/finetune_data_train.h5ad
+TEST_ANN_PATH=/project/aip-rahulgk/gutmodel/datasets_halfsplit/finetune_data_test.h5ad
 
-TRAIN_OUTPUT_PATH=$EXPERIMENT_PATH/encoded_samples/encoded_samples_train.npy
-TEST_OUTPUT_PATH=$EXPERIMENT_PATH/encoded_samples/encoded_samples_test.npy
+TRAIN_OUTPUT_PATH=$EXPERIMENT_PATH/encoded_samples/encoded_samples_train.h5ad
+TEST_OUTPUT_PATH=$EXPERIMENT_PATH/encoded_samples/encoded_samples_test.h5ad
 
 # === Run the encoding script ===
 echo "Running encoding for finetune train set..."
@@ -49,9 +49,8 @@ accelerate launch -m scripts.encode_samples \
   --safetensors-path $SAFETENSORS_PATH \
   --output-path $TRAIN_OUTPUT_PATH \
   --vocab-path $VOCAB_PATH \
-  --vocab-metadata-path $VOCAB_METADATA_PATH \
   --model-config-path $MODEL_CONFIG_PATH \
-  --npy-path $TRAIN_NPY_PATH \
+  --adata-path $TRAIN_ANN_PATH \
   --is-finetune \
 
 
@@ -60,9 +59,8 @@ accelerate launch -m scripts.encode_samples \
   --safetensors-path $SAFETENSORS_PATH \
   --output-path $TEST_OUTPUT_PATH \
   --vocab-path $VOCAB_PATH \
-  --vocab-metadata-path $VOCAB_METADATA_PATH \
   --model-config-path $MODEL_CONFIG_PATH \
-  --npy-path $TEST_NPY_PATH \
+  --adata-path $TEST_ANN_PATH \
   --is-finetune \
 
 echo "Encoding complete."
