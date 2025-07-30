@@ -1,62 +1,90 @@
-import numpy as np
-import argparse
-from skbio.stats.composition import clr, multi_replace, closure
 import os
+import argparse
+import numpy as np
+import anndata as ad
+import pandas as pd
+from skbio.stats.composition import clr, closure, multi_replace
 
-def compute_prevalence_abundance(X):
+def compute_prevalence_abundance_adata(adata: ad.AnnData):
+    X = adata.X
+    if hasattr(X, "toarray"):
+        X = X.toarray()
+
     prevalence = np.mean(X > 0, axis=0)
     abundance = np.mean(X, axis=0)
-    return prevalence, abundance
 
-def preprocess_clr(X):
-    # Replace zeros using multiplicative replacement
+    return (
+        pd.Series(prevalence, index=adata.var_names),
+        pd.Series(abundance, index=adata.var_names),
+    )
+
+def preprocess_clr_matrix(X):
+    if hasattr(X, "toarray"):
+        X = X.toarray()
     X_replaced = multi_replace(X)
-    # Apply closure to normalize counts to proportions
     X_closed = closure(X_replaced)
-    # Apply CLR transformation
     return clr(X_closed)
 
 def main():
     parser = argparse.ArgumentParser(description="Filter and CLR-transform a taxa abundance matrix using scikit-bio.")
-    parser.add_argument("--output-dir", type=str, required=True, help="Dir to output .npy file")
-    parser.add_argument("--train-input", type=str, required=True, help="Path to train .npy file (samples, taxa, 2)")
-    parser.add_argument("--test-input", type=str, required=True, help="Path to test .npy file (samples, taxa, 2)")
-    parser.add_argument("--prevalence-threshold", type=float, default=0.01, help="Minimum prevalence threshold")
-    parser.add_argument("--abundance-threshold", type=float, default=0.05, help="Minimum abundance threshold")
+    parser.add_argument("--output-dir", type=str, required=True)
+    parser.add_argument("--train-input", type=str, required=True)
+    parser.add_argument("--test-input", type=str, required=True)
+    parser.add_argument("--prevalence-threshold", type=float, default=0.01)
+    parser.add_argument("--abundance-threshold", type=float, default=0.05)
     args = parser.parse_args()
 
-    # Load the data
-    X_train = np.load(args.train_input)
-    X_test = np.load(args.test_input)
-    X = np.concatenate((X_train, X_test), axis=0)
+    # Load AnnData
+    adata_train = ad.read_h5ad(args.train_input)
+    adata_test = ad.read_h5ad(args.test_input)
     
+    adata_train.obs["__split"] = "train"
+    adata_test.obs["__split"] = "test"
+
+    # Concatenate train and test data
+    adata_combined = ad.concat([adata_train, adata_test], axis=0)
+    adata_combined.var["taxa"] = adata_combined.var_names
     # Compute prevalence and abundance
-    prevalence, abundance = compute_prevalence_abundance(X[:, :, 1])
+    prevalence, abundance = compute_prevalence_abundance_adata(adata_combined)
 
     # Filter taxa
     keep_mask = (prevalence >= args.prevalence_threshold) & (abundance >= args.abundance_threshold)
-    X_filtered = X[:, keep_mask, :]
+    kept_taxa = keep_mask[keep_mask].index.tolist()
 
-    if X_filtered.shape[1] == 0:
+    if len(kept_taxa) == 0:
         raise ValueError("No taxa passed the filtering thresholds.")
 
-    # CLR transform using skbio
-    X_filtered[:, :, 1] = preprocess_clr(X_filtered[:, :, 1])
+    X_dense = adata_combined[:, kept_taxa].X
 
-    # Separate train and test data
-    train_filtered = X_filtered[:X_train.shape[0], :, 1]
-    test_filtered = X_filtered[X_train.shape[0]:, :, 1]
+    nonzero_sample_mask = (X_dense > 0).any(axis=1)
+    adata_combined = adata_combined[nonzero_sample_mask].copy()
 
-    # Save train and test data separately
-    train_output_path = os.path.join(args.output_dir, "raw_encoded_train.npy")
-    test_output_path = os.path.join(args.output_dir, "raw_encoded_test.npy")
+    if adata_combined.n_obs == 0:
+        raise ValueError("All samples became zero after filtering. Check your thresholds.")
+
+    # Compute CLR and store in a new layer
+    X_dense = preprocess_clr_matrix(X_dense)
+    
+    # Split using metadata tag
+    adata_combined.obsm["embedding"] = X_dense
+
+    train_filtered = adata_combined[adata_combined.obs["__split"] == "train"].copy()
+    test_filtered = adata_combined[adata_combined.obs["__split"] == "test"].copy()
+    
+    for ds in [train_filtered, test_filtered]:
+        del ds.obs["__split"]
 
     os.makedirs(args.output_dir, exist_ok=True)
-    np.save(train_output_path, train_filtered)
-    np.save(test_output_path, test_filtered)
 
-    print(f"Saved CLR-transformed train data to {train_output_path} with shape {train_filtered.shape}")
-    print(f"Saved CLR-transformed test data to {test_output_path} with shape {test_filtered.shape}")
+    # Save filtered objects with CLR in layers
+    train_path = os.path.join(args.output_dir, "raw_encoded_train.h5ad")
+    test_path = os.path.join(args.output_dir, "raw_encoded_test.h5ad")
+
+    train_filtered.write_h5ad(train_path)
+    test_filtered.write_h5ad(test_path)
+
+    print(f"Saved CLR-transformed train data to {train_path}, shape: {train_filtered.shape}")
+    print(f"Saved CLR-transformed test data to {test_path}, shape: {test_filtered.shape}")
 
 if __name__ == "__main__":
     main()

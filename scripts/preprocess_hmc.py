@@ -156,9 +156,9 @@ def main():
     parser = argparse.ArgumentParser(description="Preprocess HMC taxonomic table.")
     parser.add_argument('--taxonomic_table_path', type=str, required=True, help='Path to the taxonomic table CSV file.')
     parser.add_argument('--save_dir', type=str, required=True, help='Directory to save pretrain data.')
-    parser.add_argument('--npy_pretrain_filename', type=str, default="taxonomy_table_pretrain", help='Pretrain .npy file name.')
-    parser.add_argument('--npy_finetune_filename', type=str, default="taxonomy_table_finetune", help='Finetune .npy file name.')
-    parser.add_argument('--sample_metadata_path', type=str, required=True, help='Finetune .npy file name.')
+    parser.add_argument('--anndata_pretrain_filename', type=str, default="taxonomy_table_pretrain", help='Pretrain .h5ad file name.')
+    parser.add_argument('--anndata_finetune_filename', type=str, default="taxonomy_table_finetune", help='Finetune .h5ad file name.')
+    parser.add_argument('--sample_metadata_path', type=str, required=True, help='Finetune .h5ad file name.')
 
     parser.add_argument('--split_ratio', type=float, default=0.8, help='Ratio for splitting the dataset into pretrain and finetune sets.')
     parser.add_argument('--nrows', type=int, default=None, help='Number of rows to read from the taxonomic table CSV file.')
@@ -169,8 +169,8 @@ def main():
 
     taxonomic_table_path = args.taxonomic_table_path
     save_dir = args.save_dir
-    npy_pretrain_filename = args.npy_pretrain_filename
-    npy_finetune_filename = args.npy_finetune_filename
+    anndata_pretrain_filename = args.anndata_pretrain_filename
+    anndata_finetune_filename = args.anndata_finetune_filename
     sample_metadata_path = args.sample_metadata_path
     nrows = args.nrows
     split_ratio = args.split_ratio
@@ -190,8 +190,8 @@ def main():
     
     pretrain_adata, finetune_adata = split_anndata_by_study(adata, remove_agp=True, split_ratio=split_ratio)
 
-    save_taxonomy_table(pretrain_adata, os.path.join(save_dir, npy_pretrain_filename))
-    save_taxonomy_table(finetune_adata, os.path.join(save_dir, npy_finetune_filename))
+    save_taxonomy_table(pretrain_adata, os.path.join(save_dir, anndata_pretrain_filename))
+    save_taxonomy_table(finetune_adata, os.path.join(save_dir, anndata_finetune_filename))
 
     # train test split for finetune data
     if split_finetune_by_study:

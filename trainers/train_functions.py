@@ -12,11 +12,11 @@ import json
 from data_utils.preprocessor import Preprocessor
 from data_utils.tokenizer import Tokenizer
 
-from sklearn.model_selection import train_test_split
 from accelerate import Accelerator
 from accelerate.utils import broadcast_object_list
 
 import transformers
+import anndata as ad
 
 import wandb
 
@@ -468,128 +468,77 @@ def commit_state(extra_state, epoch, best_val_loss, patience_counter, checkpoint
     logger.info("Training state committed to {} at time {}".format(actual_checkpoint_dir, time.ctime(time.time())))
 
 
-def create_or_restore_data_state(hmc_table_path, num_bins, data_restore_dir, vocab_restore_dir, batch_restore_dir, accelerator: Accelerator, taxa_path = None, use_batch_labels=False, use_continuous_labels=False, experiments_path = None, label_path = None, nrows=None, seed=None):
+def create_or_restore_data_state(anndata_path, num_bins, restore_dir, accelerator: Accelerator, batch_obskey=None, use_continuous_labels=False, nrows=None):
     if accelerator.is_main_process:
-        os.makedirs(vocab_restore_dir, exist_ok=True)
-        os.makedirs(batch_restore_dir, exist_ok=True)
-        os.makedirs(data_restore_dir, exist_ok=True)
-
-        # first restore vocab
-        if os.path.exists(os.path.join(vocab_restore_dir, "vocab.json")) and os.path.exists(os.path.join(vocab_restore_dir, "vocab_metadata.json")):
+        os.makedirs(restore_dir, exist_ok=True)
+        
+        assert not use_continuous_labels, "Continuous labels are not supported yet"
+        batch_vocab = None
+        
+        if os.path.exists(os.path.join(restore_dir, "augmented_data.h5ad")):
             # load the vocab from the file
-            vocab = MicrobiomeVocab.get_vocab_from_json(os.path.join(vocab_restore_dir, "vocab.json"), os.path.join(vocab_restore_dir, "vocab_metadata.json"))
-            logger.info("Vocab restored from {}".format(vocab_restore_dir))
-        else:
-            assert taxa_path, "Taxa path must be provided to create vocab"
-            with open(taxa_path, "r") as f:
-                taxa_list = json.load(f)
-            vocab = MicrobiomeVocab(taxa_list)
-            vocab.save_vocab_json(os.path.join(vocab_restore_dir, "vocab.json"), os.path.join(vocab_restore_dir, "vocab_metadata.json"))
-
-        # next restore batch vocab
-        if use_batch_labels:
-            if os.path.exists(os.path.join(batch_restore_dir, "batch_vocab.json")):
-                assert os.path.exists(os.path.join(data_restore_dir, "data_state.pt")), "batch labels should be also stored in the data state"
-                batch_vocab = BatchVocab.get_vocab_from_json(os.path.join(batch_restore_dir, "batch_vocab.json"))
-                logger.info("Batch vocab restored from {}".format(os.path.join(batch_restore_dir, "batch_vocab.json")))
-            elif label_path and os.path.exists(label_path):
-                logger.info(f"Processing batch label paths from {label_path}")
-                with open(label_path, 'r') as f:
-                    batch_labels = json.load(f)
-                if nrows:
-                    batch_labels = batch_labels[:nrows]
-                batch_vocab = BatchVocab(batch_labels)
-                batch_vocab.save_vocab_json(os.path.join(batch_restore_dir, "batch_vocab.json"))
-            elif experiments_path and os.path.exists(experiments_path):
-                logger.info(f"Processing study paths from {experiments_path}")
-                with open(experiments_path, 'r') as f:
-                    experiments_list = json.load(f)
-                batch_labels = Preprocessor.get_studies_from_trials(experiments_list)[:nrows if nrows else None]
-                batch_vocab = BatchVocab(batch_labels)
-                batch_vocab.save_vocab_json(os.path.join(batch_restore_dir, "batch_vocab.json"))
-            else:
-                raise ValueError("use_batch_labels is True but no experiments path provided")
-        else:
-            batch_vocab = None
-            batch_labels = None
+            adata = ad.read_h5ad(os.path.join(restore_dir, "augmented_data.h5ad"))
+            assert "vocab_metadata" in adata.uns and "taxa_id" in adata.var
+            vocab = MicrobiomeVocab.restore_vocab(adata)
+            logger.info(f"Vocab restored from {restore_dir}")
             
-        if use_continuous_labels:
-            # if using continuous targets, we don't need batch labels
-            assert not use_batch_labels, "use_batch_labels should be False when using continuous targets"
-            batch_vocab = None
-            with open(label_path, 'r') as f:
-                    continuous_labels = json.load(f)
-            if nrows:
-                continuous_labels = continuous_labels[:nrows]
+            if batch_obskey:
+                if f"{batch_obskey}_batch_vocab" in adata.uns:
+                    batch_vocab = BatchVocab.restore_batchvocab(adata)
+                    logger.info(f"Batch vocab restored from {restore_dir}")
+                else:
+                    batch_vocab = BatchVocab.create_batchvocab_from_scratch(batch_obskey, adata)
             
-            continuous_labels = [float(label) for label in continuous_labels]
-        else:
-            continuous_labels = None
-
-        # finally restore data
-        if os.path.exists(os.path.join(data_restore_dir, "data_state.pt")):
             # load the data state from the file
-            with open(os.path.join(data_restore_dir, "data_state.pt"), 'rb') as f:
-                data_state = torch.load(f, weights_only=False)
-            logger.info("Data state restored from {}".format(data_restore_dir))
-
-            train_data_dict = data_state["train_data_dict"]
-            valid_data_dict = data_state["valid_data_dict"]
+            assert "split" in adata.obs and "binned_rows" in adata.layers, "The AnnData object must have 'split' in obs."
+            logger.info("Data state can be restored from {}".format(restore_dir))
         else:
+            adata = ad.read_h5ad(anndata_path)
             if nrows:
-                hmc_npy = np.load(hmc_table_path)[:nrows,:,:] # shape (num_samples, num_taxa, 2) where (:,:,0) is taxa_id and (:,:,1) is counts
-            else:
-                hmc_npy = np.load(hmc_table_path)
+                adata = adata[:nrows, :].copy()
+            vocab = MicrobiomeVocab.create_vocab_from_scratch(adata)
             
+            # make batch vocab
+            if batch_obskey:
+                batch_vocab = BatchVocab.create_batchvocab_from_scratch(batch_obskey, adata)
+            
+            # make data
             preprocessor = Preprocessor(
                 binning=num_bins,
             )
-            _, _ = preprocessor.process_from_np(hmc_npy)
+            hmc_npy = np.array(adata.layers["top_512"].todense(), dtype=np.float32)
+            taxa_ids = np.array(adata.var["taxa_id"])
+            stacked_rows, _ = preprocessor.process_from_np(hmc_npy, taxa_ids)
             # create tokenizer
-            tokenizer = Tokenizer(vocab, batch_vocab=batch_vocab)
-            data_dict = tokenizer.tokenize_and_pad_batch(hmc_npy, batch_labels=batch_labels, labels=continuous_labels)
-            # Assuming data_dict is a dictionary with keys 'taxa_ids', 'values', (and 'batch_labels' and 'labels' if batch_labels and labels are being used repectively)
+            adata.layers["binned_rows"] = stacked_rows
+            tokenizer = Tokenizer(vocab)
+            data_dict = tokenizer.tokenize_and_pad_batch(adata, batch_obskey=batch_obskey)
+            
+            # Randomly select exactly n_train indices without replacement
+            train_indices = np.random.choice(adata.n_obs, size=int(adata.n_obs * 0.8), replace=False)
+            is_train = np.zeros(adata.n_obs, dtype=bool)
+            is_train[train_indices] = True            
+            adata.obs["split"] = np.where(is_train, "train", "val")
 
-            # train and validation split
-            split_keys = ["taxa_ids", "values"]
-            stratify_target = None
+        train_data_dict = {}
+        valid_data_dict = {}
+        # train and validation split
+        split_keys = ["taxa_ids", "values"]
 
-            if use_continuous_labels:
-                split_keys.append("continuous_labels")  # assuming continuous regression targets
-            if use_batch_labels:
-                split_keys.append("batch_labels")
-                stratify_target = data_dict["batch_labels"]  # for stratification
+        if use_continuous_labels:
+            split_keys.append("continuous_labels")  # assuming continuous regression targets
+        if batch_obskey:
+            split_keys.append("batch_labels")
 
-            # Prepare inputs for train_test_split
-            split_inputs = [data_dict[key] for key in split_keys]
-
-            # Perform the split
-            splits = train_test_split(
-                *split_inputs,
-                test_size=0.2,
-                shuffle=True,
-                stratify=stratify_target,
-                random_state=seed,
-            )
-
-            # Unpack the results back into train/val dicts
-            train_data_dict = {}
-            valid_data_dict = {}
-
-            for key, train_val in zip(split_keys, zip(*([iter(splits)]*2))):
-                train_data_dict[key] = train_val[0]
-                valid_data_dict[key] = train_val[1]
-
-            # save the train and validation data dicts
-            data_state = {
-                "train_data_dict": train_data_dict,
-                "valid_data_dict": valid_data_dict,
-            }
-
-            # save the data state to the file
-            torch.save(data_state, os.path.join(data_restore_dir, "data_state.pt"))
-            logger.info("Data state saved to {}".format(data_restore_dir))
-    
+        # Split data_dict based on adata.obs["split"]
+        split_mask = adata.obs["split"].values
+        train_mask = split_mask == "train"
+        val_mask = split_mask == "val"
+        for key in split_keys:
+            train_data_dict[key] = data_dict[key][train_mask]
+            valid_data_dict[key] = data_dict[key][val_mask]
+        
+        adata.write_h5ad(os.path.join(restore_dir, "augmented_data.h5ad"))
         data_list = [train_data_dict, valid_data_dict, vocab, batch_vocab]
     else:
         data_list = [None, None, None, None]

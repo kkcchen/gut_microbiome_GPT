@@ -1,17 +1,17 @@
 import numpy as np
 from typing import Dict, Optional, Union, List, Tuple
 import json
+import anndata as ad
 
 class MicrobiomeVocab():
     def __init__(
         self,
-        vocab_list: List[str],
+        vocab_list,
         class_token: str = "<cls>",
         mask_token: str = "<mask>",
         pad_token: str = "<pad>",
         pad_value: int = 0,
         mask_value: int = -1,
-        add_special_tokens: bool = True
     ):
         """
         Initialize the vocabulary with taxa and special tokens.
@@ -22,12 +22,9 @@ class MicrobiomeVocab():
         """
         # IMPORTANT: special tokens must be at end of the vocabulary list
         special_tokens = [class_token, mask_token, pad_token]
-        if add_special_tokens:
-            self.itos = vocab_list + special_tokens
-            self.num_special_tokens = len(special_tokens)
-        else:
-            self.itos = vocab_list
-            self.num_special_tokens = 0
+        self.itos = vocab_list + special_tokens
+        self.num_special_tokens = len(special_tokens)
+
         # assert there are no duplicates in the taxa names
         if len(self.itos) != len(set(self.itos)):
             raise ValueError("Duplicate taxa names found in the DataFrame.")
@@ -60,56 +57,62 @@ class MicrobiomeVocab():
         """
         return [self[taxa_name] for taxa_name in taxa_names]
     
-    def save_vocab_json(self, path, meta_path):
-        """
-        Save the vocabulary to a JSON file.
-        Args:
-            path (str): The path to save the JSON file.
-            meta_path (str): The path to save the metadata file.
-        """
-        with open(path, 'w') as f:
-            json.dump(self.stoi, f, indent=4)
-            
-        metadata = {
-        "class_token": self.class_token,
-        "mask_token": self.mask_token,
-        "pad_token": self.pad_token,
-        "pad_value": self.pad_value,
-        "mask_value": self.mask_value,
+    @classmethod 
+    def create_vocab_from_scratch(
+        cls,
+        adata: ad.AnnData,
+        class_token: str = "<cls>",
+        mask_token: str = "<mask>",
+        pad_token: str = "<pad>",
+        pad_value: int = 0,
+        mask_value: int = -1,
+        ) -> 'MicrobiomeVocab':
+        assert "taxa" in adata.var, "The AnnData object must have 'taxa' in var."
+        vocab_list = adata.var["taxa"].tolist()
+        
+        vocab = cls(
+            vocab_list=vocab_list,
+            class_token=class_token,
+            mask_token=mask_token,
+            pad_token=pad_token,
+            pad_value=pad_value,
+            mask_value=mask_value,
+        )
+        
+        # add indices as a adata.var column
+        adata.var["taxa_id"] = adata.var_names.map(vocab.stoi)
+        adata.uns["vocab_metadata"] = {
+            "class_token": class_token,
+            "mask_token": mask_token,
+            "pad_token": pad_token,
+            "pad_value": pad_value,
+            "mask_value": mask_value,
         }
-
-        with open(meta_path, 'w') as f:
-            json.dump(metadata, f, indent=4)
+        
+        return vocab
+    
     
     @classmethod 
-    def get_vocab_from_json(cls, path, meta_path) -> 'MicrobiomeVocab':
+    def restore_vocab(cls, adata) -> 'MicrobiomeVocab':
         """
-        Load the vocabulary from a JSON file.
+        Load the vocabulary.
         Args:
-            path (str): The path to the JSON file.
+            adata
         Returns:
             MicrobiomeVocab: An instance of MicrobiomeVocab with the loaded vocabulary.
         """
-
-        # Load vocabulary
-        with open(path, 'r') as f:
-            vocab_dict = json.load(f)
-
-        # Load metadata
-        with open(meta_path, 'r') as f:
-            metadata = json.load(f)
         
-        sorted_items = sorted(vocab_dict.items(), key=lambda item: item[1])
-        
-        vocab_list = [item[0] for item in sorted_items]
+        assert "vocab_metadata" in adata.uns, "The AnnData object must have 'vocab_metadata' in uns."
+        assert "taxa_id" in adata.var, "The AnnData object must have 'taxa' in var."
+        metadata = adata.uns["vocab_metadata"]
+
         return cls(
-            vocab_list=vocab_list,
+            vocab_list=adata.var["taxa"].tolist(),
             class_token=metadata["class_token"],
             mask_token=metadata["mask_token"],
             pad_token=metadata["pad_token"],
             pad_value=metadata["pad_value"],
             mask_value=metadata["mask_value"],
-            add_special_tokens=False
         )
 
 class BatchVocab():
@@ -117,7 +120,7 @@ class BatchVocab():
     A class to represent the vocabulary of batches in the dataset.
     """
 
-    def __init__(self, vocab, keep_order: bool = False):
+    def __init__(self, vocab):
         """
         Initialize the vocabulary with taxa and special tokens.
 
@@ -125,41 +128,35 @@ class BatchVocab():
             vocab (np.ndarray): A numpy array containing batch names. 
                 The first column should be the sample names, and the rest are batch names
         """
-        # get the unique batch names
-        if not keep_order:
-            vocab_set = set(vocab)
-            self.itos = list(vocab_set)
-        else:
-            self.itos = vocab
+        assert len(vocab) == len(set(vocab)), "Duplicate batch names found in the vocabulary."
+        self.itos = vocab.tolist()
         self.stoi = {token: idx for idx, token in enumerate(self.itos)}
         
     def __getitem__(self, item: str):
         return self.stoi.get(item, -1)
-    
-    def save_vocab_json(self, path):
-        """
-        Save the vocabulary to a JSON file.
-        Args:
-            path (str): The path to save the JSON file.
-        """
-        with open(path, 'w') as f:
-            json.dump(self.stoi, f, indent=4)
             
     def __len__(self):
         return len(self.itos)
     
     @classmethod
-    def get_vocab_from_json(cls, path) -> 'BatchVocab':
-        """
-        Load the vocabulary from a JSON file.
-        Args:
-            path (str): The path to the JSON file.
-        Returns:
-            BatchVocab: An instance of BatchVocab with the loaded vocabulary.
-        """
-        with open(path, 'r') as f:
-            vocab_dict = json.load(f)
+    def create_batchvocab_from_scratch(cls, batch_obskey, adata) -> 'BatchVocab':
+        assert batch_obskey in adata.obs, f"The AnnData object must have '{batch_obskey}' in obs."
+        batch_vocab = cls(
+            vocab=adata.obs[batch_obskey].unique(),
+        )
         
-        vocab_list = [item[0] for item in sorted(vocab_dict.items(), key=lambda item: item[1])]
-        assert len(vocab_list) == len(vocab_dict), "Duplicate batch names found in the JSON file."
-        return cls(vocab_list, keep_order=True)
+        adata.obs[f"{batch_obskey}_id"] = adata.obs[batch_obskey].map(batch_vocab.stoi)
+        adata.uns[f"{batch_obskey}_batch_vocab"] = batch_vocab.itos
+        return batch_vocab
+
+    
+    @classmethod
+    def restore_batchvocab(cls, adata, batch_obskey) -> 'BatchVocab':
+        """
+        Load the vocabulary from an anndata
+        Args:
+            adata (ad.AnnData): The AnnData object containing the batch vocabulary.
+        """
+        assert f"{batch_obskey}_batch_vocab" in adata.uns, "The AnnData object must have 'batch_vocab' in uns."
+        vocab_list = adata.uns[f"{batch_obskey}_batch_vocab"]
+        return cls(vocab_list)

@@ -3,16 +3,15 @@ from typing import Dict, Optional, Union, List, Tuple
 import torch
 
 from data_utils.vocab import MicrobiomeVocab, BatchVocab
-
+import anndata as ad
 
 class Tokenizer:
-    def __init__(self, vocab: MicrobiomeVocab, batch_vocab: Optional[BatchVocab] = None):
+    def __init__(self, vocab: MicrobiomeVocab):
         self.vocab = vocab
-        self.batch_vocab = batch_vocab
 
     def tokenize_batch(
         self,
-        data: np.ndarray,
+        data: ad.AnnData,
         return_pt: bool = True,
         prepend_cls: bool = True,
         include_zero_count: bool = False,
@@ -21,7 +20,7 @@ class Tokenizer:
         Tokenize a batch of data. Returns a list of tuple (array_like taxa_id, array_like values).
 
         Args:
-            data (array-like): A batch of data, with shape (num_samples, n_taxa, 2). [:,:,0] is taxa_id, [:,:,1] is values.
+            data (anndata): A batch of data, with shape (num_samples, n_taxa)
             return_pt (bool): Whether to return torch tensors of gene_ids and counts,
                 default to True.
 
@@ -31,12 +30,12 @@ class Tokenizer:
         tokenized_data = []
         for sample in data:
             if include_zero_count:
-                values = sample[:, 1]
-                taxa_ids = sample[:, 0]
+                values = sample.layers["binned_rows"]
+                taxa_ids = sample.var["taxa_id"]
             else:
-                idx = np.nonzero(sample[:, 1])
-                values = sample[:, 1][idx]
-                taxa_ids = sample[:, 0][idx]
+                idx = np.nonzero(sample.layers["binned_rows"])
+                values = sample.layers["binned_rows"][idx]
+                taxa_ids = sample.var["taxa_id"].iloc[idx[1]]
 
             if prepend_cls:
                 taxa_ids = np.insert(taxa_ids, 0, self.vocab.class_index)
@@ -88,7 +87,6 @@ class Tokenizer:
 
         Args:
             batch (list): A list of tuple (array_like taxa_id, array_like values).
-            batch_labels: Optional[List[str]]: A list of labels for the batch. If provided, will be used to create a dictionary with keys as labels.
             max_len (int): The maximum length of the batch.
 
         Returns:
@@ -168,29 +166,27 @@ class Tokenizer:
     def add_batch_labels(
         self,
         data_dict: Dict[str, torch.Tensor],
-        batch_labels: Optional[List[str]] = None,
+        batch_ids: Optional[List] = None,
     ) -> Dict[str, torch.Tensor]:
         """
         Add batch labels to the padded batch.
 
         Args:
             batch_padded (Dict[str, torch.Tensor]): The padded batch.
-            batch_labels (Optional[List[str]]): A list of labels for the batch. If provided, will be used to create a dictionary with keys as labels.
+            batch_ids (Optional[List[str]]): A list of ids for the batch. 
 
         Returns:
             Dict[str, torch.Tensor]: The padded batch with labels added.
         """
-        if not batch_labels:
+        if not batch_ids:
             return data_dict
-        else:
-            assert self.batch_vocab is not None, "Batch vocabulary must be provided if batch labels are used."
         
-        if len(batch_labels) != data_dict["taxa_ids"].shape[0]:
-            raise ValueError(f"Batch labels length does not match the number of samples, {len(batch_labels)} vs {data_dict['taxa_ids'].shape[0]}")
+        if len(batch_ids) != data_dict["taxa_ids"].shape[0]:
+            raise ValueError(f"Batch labels length does not match the number of samples, {len(batch_ids)} vs {data_dict['taxa_ids'].shape[0]}")
         
         return dict(
             **data_dict,
-            batch_labels=torch.tensor([self.batch_vocab[batch_label] for batch_label in batch_labels], dtype=torch.long),
+            batch_labels=torch.tensor(batch_ids),
         )
         
     
@@ -222,9 +218,9 @@ class Tokenizer:
 
     def tokenize_and_pad_batch(
         self,
-        data: np.ndarray,
-        batch_labels: Optional[List[str]] = None,
-        labels: Optional[List[float]] = None,
+        adata: ad.AnnData,
+        batch_obskey: Optional[str] = None,
+        continuous_labels: Optional[List] = None,
         prepend_cls: bool = True,
         include_zero_count: bool = False,
         return_pt: bool = True,
@@ -234,12 +230,12 @@ class Tokenizer:
         Tokenize and pad a batch of data. Returns a dict with padded taxa ids and values.
 
         Args:
-            data (:class:`np.ndarray`):
-            The binned data. size (num_samples, num_taxa, 2), {:,:, 0} is the taxa id, {:,:, 1} is the bin
+            data (:class:`AnnData`):
+            The binned data. size (num_samples, num_taxa)
             max_len (Optional[int]): The maximum length to pad/truncate to. If None, uses the max length in the batch.
         """
         tokenized_data = self.tokenize_batch(
-            data=data,
+            data=adata,
             return_pt=return_pt,
             prepend_cls=prepend_cls,
             include_zero_count=include_zero_count,
@@ -250,15 +246,16 @@ class Tokenizer:
             cls_prepended=prepend_cls,
         )
         
+        batch_ids = adata.obs[f"{batch_obskey}_id"].to_list() if batch_obskey else None
         sample_dict = self.add_batch_labels(
             sample_dict,
-            batch_labels=batch_labels,
+            batch_ids=batch_ids,
         )
         
-        sample_dict = self.add_continuous_labels(
-            sample_dict,
-            labels=labels,
-        )
+        # sample_dict = self.add_continuous_labels(
+        #     sample_dict,
+        #     labels=continuous_labels,
+        # )
             
         return sample_dict
     

@@ -3,8 +3,8 @@
 # Paths and filenames
 TAXONOMIC_TABLE_PATH="/home/kchen/microbiome/gut_microbiome_GPT/datasets/taxonomic_table.csv"
 SAVE_DIR="/home/kchen/microbiome/gut_microbiome_GPT/datasets/anndatas"
-NPY_PRETRAIN_FILE="taxonomy_table_pretrain.npy"
-NPY_FINETUNE_FILE="taxonomy_table_finetune.npy"
+NPY_PRETRAIN_FILE="taxonomy_table_pretrain.h5ad"
+NPY_FINETUNE_FILE="taxonomy_table_finetune.h5ad"
 METADATA_PATH="/home/kchen/microbiome/gut_microbiome_GPT/datasets/sample_metadata.tsv"
 
 # Run the script
@@ -18,6 +18,6 @@ python -m scripts.preprocess_hmc \
     --sample_metadata_path "$METADATA_PATH" \
     --split_finetune_by_study \
     --add_loc_labels \
-    --nrows 5000 \
+    --nrows 15000 \
 
 echo "Preprocessing complete."

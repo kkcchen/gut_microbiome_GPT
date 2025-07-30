@@ -6,6 +6,7 @@ from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_sco
 import json
 import joblib
 from scipy.stats import randint, uniform
+import anndata as ad
 
 import argparse
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
@@ -128,10 +129,8 @@ def evaluate_binary(region_name, y_probs, y_pred, y_test_binary):
 def main():
     parser = argparse.ArgumentParser(description="Script for processing embeddings.")
 
-    parser.add_argument("--train-embed-path", type=str, required=True, help="Path to the file where the train embeddings are saved or should be saved.")
-    parser.add_argument("--train-loc-labels-path", type=str, required=True, help="Path to the train location labels file.")
-    parser.add_argument("--test-embed-path", type=str, required=True, help="Path to the file where the test embeddings are saved or should be saved.")
-    parser.add_argument("--test-loc-labels-path", type=str, required=True, help="Path to the test location labels file.")
+    parser.add_argument("--train-embed-path", type=str, required=True, help="Path to the anndata where the train embeddings are saved or should be saved in the obsm['embedding'].")
+    parser.add_argument("--test-embed-path", type=str, required=True, help="Path to the anndata where the test embeddings are saved or should be saved in the obsm['embedding'].")
     parser.add_argument("--output-dir", type=str, required=True, help="Directory to save the best model and parameters.")
     parser.add_argument("--multiclass", action="store_true", help="multiclass tree or 1 v all trees?")
     parser.add_argument("--do-train", action="store_true", help="train, or just load?")
@@ -139,20 +138,18 @@ def main():
     args = parser.parse_args()
 
     train_embed_path = args.train_embed_path
-    train_loc_labels_path = args.train_loc_labels_path
     test_embed_path = args.test_embed_path
-    test_loc_labels_path = args.test_loc_labels_path
     output_dir = args.output_dir
     
     # Load train embeddings and labels
-    train_embeddings = np.load(train_embed_path)  # (batch_size, emb_dim)
-    with open(train_loc_labels_path) as f:
-        train_loc_labels = json.load(f)
+    train_adata = ad.read_h5ad(train_embed_path)
+    train_embeddings = train_adata.obsm["embedding"]
+    train_loc_labels = train_adata.obs["location"].tolist()
 
     # Load test embeddings and labels
-    test_embeddings = np.load(test_embed_path)  # (batch_size, emb_dim)
-    with open(test_loc_labels_path) as f:
-        test_loc_labels = json.load(f)
+    test_adata = ad.read_h5ad(test_embed_path)
+    test_embeddings = test_adata.obsm["embedding"]
+    test_loc_labels = test_adata.obs["location"].tolist()
         
     # Check label lengths match original embeddings
     assert len(train_loc_labels) == train_embeddings.shape[0], f"Mismatch between train labels and embeddings, {len(train_loc_labels)} vs {train_embeddings.shape[0]}"
