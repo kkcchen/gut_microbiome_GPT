@@ -21,8 +21,7 @@ uv pip install -r requirements.txt
 
 * data_utils: contains dataset classes
 * models: model definitions
-* sbatch: sbatch files and bash files for cluster running
 * notebooks: miscellaneous notebooks I've created when first understanding datasets, disregard
-* sbatch: sbatch and bash files
+* sbatch: sbatch files and bash files for cluster running
 * scripts: entry points for command line, sbatch, and bash files
 * trainers: library of functions for training, finetuning, and testing
