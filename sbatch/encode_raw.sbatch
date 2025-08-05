@@ -11,8 +11,7 @@
 source ~/hmbenv/bin/activate
 
 python -m scripts.encode_raw \
-  --output-dir experiment_saves/raw_abundances_halfsplit/encoded_samples \
-  --train-input /project/aip-rahulgk/gutmodel/datasets_halfsplit/finetune_data_train.h5ad \
-  --test-input /project/aip-rahulgk/gutmodel/datasets_halfsplit/finetune_data_test.h5ad \
+  --train-input /project/aip-rahulgk/gutmodel/datasets_ann/taxonomy_table_pretrain.h5ad \
+  --test-input /project/aip-rahulgk/gutmodel/datasets_ann/taxonomy_table_finetune.h5ad \
   --prevalence-threshold 0.01 \
   --abundance-threshold 0.05

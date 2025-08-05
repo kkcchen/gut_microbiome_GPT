@@ -12,3 +12,4 @@ scikit-bio
 scipy
 wandb
 anndata
+matplotlib

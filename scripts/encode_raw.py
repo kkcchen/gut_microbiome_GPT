@@ -27,7 +27,6 @@ def preprocess_clr_matrix(X):
 
 def main():
     parser = argparse.ArgumentParser(description="Filter and CLR-transform a taxa abundance matrix using scikit-bio.")
-    parser.add_argument("--output-dir", type=str, required=True)
     parser.add_argument("--train-input", type=str, required=True)
     parser.add_argument("--test-input", type=str, required=True)
     parser.add_argument("--prevalence-threshold", type=float, default=0.01)
@@ -66,7 +65,7 @@ def main():
     X_dense = preprocess_clr_matrix(X_dense)
     
     # Split using metadata tag
-    adata_combined.obsm["embedding"] = X_dense
+    adata_combined.obsm["raw_embedding"] = X_dense
 
     train_filtered = adata_combined[adata_combined.obs["__split"] == "train"].copy()
     test_filtered = adata_combined[adata_combined.obs["__split"] == "test"].copy()
@@ -74,17 +73,12 @@ def main():
     for ds in [train_filtered, test_filtered]:
         del ds.obs["__split"]
 
-    os.makedirs(args.output_dir, exist_ok=True)
-
     # Save filtered objects with CLR in layers
-    train_path = os.path.join(args.output_dir, "raw_encoded_train.h5ad")
-    test_path = os.path.join(args.output_dir, "raw_encoded_test.h5ad")
+    train_filtered.write_h5ad(args.train_input)
+    test_filtered.write_h5ad(args.test_input)
 
-    train_filtered.write_h5ad(train_path)
-    test_filtered.write_h5ad(test_path)
-
-    print(f"Saved CLR-transformed train data to {train_path}, shape: {train_filtered.obsm['embedding'].shape}")
-    print(f"Saved CLR-transformed test data to {test_path}, shape: {test_filtered.obsm['embedding'].shape}")
+    print(f"Saved CLR-transformed train data to {args.train_input}, shape: {train_filtered.obsm['raw_embedding'].shape}")
+    print(f"Saved CLR-transformed test data to {args.test_input}, shape: {test_filtered.obsm['raw_embedding'].shape}")
 
 if __name__ == "__main__":
     main()

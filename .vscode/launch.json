@@ -97,7 +97,6 @@
           "args": [
             "--train-input", "/home/kchen/microbiome/gut_microbiome_GPT/datasets/anndatas/finetune_data_train.h5ad",
             "--test-input", "/home/kchen/microbiome/gut_microbiome_GPT/datasets/anndatas/finetune_data_test.h5ad",
-            "--output-dir", "/home/kchen/microbiome/gut_microbiome_GPT/experiment_saves/encoded_samples",
             "--prevalence-threshold", "0.01",
             "--abundance-threshold", "0.05"
           ],

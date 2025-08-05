@@ -64,21 +64,49 @@ def add_top_k_layer(adata, k=512):
 def save_taxonomy_table(adata, save_path):
     if not os.path.exists(os.path.dirname(save_path)):
         os.makedirs(os.path.dirname(save_path))
-    print(f"Saving AnnData object to {save_path}...")
     adata.write(save_path)
     print(f"Saved to {save_path} and numpy array with shape {adata.shape}")
 
 
-def train_test_split_anndata(adata, test_size=0.2, random_state=42):
-    # Split sample IDs
-    train_samples, test_samples = train_test_split(
-        adata.obs_names, test_size=test_size, random_state=random_state
+def train_test_split_anndata(adata, test_size=0.2, random_state=42, stratify_obskey=None):
+    """
+    Splits an AnnData object into train and test sets.
+
+    Parameters
+    ----------
+    adata : AnnData
+        The AnnData object to split.
+    test_size : float, optional
+        Proportion of the dataset to include in the test split.
+    random_state : int, optional
+        Seed used by the random number generator.
+    stratify_obskey : str or None, optional
+        If not None, use this key from adata.obs for stratified sampling.
+
+    Returns
+    -------
+    adata_train : AnnData
+        Training subset of the data.
+    adata_test : AnnData
+        Test subset of the data.
+    """
+    if stratify_obskey is not None:
+        if stratify_obskey not in adata.obs.columns:
+            raise ValueError(f"{stratify_obskey} not found in adata.obs columns.")
+        stratify_labels = adata.obs[stratify_obskey]
+    else:
+        stratify_labels = None
+
+    train_idx, test_idx = train_test_split(
+        adata.obs_names,
+        test_size=test_size,
+        random_state=random_state,
+        stratify=stratify_labels
     )
-    
-    # Subset AnnData by samples
-    adata_train = adata[train_samples].copy()
-    adata_test = adata[test_samples].copy()
-    
+
+    adata_train = adata[train_idx].copy()
+    adata_test = adata[test_idx].copy()
+
     return adata_train, adata_test
 
 
@@ -205,3 +233,10 @@ def main():
 
 if __name__ == '__main__':
     main()
+    # # train test split for finetune data
+    # finetune_adata = ad.read_h5ad("/project/aip-rahulgk/gutmodel/datasets_halfsplit/taxonomy_table_finetune.h5ad")
+    # save_dir = "/project/aip-rahulgk/gutmodel/datasets_halfsplit/nonstudy_split"
+    # train_adata, test_adata = train_test_split_anndata(finetune_adata, test_size=0.2, random_state=42, stratify_obskey="location")
+
+    # save_taxonomy_table(train_adata, os.path.join(save_dir, "finetune_data_train.h5ad"))
+    # save_taxonomy_table(test_adata, os.path.join(save_dir, "finetune_data_test.h5ad"))

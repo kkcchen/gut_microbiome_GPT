@@ -20,12 +20,12 @@ source ~/hmbenv/bin/activate
 
 # below is for encoding raw abundances only.
 EXPERIMENT_PATH=experiment_saves/raw_abundances_halfsplit
-EMB_SAVE_PATH=$EXPERIMENT_PATH/encoded_samples
+EMB_SAVE_PATH=/project/aip-rahulgk/gutmodel/datasets_ann
 
-TRAIN_EMBED_PATH=$EMB_SAVE_PATH/raw_encoded_train.h5ad
-TEST_EMBED_PATH=$EMB_SAVE_PATH/raw_encoded_test.h5ad
+TRAIN_EMBED_PATH=$EMB_SAVE_PATH/taxonomy_table_pretrain.h5ad
+TEST_EMBED_PATH=$EMB_SAVE_PATH/taxonomy_table_finetune.h5ad
 
-OUTPUT_DIR=$EXPERIMENT_PATH/random_forest_multiclass
+OUTPUT_DIR=$EXPERIMENT_PATH/multiclass_tree_fullset
 
 # === Run the Random Forest classifier ===
 echo "Running Random Forest classification..."
@@ -34,6 +34,9 @@ python -m scripts.random_forest_exp \
   --test-embed-path $TEST_EMBED_PATH \
   --output-dir $OUTPUT_DIR \
   --multiclass \
-  --do-train
+  --search-type none \
+  --target-colname "location" \
+  --emb-name "raw_embedding" \
+  # --do-train
 
 echo "Random Forest job finished."
