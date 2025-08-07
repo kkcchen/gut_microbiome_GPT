@@ -47,7 +47,7 @@
           "args": [
           "-m", "scripts.encode_samples",
           "--safetensors-path", "experiment_saves/model_checkpoints/best_model/model.safetensors",
-          "--output-path", "outputs/encoded_samples_test.h5ad",
+          "--output-path", "experiment_saves/outputs/encoded_samples_test.h5ad",
           "--vocab-path", "experiment_saves/model_checkpoints/data_checkpoint/augmented_data.h5ad",
           "--adata-path", "datasets/anndatas/finetune_data_test.h5ad",
           "--model-config-path", "experiment_saves/model_checkpoints/model_config.json",
