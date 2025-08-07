@@ -1,6 +1,6 @@
 # README
 
-## 🔧 Setup Instructions
+## 🔧 Environment Setup Instructions
 
 ```bash
 # Install UV (Rust-based Python package manager)
@@ -21,7 +21,7 @@ uv pip install -r requirements.txt
 
 * data_utils: contains dataset classes
 * models: model definitions
-* sbatch: sbatch files and bash files for cluster running
 * notebooks: miscellaneous notebooks I've created when first understanding datasets, disregard
+* sbatch: sbatch files and bash files for cluster running
 * scripts: entry points for command line, sbatch, and bash files
 * trainers: library of functions for training, finetuning, and testing
