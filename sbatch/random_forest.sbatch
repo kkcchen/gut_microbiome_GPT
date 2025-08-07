@@ -20,12 +20,18 @@ source ~/hmbenv/bin/activate
 
 # below is for encoding raw abundances only.
 EXPERIMENT_PATH=experiment_saves/raw_abundances_halfsplit
-EMB_SAVE_PATH=/project/aip-rahulgk/gutmodel/datasets_ann
+EMB_SAVE_PATH=/project/aip-rahulgk/gutmodel/datasets_halfsplit/study_split
 
-TRAIN_EMBED_PATH=$EMB_SAVE_PATH/taxonomy_table_pretrain.h5ad
-TEST_EMBED_PATH=$EMB_SAVE_PATH/taxonomy_table_finetune.h5ad
+TRAIN_EMBED_PATH=$EMB_SAVE_PATH/finetune_data_train.h5ad
+TEST_EMBED_PATH=$EMB_SAVE_PATH/finetune_data_test.h5ad
 
-OUTPUT_DIR=$EXPERIMENT_PATH/multiclass_tree_fullset
+OUTPUT_DIR=$EXPERIMENT_PATH/ova_small
+
+NOTES="finetune_data train and test using ova. random search"
+
+# Create a notes.txt file in the output directory with run notes
+mkdir -p $OUTPUT_DIR
+echo "$NOTES" > $OUTPUT_DIR/notes.txt
 
 # === Run the Random Forest classifier ===
 echo "Running Random Forest classification..."
@@ -33,10 +39,9 @@ python -m scripts.random_forest_exp \
   --train-embed-path $TRAIN_EMBED_PATH \
   --test-embed-path $TEST_EMBED_PATH \
   --output-dir $OUTPUT_DIR \
-  --multiclass \
-  --search-type none \
+  --search-type random \
   --target-colname "location" \
   --emb-name "raw_embedding" \
-  # --do-train
+  # --multiclass \
 
 echo "Random Forest job finished."

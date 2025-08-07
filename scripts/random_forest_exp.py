@@ -48,20 +48,18 @@ def train_rf(X_train, y_train, search_type):
         )
     
     elif search_type == "random":
-        param_distributions = {
-            "min_samples_leaf": randint(1, 11),            # integer between 1 and 10
+        param_distributions = { # discrete for min_samples_leaf?
+            "min_samples_leaf": randint(10, 1000),            # integer between 1 and 10
             "max_samples": uniform(0.5, 0.5),              # float between 0.5 and 1.0
             "max_features": uniform(0.1, 0.3),             # float between 0.1 and 0.4
             "n_estimators": randint(200, 1000)               # integer between 50 and 1000
         }
         
-        param_distributions  = {"max_features": 0.3446384285364502, "max_samples": 0.8534286719238086, "min_samples_leaf": 3, "n_estimators": 618}
-
         # Perform random search with cross-validation
         search = RandomizedSearchCV(
             estimator=rf_model,
             param_distributions=param_distributions,
-            n_iter=25,                   # Number of parameter combinations to try
+            n_iter=5,                   # Number of parameter combinations to try
             scoring='roc_auc' if n_classes == 2 else 'f1_weighted',
             cv=3,
             n_jobs=-1,
@@ -101,6 +99,11 @@ def save_model(region_name, output_dir, best_params, best_model):
     # Save best model
     joblib.dump(best_model, os.path.join(region_dir, "best_model.pkl"))
 
+def model_exists(region_name, output_dir):
+    region_name = region_name.replace("/", " ")
+    region_dir = os.path.join(output_dir, f"{region_name}")
+    return os.path.exists(region_dir) and os.path.exists(os.path.join(region_dir, "best_model.pkl")) and os.path.exists(os.path.join(region_dir, "best_params.json"))
+    
 def load_model(region_name, output_dir):
     # Make region name filesystem-safe
     region_name = region_name.replace("/", " ")
@@ -141,6 +144,37 @@ def evaluate_binary(region_name, y_probs, y_pred, y_test_binary):
         "Baseline Precision": baseline_precision
     }
     
+def evaluate_multiclass_and_save(y_true, y_probs, train_class_labels, output_dir):
+    # evaluate, done for all
+    y_pred = train_class_labels[np.argmax(y_probs, axis=1)]
+    print("types of predictions and targets are:", y_pred.dtype, y_true.dtype)
+    total_accuracy = accuracy_score(y_true, y_pred)
+    conf_mat = confusion_matrix(y_true, y_pred)
+    region_scores = []
+    for index, region in enumerate(train_class_labels):
+        scores = y_probs[:, index]
+        binary_predictions = (y_pred == region).astype(int)
+        binary_targets = (y_true == region).astype(int)
+        region_scores.append(evaluate_binary(region, scores, binary_predictions, binary_targets))
+        plot_roc_curve(binary_targets, scores, region, output_dir)
+    
+    # Save the scores to a file
+    conf_row_strs = [str(row) for row in conf_mat]
+
+    region_scores.sort(key=lambda x: x["Region"])
+    region_scores.append({"Total Accuracy": total_accuracy,
+                        "Categories": list(train_class_labels),
+                        "Confusion Matrix": conf_row_strs})
+    os.makedirs(output_dir, exist_ok=True)
+    # Save the scores to a file
+    scores_file = os.path.join(output_dir, "region_scores.json")
+    print(f"Scores for all regions saved to {scores_file}")
+    with open(scores_file, "w") as f:
+        json.dump(region_scores, f, indent=4)
+
+    print(f"Scores for all regions saved to {scores_file}")
+    
+    
 def plot_roc_curve(binary_targets, scores, region, output_dir):
     # Create a new figure for this class
     plt.figure()
@@ -170,7 +204,6 @@ def main():
     parser.add_argument("--test-embed-path", type=str, required=True, help="Path to the anndata where the test embeddings are saved or should be saved in the obsm['embedding'].")
     parser.add_argument("--output-dir", type=str, required=True, help="Directory to save the best model and parameters.")
     parser.add_argument("--multiclass", action="store_true", help="multiclass tree or 1 v all trees?")
-    parser.add_argument("--do-train", action="store_true", help="train, or just load?")
     parser.add_argument("--search-type", type=str, choices=["grid", "random", "none"], default="random", help="Type of search to perform: 'grid', 'random', or 'none'.")
     parser.add_argument("--target-colname", type=str, default="location", help="Column name in the anndata obs to use as target labels.")
     parser.add_argument("--emb-name", type=str, default="embedding", help="Name of the obsm key where embeddings are stored.")
@@ -185,13 +218,13 @@ def main():
     
     print("args are:", args)
     
-    if args.do_train:
-        # Load train embeddings and labels
-        train_adata = ad.read_h5ad(train_embed_path)
-        train_adata = train_adata[train_adata.obs[args.target_colname] != "unknown"]
-        X_train = train_adata.obsm[emb_name]
-        Y_train = train_adata.obs[args.target_colname]
-        print("X_train shape:", X_train.shape)
+    # Load train embeddings and labels
+    train_adata = ad.read_h5ad(train_embed_path)
+    train_adata = train_adata[train_adata.obs[args.target_colname] != "unknown"]
+    X_train = train_adata.obsm[emb_name]
+    Y_train = train_adata.obs[args.target_colname]
+    
+    print("X_train shape:", X_train.shape)
 
     # Load test embeddings and labels
     test_adata = ad.read_h5ad(test_embed_path)
@@ -199,19 +232,27 @@ def main():
     X_test = test_adata.obsm[emb_name]
     Y_test = test_adata.obs[args.target_colname]    
     
-    region_scores = []
     print("X_test shape:", X_test.shape)
     print("about to start training or loading models")
     # this is for 1 v all trees
     if not args.multiclass:
-        unique_labels = np.unique(Y_train)
-        for region_name in unique_labels:
-            if args.do_train:
+        unique_labels = np.unique(Y_train)        
+        mask_valid = Y_test.isin(unique_labels)
+        if not mask_valid.all():
+            removed = set(Y_test[~mask_valid].unique())
+            print(f"Warning: removing {len(removed)} unseen test labels: {removed}")
+
+        X_test_filtered = X_test[mask_valid.values]
+        Y_test_filtered = Y_test[mask_valid]
+        
+        all_probs = np.empty((len(Y_test_filtered), len(unique_labels)))
+
+        for i, region_name in enumerate(unique_labels):
+            if not model_exists(region_name, output_dir):
                 print(f"Starting Random Forest classifier on region {region_name}")
                 
                 # Create binary labels: 1 for current region, 0 otherwise
                 y_train_binary = (Y_train == region_name).astype(int)
-                y_test_binary = (Y_test == region_name).astype(int)
                 best_params, best_model = train_rf(X_train, y_train_binary, args.search_type)
 
                 # Save the best parameters and model for the current region
@@ -221,21 +262,11 @@ def main():
                 best_params, best_model = load_model(region_name, output_dir)
             
             # Predict the labels for the test set using the best model
-            y_probs = best_model.predict_proba(X_test)
+            y_probs = best_model.predict_proba(X_test_filtered)
             assert np.allclose(y_probs.sum(axis=1), 1.0, atol=1e-6), "Not all rows sum to 1"
-            y_true_prob = y_probs[:,1]
-            y_pred = np.argmax(y_probs, axis=1)
-            # Store the scores for the current region
-            region_scores.append(evaluate_binary(region_name, y_true_prob, y_pred, y_test_binary))
-
-        # Save the scores to a file
-        scores_file = os.path.join(output_dir, "region_scores.json")
-        with open(scores_file, "w") as f:
-            json.dump(region_scores, f, indent=4)
-
-        print(f"Scores for all regions saved to {scores_file}")
+            all_probs[:, i] = y_probs[:, 1]  # Store probabilities for the positive class
     else:
-        if args.do_train:
+        if not model_exists("multiclass_tree", output_dir):
             print(f"Starting Random Forest classifier on all regions")
             best_params, best_model = train_rf(X_train, Y_train, args.search_type)
             save_model("multiclass_tree", output_dir, best_params, best_model)
@@ -254,35 +285,12 @@ def main():
         X_test_filtered = X_test[mask_valid.values]
         Y_test_filtered = Y_test[mask_valid]
         
-        y_probs = best_model.predict_proba(X_test_filtered)
-        print("shape of probs and targets is:", y_probs.shape, Y_test_filtered.shape)
-        predictions = best_model.predict(X_test_filtered)
-        print("types of predictions and targets are:", predictions.dtype, Y_test_filtered.dtype)
-        total_accuracy = accuracy_score(Y_test_filtered, predictions)
-        conf_mat = confusion_matrix(Y_test_filtered, predictions)
-        region_scores = []
-        for index, region in enumerate(best_model.classes_):
-            scores = y_probs[:, index]
-            binary_predictions = (predictions == region).astype(int)
-            binary_targets = (Y_test_filtered == region).astype(int)
-            region_scores.append(evaluate_binary(region, scores, binary_predictions, binary_targets))
-            plot_roc_curve(binary_targets, scores, region, output_dir)
-        
-        # Save the scores to a file
-        conf_row_strs = [str(row) for row in conf_mat]
+        all_probs = best_model.predict_proba(X_test_filtered)
+        unique_labels = best_model.classes_
+        print("shape of probs and targets is:", all_probs.shape, Y_test_filtered.shape)
 
-        region_scores.sort(key=lambda x: x["Region"])
-        region_scores.append({"Total Accuracy": total_accuracy,
-                            "Categories": list(best_model.classes_),
-                            "Confusion Matrix": conf_row_strs})
-        os.makedirs(output_dir, exist_ok=True)
-        # Save the scores to a file
-        scores_file = os.path.join(output_dir, "region_scores.json")
-        print(f"Scores for all regions saved to {scores_file}")
-        with open(scores_file, "w") as f:
-            json.dump(region_scores, f, indent=4)
+    evaluate_multiclass_and_save(Y_test_filtered, all_probs, unique_labels, output_dir)
 
-        print(f"Scores for all regions saved to {scores_file}")
         
 if __name__ == "__main__":
     print("Starting random forest experiment script")
