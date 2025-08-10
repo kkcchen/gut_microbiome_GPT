@@ -468,11 +468,10 @@ def commit_state(extra_state, epoch, best_val_loss, patience_counter, checkpoint
     logger.info("Training state committed to {} at time {}".format(actual_checkpoint_dir, time.ctime(time.time())))
 
 
-def create_or_restore_data_state(anndata_path, num_bins, restore_dir, accelerator: Accelerator, batch_obskey=None, use_continuous_labels=False, nrows=None):
+def create_or_restore_data_state(anndata_path, num_bins, restore_dir, accelerator: Accelerator, batch_obskey=None, nrows=None):
     if accelerator.is_main_process:
         os.makedirs(restore_dir, exist_ok=True)
         
-        assert not use_continuous_labels, "Continuous labels are not supported yet"
         batch_vocab = None
         
         if os.path.exists(os.path.join(restore_dir, "augmented_data.h5ad")):
@@ -525,8 +524,6 @@ def create_or_restore_data_state(anndata_path, num_bins, restore_dir, accelerato
         # train and validation split
         split_keys = ["taxa_ids", "values"]
 
-        if use_continuous_labels:
-            split_keys.append("continuous_labels")  # assuming continuous regression targets
         if batch_obskey:
             split_keys.append("batch_labels")
 

@@ -15,9 +15,9 @@ source ~/hmbenv/bin/activate
 python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not available. Exiting.'" || exit 1
 
 # put your command here
-DATA_DIR="/project/aip-rahulgk/gutmodel/datasets_halfsplit"
+DATA_DIR="/project/aip-rahulgk/gutmodel/datasets_newsplit"
 RUN_NAME="taxa-mask-30"
-NOTES="30% masking with taxa masking and mvc"
+NOTES="30% masking with taxa masking and mvc, no batch labels"
 
 EXPERIMENT_PATH=experiment_saves/$RUN_NAME
 
@@ -34,7 +34,7 @@ python -m wandb login 7559085cf6a63fa75982fe12e737bdd576c4fc62
 
 accelerate launch --main_process_port 0 -m scripts.trainer \
     --model-config-path "$MODEL_CONFIG_PATH" \
-    --ann-table-path "$HMC_TABLE_PATH" \
+    --ann-table-path "$ANN_TABLE_PATH" \
     --best-dir "$BEST_DIR" \
     --checkpoint-dir "$MODEL_CHECKPOINTS" \
     --data-restore-dir "$DATA_RESTORE_DIR" \
@@ -54,7 +54,7 @@ accelerate launch --main_process_port 0 -m scripts.trainer \
     --seed 42 \
     --notes "$NOTES" \
     --train-mask-ratio 0.3 \
-    --use-batch-labels \
     --do-taxa-decoder \
     --do-mvc
+    # --use-batch-labels \
     # --do-contrastive &
