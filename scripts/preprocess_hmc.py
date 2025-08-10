@@ -30,6 +30,60 @@ def get_loc_labels(samples_list, sample_metadata_path):
         location_list.append(row.region)
     return location_list
 
+def label_sex_from_tags(
+    adata: ad.AnnData,
+    tags_df,
+    studies,
+    tag_names,
+    male_indicators,
+    female_indicators,
+):
+    assert len(studies) == len(tag_names) == len(male_indicators) == len(female_indicators), \
+        "All input lists must have the same length"
+        
+    obs = adata.obs.copy()
+    indices_to_keep = []
+    obs["label"] = pd.NA
+    for study, tag_name, male_val, female_val in zip(studies, tag_names, male_indicators, female_indicators):
+        filtered_tags = tags_df[(tags_df["project"] == study) & (tags_df["tag"] == tag_name)]
+        sample_to_value = dict(zip(filtered_tags["srr"], filtered_tags["value"]))
+        mask = adata.obs["drr"].isin(sample_to_value.keys())
+        # Assign male/female based on value
+        obs.loc[mask & (obs["drr"].map(sample_to_value) == male_val), "label"] = "male"
+        obs.loc[mask & (obs["drr"].map(sample_to_value) == female_val), "label"] = "female"
+
+        indices_to_keep.extend(obs.index[mask].tolist())
+
+    indices_to_keep = list(dict.fromkeys(indices_to_keep))
+    adata_subset = adata[indices_to_keep].copy()
+    adata_subset.obs["label"] = obs.loc[indices_to_keep, "label"].fillna("other")
+    
+    # Print total "other" count
+    other_count = (adata_subset.obs["label"] == "other").sum()
+    print(f"Total 'other' labels: {other_count}")
+    return adata_subset
+
+def split_studies_and_tags(adata: ad.AnnData, tags_df, studies: list, tag_names: list, force_numeric=False):
+    assert len(studies) == len(tag_names), "studies and tag_names must be same length"
+    indices_to_keep = []
+    obs = adata.obs.copy()
+    obs['label'] = pd.NA
+    for study, tag_name in zip(studies, tag_names):
+        filtered_tags = tags_df[(tags_df['project'] == study) & (tags_df['tag'] == tag_name)]
+        sample_to_value = dict(zip(filtered_tags['srr'], filtered_tags['value']))
+        mask = adata.obs["drr"].isin(sample_to_value.keys())
+        obs.loc[mask, 'label'] = adata.obs["drr"][mask].map(sample_to_value)
+        indices_to_keep.extend(obs.index[mask].tolist())
+    indices_to_keep = list(dict.fromkeys(indices_to_keep))
+    adata_subset = adata[indices_to_keep].copy()
+    adata_subset.obs['label'] = obs.loc[indices_to_keep, 'label']
+    
+    if force_numeric:
+        adata_subset.obs['label'] = pd.to_numeric(adata_subset.obs['label'], errors='coerce')
+        coerced_count = adata_subset.obs['label'].isna().sum()
+        print(f"Number of coerced values: {coerced_count}")
+    return adata_subset
+
 
 def add_top_k_layer(adata, k=512):
     """
@@ -61,11 +115,19 @@ def add_top_k_layer(adata, k=512):
     print(f"Top {k} layer retained {retained_nonzero / original_nonzero:.2%} of original non-zero entries")
 
 
-def save_taxonomy_table(adata, save_path):
+def save_adata(adata, save_path):
     if not os.path.exists(os.path.dirname(save_path)):
         os.makedirs(os.path.dirname(save_path))
     adata.write(save_path)
     print(f"Saved to {save_path} and numpy array with shape {adata.shape}")
+    
+def restore_adata(save_path):
+    if not os.path.exists(save_path):
+        raise FileNotFoundError(f"File {save_path} does not exist.")
+    
+    adata = ad.read_h5ad(save_path)
+    print(f"Restored AnnData object with shape {adata.shape} from {save_path}")
+    return adata
 
 
 def train_test_split_anndata(adata, test_size=0.2, random_state=42, stratify_obskey=None):
@@ -108,6 +170,12 @@ def train_test_split_anndata(adata, test_size=0.2, random_state=42, stratify_obs
     adata_test = adata[test_idx].copy()
 
     return adata_train, adata_test
+
+def split_anndata_specify_study(adata: ad.AnnData, studies_to_isolate: list):
+    mask = adata.obs['study_id'].isin(studies_to_isolate)
+    adata_in = adata[mask].copy()
+    adata_out = adata[~mask].copy()
+    return adata_in, adata_out
 
 
 def split_anndata_by_study(adata, remove_agp=False, split_ratio=0.5):
@@ -173,6 +241,7 @@ def read_taxonomic_table(file_path, nrows = None):
     df = df.sample(frac=1, random_state=42)
     adata = ad.AnnData(X=df)
     adata.obs["sample"] = adata.obs_names
+    adata.obs["drr"] = adata.obs["sample"].apply(lambda x: x.split('_')[1])  # Extract DRR from sample name
     adata.var["taxa"] = adata.var_names
     # Extract study_id from sample_name.
     adata.obs["study_id"] = adata.obs["sample"].apply(lambda x: x.split('_')[0])
@@ -184,26 +253,28 @@ def main():
     parser = argparse.ArgumentParser(description="Preprocess HMC taxonomic table.")
     parser.add_argument('--taxonomic_table_path', type=str, required=True, help='Path to the taxonomic table CSV file.')
     parser.add_argument('--save_dir', type=str, required=True, help='Directory to save pretrain data.')
-    parser.add_argument('--anndata_pretrain_filename', type=str, default="taxonomy_table_pretrain", help='Pretrain .h5ad file name.')
-    parser.add_argument('--anndata_finetune_filename', type=str, default="taxonomy_table_finetune", help='Finetune .h5ad file name.')
-    parser.add_argument('--sample_metadata_path', type=str, required=True, help='Finetune .h5ad file name.')
+    parser.add_argument('--anndata_pretrain_filename', type=str, default="taxonomy_table_pretrain.h5ad", help='Pretrain .h5ad file name.')
+    parser.add_argument('--anndata_finetune_filename', type=str, default="taxonomy_table_finetune.h5ad", help='Finetune .h5ad file name.')
+    # parser.add_argument('--sample_metadata_path', type=str, required=True, help='metadata path')
+    parser.add_argument('--tags_path', type=str, default="data/tags.tsv", help='Path to the tags file.')
 
     parser.add_argument('--split_ratio', type=float, default=0.8, help='Ratio for splitting the dataset into pretrain and finetune sets.')
     parser.add_argument('--nrows', type=int, default=None, help='Number of rows to read from the taxonomic table CSV file.')
     parser.add_argument('--seed', type=int, default=None, help='Random seed for reproducibility.')
-    parser.add_argument('--split_finetune_by_study', action='store_true', help='Whether to split finetune data by study.')
-    parser.add_argument('--add_loc_labels', action='store_true', help='Whether to add location labels to the data.')
+    # parser.add_argument('--split_finetune_by_study', action='store_true', help='Whether to split finetune data by study.')
+    # parser.add_argument('--add_loc_labels', action='store_true', help='Whether to add location labels to the data.')
     args = parser.parse_args()
 
     taxonomic_table_path = args.taxonomic_table_path
     save_dir = args.save_dir
     anndata_pretrain_filename = args.anndata_pretrain_filename
     anndata_finetune_filename = args.anndata_finetune_filename
-    sample_metadata_path = args.sample_metadata_path
+    # sample_metadata_path = args.sample_metadata_path
+    tags_path = args.tags_path
     nrows = args.nrows
     split_ratio = args.split_ratio
-    split_finetune_by_study = args.split_finetune_by_study
-    add_loc_labels = args.add_loc_labels
+    # split_finetune_by_study = args.split_finetune_by_study
+    # add_loc_labels = args.add_loc_labels
     
     if args.seed is not None:
         np.random.seed(args.seed)
@@ -212,24 +283,145 @@ def main():
     print(f"Reading taxonomic table from {taxonomic_table_path} with nrows={nrows} and split_ratio={split_ratio}")
     adata = read_taxonomic_table(taxonomic_table_path, nrows=nrows)
     
-    if add_loc_labels:
-        print("Adding location labels to pretrain and finetune data.")
-        adata.obs["location"] = get_loc_labels(adata.obs["sample"], sample_metadata_path)
+    # if add_loc_labels:
+    #     print("Adding location labels to pretrain and finetune data.")
+    #     adata.obs["location"] = get_loc_labels(adata.obs["sample"], sample_metadata_path)
+        
+    age_studies = ['PRJNA729511', 'PRJEB5729', 'PRJNA485316']
+    age_cols = ['age', 'age', 'host_age']
     
-    pretrain_adata, finetune_adata = split_anndata_by_study(adata, remove_agp=True, split_ratio=split_ratio)
+    sex_studies = ['PRJNA729511', 'PRJNA516932', 'PRJNA559143', 'PRJEB5482']
+    sex_cols = ['sex', 'host_sex', 'gender_cat', 'sex']
+    male_indicators = ['male', 'male', '1', 'male']
+    female_indicators = ['female', 'female', '2', 'female']
+    
+    bmi_studies = ['PRJNA485316', 'PRJNA559143', 'PRJNA516932', 'PRJEB6702', 'PRJEB5729']
+    bmi_cols = ['host_body_mass_index', 'body_mass_index', 'host_body_mass_index', 'body_mass_index', 'body_mass_index']
+    
+    supplement_studies = ['PRJNA428736']
+    supplement_cols = ['supplement']
+    
+    mice_studies = ['PRJEB4244']
+    mice_cols = ['diet']
+    
+    diet_studies = ['PRJEB5729']
+    diet_cols = ['diet']
+    
+    AGP_study = 'PRJEB11419'
+    
+    all_studies = age_studies + sex_studies + bmi_studies + supplement_studies + mice_studies + diet_studies + [AGP_study]
+    
+    finetune_adata, pretrain_adata = split_anndata_specify_study(adata, all_studies)
+    # pretrain_adata, finetune_adata = split_anndata_by_study(adata, remove_agp=True, split_ratio=split_ratio)
 
-    save_taxonomy_table(pretrain_adata, os.path.join(save_dir, anndata_pretrain_filename))
-    save_taxonomy_table(finetune_adata, os.path.join(save_dir, anndata_finetune_filename))
+    save_adata(pretrain_adata, os.path.join(save_dir, anndata_pretrain_filename))
+    save_adata(finetune_adata, os.path.join(save_dir, anndata_finetune_filename))
+    # pretrain_adata = restore_adata(os.path.join(save_dir, anndata_pretrain_filename))
+    # finetune_adata = restore_adata(os.path.join(save_dir, anndata_finetune_filename))
+    
+    labeled_datasets = {}
+    tags_df = pd.read_csv(tags_path, sep='\t')
+
+    # Age
+    labeled_datasets['age'] = {
+        "adata": split_studies_and_tags(
+            finetune_adata, tags_df,
+            studies=age_studies,
+            tag_names=age_cols,
+            force_numeric=True
+        ),
+        "stratify": False
+    }
+
+    # BMI
+    labeled_datasets['bmi'] = {
+        "adata": split_studies_and_tags(
+            finetune_adata, tags_df,
+            studies=bmi_studies,
+            tag_names=bmi_cols,
+            force_numeric=True
+        ),
+        "stratify": False
+    }
+
+    # Supplement
+    labeled_datasets['supplement'] = {
+        "adata": split_studies_and_tags(
+            finetune_adata, tags_df,
+            studies=supplement_studies,
+            tag_names=supplement_cols
+        ),
+        "stratify": True
+    }
+
+    # Mice diet
+    labeled_datasets['mice_diet'] = {
+        "adata": split_studies_and_tags(
+            finetune_adata, tags_df,
+            studies=mice_studies,
+            tag_names=mice_cols
+        ),
+        "stratify": True
+    }
+
+    # Human diet
+    labeled_datasets['human_diet'] = {
+        "adata": split_studies_and_tags(
+            finetune_adata, tags_df,
+            studies=diet_studies,
+            tag_names=diet_cols
+        ),
+        "stratify": True
+    }
+    
+    # Combine omnivores into one class, others into "non_omnivore"
+    omnivore_like = {
+        "omnivore",
+        "omnivore.no.red.meat",
+        "omnivore.but.no.red.meat"
+    }
+    labeled_datasets['human_diet']['adata'].obs['label'] = labeled_datasets['human_diet']['adata'].obs['label'].apply(
+        lambda x: "omnivore" if x in omnivore_like else "non_omnivore"
+    )
+
+    # Sex
+    labeled_datasets['sex'] = {
+        "adata": label_sex_from_tags(
+            finetune_adata, tags_df,
+            studies=sex_studies,
+            tag_names=sex_cols,
+            male_indicators=male_indicators,
+            female_indicators=female_indicators
+        ),
+        "stratify": True
+    }
 
     # train test split for finetune data
-    if split_finetune_by_study:
-        train_adata, test_adata = split_anndata_by_study(finetune_adata, split_ratio=0.8)
-    else:
-        train_adata, test_adata = train_test_split_anndata(finetune_adata, test_size=0.2, random_state=42)
+    # if split_finetune_by_study:
+    #     train_adata, test_adata = split_anndata_by_study(finetune_adata, split_ratio=0.8)
+    # else:
+    #     train_adata, test_adata = train_test_split_anndata(finetune_adata, test_size=0.2, random_state=42)
 
-    save_taxonomy_table(train_adata, os.path.join(save_dir, "finetune_data_train.h5ad"))
-    save_taxonomy_table(test_adata, os.path.join(save_dir, "finetune_data_test.h5ad"))
-
+    # save_adata(train_adata, os.path.join(save_dir, "finetune_data_train.h5ad"))
+    # save_adata(test_adata, os.path.join(save_dir, "finetune_data_test.h5ad"))
+    
+    for key, dataset_dict in labeled_datasets.items():
+        dataset = dataset_dict["adata"]
+        print(f"Processing dataset for {key} with shape {dataset.shape}")
+        print(f"for the label, unique values counts are: {dataset.obs['label'].value_counts()}")
+        
+        stratify_key = "label" if dataset_dict.get("stratify", False) else None
+        train_adata, test_adata = train_test_split_anndata(
+            dataset,
+            test_size=0.2,
+            random_state=42,
+            stratify_obskey=stratify_key
+        )
+        
+        save_adata(train_adata, os.path.join(save_dir, f"finetune_data_train_{key}.h5ad"))
+        save_adata(test_adata, os.path.join(save_dir, f"finetune_data_test_{key}.h5ad"))
+        
+        
 
 if __name__ == '__main__':
     main()
@@ -238,5 +430,5 @@ if __name__ == '__main__':
     # save_dir = "/project/aip-rahulgk/gutmodel/datasets_halfsplit/nonstudy_split"
     # train_adata, test_adata = train_test_split_anndata(finetune_adata, test_size=0.2, random_state=42, stratify_obskey="location")
 
-    # save_taxonomy_table(train_adata, os.path.join(save_dir, "finetune_data_train.h5ad"))
-    # save_taxonomy_table(test_adata, os.path.join(save_dir, "finetune_data_test.h5ad"))
+    # save_adata(train_adata, os.path.join(save_dir, "finetune_data_train.h5ad"))
+    # save_adata(test_adata, os.path.join(save_dir, "finetune_data_test.h5ad"))

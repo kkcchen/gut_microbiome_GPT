@@ -12,9 +12,10 @@ source ~/hmbenv/bin/activate
 
 # Arguments
 TAXONOMIC_TABLE_PATH="/project/aip-rahulgk/gutmodel/taxonomic_table.csv"
-METADATA_PATH="/project/aip-rahulgk/gutmodel/sample_metadata.tsv"
+# METADATA_PATH="/project/aip-rahulgk/gutmodel/sample_metadata.tsv"
+TAGS_PATH="/project/aip-rahulgk/gutmodel/tags.tsv"
 
-SAVE_DIR="/project/aip-rahulgk/gutmodel/datasets_halfsplit"
+SAVE_DIR="/project/aip-rahulgk/gutmodel/datasets_newsplit"
 ANN_PRETRAIN_FILENAME="taxonomy_table_pretrain.h5ad"
 ANN_FINETUNE_FILENAME="taxonomy_table_finetune.h5ad"
 
@@ -25,10 +26,11 @@ python -m scripts.preprocess_hmc \
     --save_dir "$SAVE_DIR" \
     --anndata_pretrain_filename "$ANN_PRETRAIN_FILENAME" \
     --anndata_finetune_filename "$ANN_FINETUNE_FILENAME" \
-    --sample_metadata_path "$METADATA_PATH" \
+    --tags_path "$TAGS_PATH" \
     --seed 42 \
-    --split_ratio 0.5 \
-    --split_finetune_by_study \
-    --add_loc_labels \
+    --split_ratio 0.8 \
+    # --split_finetune_by_study \
+    # --add_loc_labels \
+    # --sample_metadata_path "$METADATA_PATH" \
 
 echo finished
