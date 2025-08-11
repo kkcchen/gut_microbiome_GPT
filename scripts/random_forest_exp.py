@@ -1,32 +1,39 @@
 import numpy as np
 import time
 import os
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_score, confusion_matrix
 import json
 import joblib
 from scipy.stats import randint, uniform
 import anndata as ad
-
-from sklearn.metrics import RocCurveDisplay
 import matplotlib.pyplot as plt
 
 import argparse
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 
-def train_rf(X_train, y_train, search_type):
-    # Initialize the RandomForestClassifier
-    rf_model = RandomForestClassifier(
-        bootstrap=True,
-        random_state=42,
-        class_weight="balanced",
-        n_jobs=-1
-    )
-    
+from trainers.test_functions import evaluate_multiclass_and_save, evaluate_regression_and_save
+
+def train_rf(X_train, y_train, search_type, regression=False):
     print("X_train shape:", X_train.shape)
     print("y_train shape:", y_train.shape)
     
-    n_classes = len(np.unique(y_train))
+    if regression:
+        rf_model = RandomForestRegressor(
+            bootstrap=True,
+            random_state=42,
+            n_jobs=-1
+        )
+        search_scoring = 'neg_mean_squared_error'
+    else:
+        n_classes = len(np.unique(y_train))
+        rf_model = RandomForestClassifier(
+            bootstrap=True,
+            random_state=42,
+            class_weight="balanced",
+            n_jobs=-1
+        )
+        search_scoring = 'roc_auc' if n_classes == 2 else 'f1_weighted'
 
     if search_type == "grid":
         param_grid = {
@@ -40,7 +47,7 @@ def train_rf(X_train, y_train, search_type):
         search = GridSearchCV(
             estimator=rf_model,
             param_grid=param_grid,
-            scoring='roc_auc',
+            scoring=search_scoring,
             cv=3,
             n_jobs=-1,
             random_state=42,
@@ -49,18 +56,18 @@ def train_rf(X_train, y_train, search_type):
     
     elif search_type == "random":
         param_distributions = { # discrete for min_samples_leaf?
-            "min_samples_leaf": randint(10, 1000),            # integer between 1 and 10
-            "max_samples": uniform(0.5, 0.5),              # float between 0.5 and 1.0
-            "max_features": uniform(0.1, 0.3),             # float between 0.1 and 0.4
-            "n_estimators": randint(200, 1000)               # integer between 50 and 1000
+            "min_samples_leaf": randint(2, 20),
+            "max_samples": uniform(0.5, 0.5),
+            "max_features": uniform(0.5, 0.5),
+            "n_estimators": randint(200, 1000)
         }
         
         # Perform random search with cross-validation
         search = RandomizedSearchCV(
             estimator=rf_model,
             param_distributions=param_distributions,
-            n_iter=5,                   # Number of parameter combinations to try
-            scoring='roc_auc' if n_classes == 2 else 'f1_weighted',
+            n_iter=10,                   # Number of parameter combinations to try
+            scoring=search_scoring,
             cv=3,
             n_jobs=-1,
             random_state=42,
@@ -77,7 +84,7 @@ def train_rf(X_train, y_train, search_type):
     else:
         raise ValueError("search_type must be 'grid', 'random', or 'none'")
 
-    # Train the model using grid search
+    # Train the model using search
     start_time = time.time()
     search.fit(X_train, y_train)
     end_time = time.time()
@@ -118,84 +125,6 @@ def load_model(region_name, output_dir):
 
     return best_params, best_model
 
-def evaluate_binary(region_name, y_probs, y_pred, y_test_binary):
-    
-    # Check that all shapes are equal
-    assert y_probs.shape == y_pred.shape == y_test_binary.shape, \
-        f"Shape mismatch: y_probs {y_probs.shape}, y_pred {y_pred.shape}, y_test_binary {y_test_binary.shape}"
-    print(f"y_probs {y_probs.shape}, y_pred {y_pred.shape}, y_test_binary {y_test_binary.shape}")
-    
-    # check that the shape of y_probs 1 dimensional
-    assert y_probs.ndim == 1, f"y_probs should be 1-dimensional, got {y_probs.ndim} dimensions"
-    
-    # Evaluate the model's accuracy on the test set
-    n_samples = np.sum(y_test_binary).item()
-    accuracy = accuracy_score(y_test_binary, y_pred)
-    auc = roc_auc_score(y_test_binary, y_probs)
-    average_precision = average_precision_score(y_test_binary, y_probs)
-    baseline_precision = np.mean(y_test_binary)
-
-    return {
-        "Region": region_name,
-        "n_samples": n_samples,
-        "Accuracy": accuracy,
-        "AUC (ROC)": auc,
-        "Average Precision": average_precision,
-        "Baseline Precision": baseline_precision
-    }
-    
-def evaluate_multiclass_and_save(y_true, y_probs, train_class_labels, output_dir):
-    # evaluate, done for all
-    y_pred = train_class_labels[np.argmax(y_probs, axis=1)]
-    print("types of predictions and targets are:", y_pred.dtype, y_true.dtype)
-    total_accuracy = accuracy_score(y_true, y_pred)
-    conf_mat = confusion_matrix(y_true, y_pred)
-    region_scores = []
-    for index, region in enumerate(train_class_labels):
-        scores = y_probs[:, index]
-        binary_predictions = (y_pred == region).astype(int)
-        binary_targets = (y_true == region).astype(int)
-        region_scores.append(evaluate_binary(region, scores, binary_predictions, binary_targets))
-        plot_roc_curve(binary_targets, scores, region, output_dir)
-    
-    # Save the scores to a file
-    conf_row_strs = [str(row) for row in conf_mat]
-
-    region_scores.sort(key=lambda x: x["Region"])
-    region_scores.append({"Total Accuracy": total_accuracy,
-                        "Categories": list(train_class_labels),
-                        "Confusion Matrix": conf_row_strs})
-    os.makedirs(output_dir, exist_ok=True)
-    # Save the scores to a file
-    scores_file = os.path.join(output_dir, "region_scores.json")
-    print(f"Scores for all regions saved to {scores_file}")
-    with open(scores_file, "w") as f:
-        json.dump(region_scores, f, indent=4)
-
-    print(f"Scores for all regions saved to {scores_file}")
-    
-    
-def plot_roc_curve(binary_targets, scores, region, output_dir):
-    # Create a new figure for this class
-    plt.figure()
-    RocCurveDisplay.from_predictions(
-        y_true=binary_targets,
-        y_pred=scores,
-        name=f"ROC: {region}",
-        plot_chance_level=True
-    )
-
-    plt.title(f"ROC Curve for {region} ({binary_targets.sum()} samples)")
-    plt.xlabel("False Positive Rate")
-    plt.ylabel("True Positive Rate")
-    plt.grid(True)
-
-    # Save individual figure
-    safe_region = region.replace("/", "_").replace("\\", "_")
-    fig_path = os.path.join(output_dir, f"roc_{safe_region}.png")
-    plt.savefig(fig_path)
-    plt.close()
-    print(f"Saved ROC curve for {region} to {fig_path}")
 
 def main():
     parser = argparse.ArgumentParser(description="Script for processing embeddings.")
@@ -203,10 +132,11 @@ def main():
     parser.add_argument("--train-embed-path", type=str, required=True, help="Path to the anndata where the train embeddings are saved or should be saved in the obsm['embedding'].")
     parser.add_argument("--test-embed-path", type=str, required=True, help="Path to the anndata where the test embeddings are saved or should be saved in the obsm['embedding'].")
     parser.add_argument("--output-dir", type=str, required=True, help="Directory to save the best model and parameters.")
-    parser.add_argument("--multiclass", action="store_true", help="multiclass tree or 1 v all trees?")
+    parser.add_argument("--model-type", type=str, choices=["multiclass", "one-vs-all", "regression"], required=True, help="Type of model to train: 'multiclass' for one model handling all classes, 'one-vs-all' for one model per class, or 'regression' for regression tasks.")
     parser.add_argument("--search-type", type=str, choices=["grid", "random", "none"], default="random", help="Type of search to perform: 'grid', 'random', or 'none'.")
     parser.add_argument("--target-colname", type=str, default="location", help="Column name in the anndata obs to use as target labels.")
     parser.add_argument("--emb-name", type=str, default="embedding", help="Name of the obsm key where embeddings are stored.")
+    parser.add_argument("--ignored-labels", type=str, nargs='*', default=["unknown"], help="List of labels to ignore in the target column.")
 
     args = parser.parse_args()
 
@@ -215,27 +145,29 @@ def main():
     output_dir = args.output_dir
     
     emb_name = args.emb_name
-    
+        
     print("args are:", args)
     
     # Load train embeddings and labels
     train_adata = ad.read_h5ad(train_embed_path)
-    train_adata = train_adata[train_adata.obs[args.target_colname] != "unknown"]
+    train_adata = train_adata[~train_adata.obs[args.target_colname].isin(args.ignored_labels)]
     X_train = train_adata.obsm[emb_name]
     Y_train = train_adata.obs[args.target_colname]
     
     print("X_train shape:", X_train.shape)
+    print("Y_train shape:", Y_train.shape)
 
     # Load test embeddings and labels
     test_adata = ad.read_h5ad(test_embed_path)
-    test_adata = test_adata[test_adata.obs[args.target_colname] != "unknown"]
+    test_adata = test_adata[~test_adata.obs[args.target_colname].isin(args.ignored_labels)]
     X_test = test_adata.obsm[emb_name]
     Y_test = test_adata.obs[args.target_colname]    
     
     print("X_test shape:", X_test.shape)
+    print("Y_test shape:", Y_test.shape)
     print("about to start training or loading models")
     # this is for 1 v all trees
-    if not args.multiclass:
+    if args.model_type == "one-vs-all":
         unique_labels = np.unique(Y_train)        
         mask_valid = Y_test.isin(unique_labels)
         if not mask_valid.all():
@@ -265,7 +197,8 @@ def main():
             y_probs = best_model.predict_proba(X_test_filtered)
             assert np.allclose(y_probs.sum(axis=1), 1.0, atol=1e-6), "Not all rows sum to 1"
             all_probs[:, i] = y_probs[:, 1]  # Store probabilities for the positive class
-    else:
+            evaluate_multiclass_and_save(Y_test_filtered, all_probs, unique_labels, output_dir)
+    elif args.model_type == "multiclass":
         if not model_exists("multiclass_tree", output_dir):
             print(f"Starting Random Forest classifier on all regions")
             best_params, best_model = train_rf(X_train, Y_train, args.search_type)
@@ -288,8 +221,21 @@ def main():
         all_probs = best_model.predict_proba(X_test_filtered)
         unique_labels = best_model.classes_
         print("shape of probs and targets is:", all_probs.shape, Y_test_filtered.shape)
-
-    evaluate_multiclass_and_save(Y_test_filtered, all_probs, unique_labels, output_dir)
+        evaluate_multiclass_and_save(Y_test_filtered, all_probs, unique_labels, output_dir)
+    elif args.model_type == "regression":
+        if not model_exists("regression_tree", output_dir):
+            print(f"Starting Random Forest regressor")
+            best_params, best_model = train_rf(X_train, Y_train, args.search_type, regression=True)
+            save_model("regression_tree", output_dir, best_params, best_model)
+        else:
+            print(f"Only doing eval for regression")
+            best_params, best_model = load_model("regression_tree", output_dir)
+        
+        all_probs = best_model.predict(X_test).squeeze()
+        print(all_probs.shape, Y_test.shape)
+        evaluate_regression_and_save(Y_test, all_probs, output_dir)
+    else:
+        raise ValueError("model_type must be 'multiclass', 'one-vs-all', or 'regression'")
 
         
 if __name__ == "__main__":

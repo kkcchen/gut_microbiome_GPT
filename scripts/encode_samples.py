@@ -48,7 +48,7 @@ def main():
     from models import TransformerModel
     
     if args.is_finetune:
-        finetuned_model = load_finetuned_model(model_config_path, safetensors_path)
+        finetuned_model, _ = load_finetuned_model(model_config_path, safetensors_path)
         model = finetuned_model.base_model
         num_bins = model.n_input_bins
 
@@ -67,6 +67,7 @@ def main():
         num_bins=num_bins,
         vocab=vocab,
         batch_obskey=None,  # No batch key needed for encoding
+        continuous_obskey=None,  # No continuous labels needed for encoding
         nrows=nrows  # Set to None to use all rows
     )
     

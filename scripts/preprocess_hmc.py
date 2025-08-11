@@ -7,6 +7,7 @@ from sklearn.model_selection import train_test_split
 from collections import defaultdict
 import anndata as ad
 import scipy.sparse as sp
+from skbio.stats.composition import clr, closure, multi_replace
 
 # os.environ["GOOGLE_API_KEY"] = "AIzaSyB41iEts_InBYR3sHz1bywFYN2JjxlBTJ0"
 # GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
@@ -82,6 +83,8 @@ def split_studies_and_tags(adata: ad.AnnData, tags_df, studies: list, tag_names:
         adata_subset.obs['label'] = pd.to_numeric(adata_subset.obs['label'], errors='coerce')
         coerced_count = adata_subset.obs['label'].isna().sum()
         print(f"Number of coerced values: {coerced_count}")
+        adata_subset = adata_subset[adata_subset.obs['label'].notna()].copy()
+        
     return adata_subset
 
 
@@ -240,13 +243,32 @@ def read_taxonomic_table(file_path, nrows = None):
     # 1. shuffle the dataframe
     df = df.sample(frac=1, random_state=42)
     adata = ad.AnnData(X=df)
-    adata.obs["sample"] = adata.obs_names
-    adata.obs["drr"] = adata.obs["sample"].apply(lambda x: x.split('_')[1])  # Extract DRR from sample name
+    adata.obs["drr"] = [idx.split('_')[1] for idx in adata.obs.index]
     adata.var["taxa"] = adata.var_names
-    # Extract study_id from sample_name.
-    adata.obs["study_id"] = adata.obs["sample"].apply(lambda x: x.split('_')[0])
+    adata.obs["study_id"] = [idx.split('_')[0] for idx in adata.obs.index]
     add_top_k_layer(adata, k=512)  # Add top 512 layer
     return adata
+
+
+def compute_prevalence_abundance_adata(adata: ad.AnnData):
+    X = adata.X
+    if hasattr(X, "toarray"):
+        X = X.toarray()
+
+    prevalence = np.mean(X > 0, axis=0)
+    abundance = np.mean(X, axis=0)
+
+    return (
+        pd.Series(prevalence, index=adata.var_names),
+        pd.Series(abundance, index=adata.var_names),
+    )
+
+def preprocess_clr_matrix(X):
+    if hasattr(X, "toarray"):
+        X = X.toarray()
+    X_replaced = multi_replace(X)
+    X_closed = closure(X_replaced)
+    return clr(X_closed)
 
 
 def main():
@@ -255,26 +277,28 @@ def main():
     parser.add_argument('--save_dir', type=str, required=True, help='Directory to save pretrain data.')
     parser.add_argument('--anndata_pretrain_filename', type=str, default="taxonomy_table_pretrain.h5ad", help='Pretrain .h5ad file name.')
     parser.add_argument('--anndata_finetune_filename', type=str, default="taxonomy_table_finetune.h5ad", help='Finetune .h5ad file name.')
-    # parser.add_argument('--sample_metadata_path', type=str, required=True, help='metadata path')
+    parser.add_argument('--sample_metadata_path', type=str, required=True, help='metadata path')
     parser.add_argument('--tags_path', type=str, default="data/tags.tsv", help='Path to the tags file.')
 
     parser.add_argument('--split_ratio', type=float, default=0.8, help='Ratio for splitting the dataset into pretrain and finetune sets.')
     parser.add_argument('--nrows', type=int, default=None, help='Number of rows to read from the taxonomic table CSV file.')
     parser.add_argument('--seed', type=int, default=None, help='Random seed for reproducibility.')
-    # parser.add_argument('--split_finetune_by_study', action='store_true', help='Whether to split finetune data by study.')
-    # parser.add_argument('--add_loc_labels', action='store_true', help='Whether to add location labels to the data.')
+    parser.add_argument('--split_finetune_by_study', action='store_true', help='Whether to split finetune data by study.')
+    parser.add_argument('--add_loc_labels', action='store_true', help='Whether to add location labels to the data.')
+    parser.add_argument("--prevalence-threshold", type=float, default=0.01)
+    parser.add_argument("--abundance-threshold", type=float, default=0.05)
     args = parser.parse_args()
 
     taxonomic_table_path = args.taxonomic_table_path
     save_dir = args.save_dir
     anndata_pretrain_filename = args.anndata_pretrain_filename
     anndata_finetune_filename = args.anndata_finetune_filename
-    # sample_metadata_path = args.sample_metadata_path
+    sample_metadata_path = args.sample_metadata_path
     tags_path = args.tags_path
     nrows = args.nrows
     split_ratio = args.split_ratio
-    # split_finetune_by_study = args.split_finetune_by_study
-    # add_loc_labels = args.add_loc_labels
+    split_finetune_by_study = args.split_finetune_by_study
+    add_loc_labels = args.add_loc_labels
     
     if args.seed is not None:
         np.random.seed(args.seed)
@@ -283,9 +307,25 @@ def main():
     print(f"Reading taxonomic table from {taxonomic_table_path} with nrows={nrows} and split_ratio={split_ratio}")
     adata = read_taxonomic_table(taxonomic_table_path, nrows=nrows)
     
-    # if add_loc_labels:
-    #     print("Adding location labels to pretrain and finetune data.")
-    #     adata.obs["location"] = get_loc_labels(adata.obs["sample"], sample_metadata_path)
+    prevalence, abundance = compute_prevalence_abundance_adata(adata)
+    keep_mask = (prevalence >= args.prevalence_threshold) & (abundance >= args.abundance_threshold)
+    kept_taxa = keep_mask[keep_mask].index.tolist()
+    if len(kept_taxa) == 0:
+        raise ValueError("No taxa passed the filtering thresholds.")
+
+    # raw filtering
+    X_dense = adata[:, kept_taxa].X
+    nonzero_sample_mask = (X_dense > 0).any(axis=1)
+    adata = adata[nonzero_sample_mask].copy()
+    if adata.n_obs == 0:
+        raise ValueError("All samples became zero after filtering. Check your thresholds.")
+    X_dense = adata[:, kept_taxa].X
+    X_dense = preprocess_clr_matrix(X_dense)
+    adata.obsm["raw_embedding"] = X_dense
+    
+    if add_loc_labels:
+        print("Adding location labels to pretrain and finetune data.")
+        adata.obs["location"] = get_loc_labels(adata.obs.index, sample_metadata_path)
         
     age_studies = ['PRJNA729511', 'PRJEB5729', 'PRJNA485316']
     age_cols = ['age', 'age', 'host_age']
@@ -314,8 +354,6 @@ def main():
     finetune_adata, pretrain_adata = split_anndata_specify_study(adata, all_studies)
     # pretrain_adata, finetune_adata = split_anndata_by_study(adata, remove_agp=True, split_ratio=split_ratio)
 
-    save_adata(pretrain_adata, os.path.join(save_dir, anndata_pretrain_filename))
-    save_adata(finetune_adata, os.path.join(save_dir, anndata_finetune_filename))
     # pretrain_adata = restore_adata(os.path.join(save_dir, anndata_pretrain_filename))
     # finetune_adata = restore_adata(os.path.join(save_dir, anndata_finetune_filename))
     
@@ -396,18 +434,24 @@ def main():
         "stratify": True
     }
 
-    # train test split for finetune data
-    # if split_finetune_by_study:
-    #     train_adata, test_adata = split_anndata_by_study(finetune_adata, split_ratio=0.8)
-    # else:
-    #     train_adata, test_adata = train_test_split_anndata(finetune_adata, test_size=0.2, random_state=42)
-
-    # save_adata(train_adata, os.path.join(save_dir, "finetune_data_train.h5ad"))
-    # save_adata(test_adata, os.path.join(save_dir, "finetune_data_test.h5ad"))
+    # train test split for location
+    train_adata, location_adata = split_anndata_by_study(pretrain_adata, split_ratio=0.7)
+    print(f"concatenating finetune data {finetune_adata.shape} to location data {location_adata.shape}")
+    ad.concat([location_adata, finetune_adata])
+    print(f"Location data shape after concatenation: {location_adata}")
+    location_train_adata, location_test_adata = split_anndata_by_study(location_adata, split_ratio=0.8)
+    
+    save_adata(train_adata, os.path.join(save_dir, anndata_pretrain_filename))
+    save_adata(location_train_adata, os.path.join(save_dir, "finetune_data_train_location.h5ad"))
+    save_adata(location_test_adata, os.path.join(save_dir, "finetune_data_test_location.h5ad"))
+    
+    print(location_train_adata.obs['location'].value_counts())
+    print(location_test_adata.obs['location'].value_counts())
     
     for key, dataset_dict in labeled_datasets.items():
         dataset = dataset_dict["adata"]
-        print(f"Processing dataset for {key} with shape {dataset.shape}")
+        print(f"Processing dataset for {key}")
+        print(dataset)
         print(f"for the label, unique values counts are: {dataset.obs['label'].value_counts()}")
         
         stratify_key = "label" if dataset_dict.get("stratify", False) else None

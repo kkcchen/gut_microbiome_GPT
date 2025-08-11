@@ -155,7 +155,7 @@
           "--anndata-path", "datasets/anndatas/finetune_data_test.h5ad",
 
           "--nrows", "1000",
-          "--output-path", "experiment_saves/finetune_model_checkpoints_frozen/loc_finetune/test_results.json",
+          "--output-dir", "experiment_saves/finetune_model_checkpoints_frozen/loc_finetune",
 
         // "--wandb-enabled",
         // "--wandb-entity", "kevinkaiwen-chen-vector",

@@ -1,5 +1,4 @@
 from models import TransformerModel
-
 from torch import nn, Tensor
 
 class FinetunedTransformer(nn.Module):
@@ -7,17 +6,20 @@ class FinetunedTransformer(nn.Module):
         super(FinetunedTransformer, self).__init__()
         base_model_config = model_config['base_model_config']
         self.base_model = TransformerModel(**base_model_config)
-        self.classification_head = ClsDecoder(
+        self.decoder_head = FinetuneDecoder(
             d_model=base_model_config['d_model'],
             n_cls=model_config['num_classes'],
         )
         
+        self.is_classification = model_config['is_classification']
+    
+    
     def load_base_state_dict(self, state_dict):
         """
         Load the state dict into the base model.
         """
         self.base_model.load_state_dict(state_dict)
-        
+    
     
     def set_base_model_trainable(self, trainable: bool) -> list:
         """
@@ -59,9 +61,10 @@ class FinetunedTransformer(nn.Module):
         output_dict['logits'] = self.classification_head(env_emb)
         return output_dict
 
-class ClsDecoder(nn.Module):
+
+class FinetuneDecoder(nn.Module):
     """
-    Decoder for classification task.
+    Decoder for classification or regression task. For regression set n_cls = 1.
     """
 
     def __init__(

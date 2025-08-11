@@ -231,7 +231,7 @@ def load_finetuned_model(
     state_dict = load_file(model_path)
     model.load_state_dict(state_dict)
     
-    return model
+    return model, model_config
 
     
 def create_training_state_finetune(model_config, init_lr, warmup_ratio_or_step, total_steps, trainable_base_model: bool, base_state_dict=None, state_dict=None):
@@ -261,10 +261,8 @@ def create_training_state_finetune(model_config, init_lr, warmup_ratio_or_step, 
     return model, optimizer, scheduler
 
 
-def create_data_state_finetune(anndata_path, num_bins, vocab_restore_dir, data_restore_dir, accelerator: Accelerator, batch_obskey, use_continuous_labels=False, nrows=None):
-    if accelerator.is_main_process:
-        assert not use_continuous_labels, "Continuous labels are not supported yet"
-        
+def create_data_state_finetune(anndata_path, num_bins, vocab_restore_dir, data_restore_dir, accelerator: Accelerator, batch_obskey=None, continuous_obskey=None, nrows=None):
+    if accelerator.is_main_process:       
         if os.path.exists(os.path.join(vocab_restore_dir, "augmented_data.h5ad")):
             # load the vocab from the file
             adata_vocab = ad.read_h5ad(os.path.join(vocab_restore_dir, "augmented_data.h5ad"))
@@ -274,28 +272,43 @@ def create_data_state_finetune(anndata_path, num_bins, vocab_restore_dir, data_r
         else:
             raise FileNotFoundError(f"Vocab file not found at {vocab_restore_dir}")
         
-        # finally restore data
         if os.path.exists(os.path.join(data_restore_dir, "augmented_data_finetune.h5ad")):
             adata = ad.read_h5ad(os.path.join(data_restore_dir, "augmented_data_finetune.h5ad"))
             
             # restore batch vocab
-            if f"{batch_obskey}_batch_vocab" in adata.uns:
+            if batch_obskey and f"{batch_obskey}_batch_vocab" in adata.uns:
                 batch_vocab = BatchVocab.restore_batchvocab(adata)
                 logger.info(f"Batch vocab restored from {data_restore_dir}")
+            elif continuous_obskey:
+                labels = adata.obs[continuous_obskey].values
+                mean_label = np.mean(labels)
+                std_label = np.std(labels)
+                logger.info(f"Mean of labels: {mean_label}, Std of labels: {std_label}")
             else:
-                raise FileNotFoundError(f"Batch vocab file not found at {data_restore_dir}")
+                raise FileNotFoundError(f"Batch vocab or labels not found at {data_restore_dir}")
             
             # load the data state from the file
             assert "split" in adata.obs and "binned_rows" in adata.layers, "The AnnData object must have 'split' in obs."
-            logger.info("Data state can be restored from {}".format(data_restore_dir))
+            logger.info("Data state restored from {}".format(data_restore_dir))
         else:
             os.makedirs(data_restore_dir, exist_ok=True)
             adata = ad.read_h5ad(anndata_path)
             if nrows:
                 adata = adata[:nrows, :].copy()
             
-            # batch vocab
-            batch_vocab = BatchVocab.create_batchvocab_from_scratch(batch_obskey, adata)
+            # targets
+            if batch_obskey:
+                batch_vocab = BatchVocab.create_batchvocab_from_scratch(batch_obskey, adata)
+            elif continuous_obskey:
+                labels = adata.obs[continuous_obskey].values
+                mean_label = np.mean(labels)
+                std_label = np.std(labels)
+                logger.info(f"Mean of labels: {mean_label}, Std of labels: {std_label}")
+                adata.obs[f"{continuous_obskey}_norm"] = (adata.obs[continuous_obskey] - mean_label) / std_label
+                adata.uns[f"{continuous_obskey}_mean"] = mean_label
+                adata.uns[f"{continuous_obskey}_std"] = std_label
+            else:
+                raise ValueError("Either batch_obskey or continuous_obskey must be provided")
             
             # create the data state
             preprocessor = Preprocessor(
@@ -311,23 +324,23 @@ def create_data_state_finetune(anndata_path, num_bins, vocab_restore_dir, data_r
             # create tokenizer
             adata.layers["binned_rows"] = stacked_rows
             tokenizer = Tokenizer(vocab)
-            data_dict = tokenizer.tokenize_and_pad_batch(adata, batch_obskey=batch_obskey)
             
             # Randomly select exactly n_train indices without replacement
             train_indices = np.random.choice(adata.n_obs, size=int(adata.n_obs * 0.8), replace=False)
             is_train = np.zeros(adata.n_obs, dtype=bool)
             is_train[train_indices] = True            
             adata.obs["split"] = np.where(is_train, "train", "val")
+            adata.write_h5ad(os.path.join(data_restore_dir, "augmented_data_finetune.h5ad"))
         
-        adata.write_h5ad(os.path.join(data_restore_dir, "augmented_data_finetune.h5ad"))
+        data_dict = tokenizer.tokenize_and_pad_batch(adata, batch_obskey=batch_obskey, continuous_obskey=continuous_obskey)
         # Create train and validation splits
         train_data_dict = {}
         valid_data_dict = {}
         # train and validation split
         split_keys = ["taxa_ids", "values"]
 
-        if use_continuous_labels:
-            split_keys.append("continuous_labels")  # assuming continuous regression targets
+        if continuous_obskey:
+            split_keys.append("continuous_labels")
         if batch_obskey:
             split_keys.append("batch_labels")
         

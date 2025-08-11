@@ -163,10 +163,13 @@ class Tokenizer:
         #     batch_padded["mod_types"] = torch.stack(mod_types_list, dim=0)
         return batch_padded
     
-    def add_batch_labels(
+    def add_labels(
         self,
         data_dict: Dict[str, torch.Tensor],
-        batch_ids: Optional[List] = None,
+        label_name: str,
+        label_dtype: torch.dtype,
+        labels: Optional[List] = None,
+        
     ) -> Dict[str, torch.Tensor]:
         """
         Add batch labels to the padded batch.
@@ -178,49 +181,21 @@ class Tokenizer:
         Returns:
             Dict[str, torch.Tensor]: The padded batch with labels added.
         """
-        if not batch_ids:
-            return data_dict
-        
-        if len(batch_ids) != data_dict["taxa_ids"].shape[0]:
-            raise ValueError(f"Batch labels length does not match the number of samples, {len(batch_ids)} vs {data_dict['taxa_ids'].shape[0]}")
-        
-        return dict(
-            **data_dict,
-            batch_labels=torch.tensor(batch_ids),
-        )
-        
-    
-    def add_continuous_labels(
-        self,
-        data_dict: Dict[str, torch.Tensor],
-        labels: Optional[List[float]] = None,
-    ) -> Dict[str, torch.Tensor]:
-        """
-        Add batch labels to the padded batch.
-
-        Args:
-            labels (Optional[List[str]]): A list of labels for the batch. If provided, will be used to create a dictionary with keys as labels.
-
-        Returns:
-            Dict[str, torch.Tensor]: The padded batch with labels added.
-        """
         if not labels:
             return data_dict
         
         if len(labels) != data_dict["taxa_ids"].shape[0]:
-            raise ValueError(f"Labels length does not match the number of samples, {len(labels)} vs {data_dict['taxa_ids'].shape[0]}")
+            raise ValueError(f"Batch labels length does not match the number of samples, {len(labels)} vs {data_dict['taxa_ids'].shape[0]}")
         
-        return dict(
-            **data_dict,
-            continuous_labels=torch.tensor(labels, dtype=torch.float),
-        )
+        data_dict[label_name] = torch.tensor(labels, dtype=label_dtype)
+        return data_dict
 
 
     def tokenize_and_pad_batch(
         self,
         adata: ad.AnnData,
         batch_obskey: Optional[str] = None,
-        continuous_labels: Optional[List] = None,
+        continuous_obskey: Optional[str] = None,
         prepend_cls: bool = True,
         include_zero_count: bool = False,
         return_pt: bool = True,
@@ -247,15 +222,24 @@ class Tokenizer:
         )
         
         batch_ids = adata.obs[f"{batch_obskey}_id"].to_list() if batch_obskey else None
-        sample_dict = self.add_batch_labels(
+        sample_dict = self.add_labels(
             sample_dict,
-            batch_ids=batch_ids,
+            label_name="batch_labels",
+            labels=batch_ids,
+            label_dtype=torch.long,
         )
         
-        # sample_dict = self.add_continuous_labels(
-        #     sample_dict,
-        #     labels=continuous_labels,
-        # )
+        if continuous_obskey:
+            continuous_labels = adata.obs[continuous_obskey].to_list()
+            mean_label = np.mean(continuous_labels)
+            std_label = np.std(continuous_labels)
+            continuous_labels = (continuous_labels - mean_label ) / std_label
+            sample_dict = self.add_labels(
+                sample_dict,
+                label_name="continuous_labels",
+                labels=continuous_labels,
+                label_dtype=torch.float32,
+            )
             
         return sample_dict
     

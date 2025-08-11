@@ -17,10 +17,9 @@ from trainers.finetune_functions import (
 )
 
 from trainers.test_functions import (
-    evaluate_classification
+    evaluate_classification,
+    evaluate_regression
 )
-
-from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_score
 
 from trainers import logger
 
@@ -86,7 +85,6 @@ if __name__ == "__main__":
     
     # for finetuning
     parser.add_argument("--model-config-path", type=str, required=True, help="Path to save model configuration file")
-    
     parser.add_argument("--task-type", type=str, choices=["classification", "regression"], required=True, help="Specify the task type: classification or regression")
     
     args = parser.parse_args()
@@ -155,7 +153,8 @@ if __name__ == "__main__":
         vocab_restore_dir, 
         data_restore_dir, 
         accelerator, 
-        batch_obskey="location", 
+        batch_obskey="location" if is_classification else None,
+        continuous_obskey="label" if not is_classification else None,
         nrows=nrows, 
     )
         
@@ -163,13 +162,11 @@ if __name__ == "__main__":
     
     if is_classification:
         print(f"rank {accelerator.process_index} has vocab {batch_vocab.itos}")
-
         class_counts = torch.bincount(train_data_dict["batch_labels"], minlength=len(batch_vocab))
         class_weights = 1.0 / (class_counts.float() + 1e-8)
         class_weights = (class_weights / class_weights.sum() * len(class_weights)).to(accelerator.device)
         loss_fn=torch.nn.CrossEntropyLoss(weight=class_weights)
     else:
-        raise ValueError("continuous hasn't been implemented yet!")
         loss_fn = torch.nn.MSELoss()
     
     wandb_config={
@@ -180,6 +177,23 @@ if __name__ == "__main__":
         "cosine_warmup_ratio_or_step": cosine_warmup_ratio_or_step,
         "binning": num_bins
     }
+    
+    model_config = {
+        'base_model_config': base_model_config,
+        'num_classes': len(batch_vocab) if is_classification else 1,
+        'is_classification': is_classification,
+    }
+    if not is_classification:
+        train_data = train_data_dict["continuous_labels"].float()
+        train_mean = train_data.mean().item()
+        train_std = train_data.std().item()
+        model_config["train_mean"] = train_mean
+        model_config["train_std"] = train_std
+        logger.info(f"Calculated training data mean: {train_mean}, std: {train_std}")
+        
+        # standardize the continuous labels
+        train_data_dict["continuous_labels"] = (train_data_dict["continuous_labels"] - train_mean) / train_std
+        valid_data_dict["continuous_labels"] = (valid_data_dict["continuous_labels"] - train_mean) / train_std
 
     logger.info("Preparing dataloaders...")
     train_loader = prepare_dataloader(
@@ -209,11 +223,6 @@ if __name__ == "__main__":
         base_state_dict = load_file(base_model_path)
     else:
         base_state_dict = None
-    
-    model_config = {
-        'base_model_config': base_model_config,
-        'num_classes': len(batch_vocab) if is_classification else 1,
-    }
     
     # save model config to file
     if accelerator.is_main_process:
@@ -347,12 +356,12 @@ if __name__ == "__main__":
     logger.info("Training complete with best validation loss: {:.4f}".format(best_val_loss))    
     
     if is_classification:
-        # evaluate on eval set... test differences
-        evaluate_classification(new_model, valid_loader, batch_vocab, vocab.pad_index, os.path.join(args.best_dir, "valid_results.json"), accelerator)
+        evaluate_classification(new_model, valid_loader, batch_vocab, vocab.pad_index, os.path.join(args.best_dir, "valid_results"), accelerator)
         accelerator.wait_for_everyone()
-        
-        # evaluate on train set
-        evaluate_classification(new_model, train_loader, batch_vocab, vocab.pad_index, os.path.join(args.best_dir, "train_results.json"), accelerator)
+        evaluate_classification(new_model, train_loader, batch_vocab, vocab.pad_index, os.path.join(args.best_dir, "train_results"), accelerator)
     else:
-        raise ValueError("continuous hasn't been implemented yet!")
+        evaluate_regression(new_model, valid_loader, vocab.pad_index, train_mean, train_std, os.path.join(args.best_dir, "valid_results"), accelerator)
+        accelerator.wait_for_everyone()
+        evaluate_regression(new_model, train_loader, vocab.pad_index, train_mean, train_std, os.path.join(args.best_dir, "train_results"), accelerator)
+        
     accelerator.end_training()

@@ -3,6 +3,8 @@ import os
 import torch
 import json
 import anndata as ad
+from sklearn.metrics import RocCurveDisplay, r2_score
+import matplotlib.pyplot as plt
 
 from data_utils.preprocessor import Preprocessor
 from data_utils.tokenizer import Tokenizer
@@ -40,7 +42,7 @@ def restore_vocab_test(anndata_path, vocab_restore_path, batch_obskey=None):
     return vocab, batch_vocab, adata
 
 
-def create_testdata_state(adata, num_bins, vocab, batch_obskey, nrows=None):
+def create_testdata_state(adata, num_bins, vocab, batch_obskey, continuous_obskey, nrows=None):
     # create the data dict
     if nrows:
         adata = adata[:nrows, :].copy()
@@ -58,7 +60,7 @@ def create_testdata_state(adata, num_bins, vocab, batch_obskey, nrows=None):
     adata.layers["binned_rows"] = stacked_rows
 
     tokenizer = Tokenizer(vocab)
-    data_dict = tokenizer.tokenize_and_pad_batch(adata, batch_obskey=batch_obskey)
+    data_dict = tokenizer.tokenize_and_pad_batch(adata, batch_obskey=batch_obskey, continuous_obskey=continuous_obskey)
     
     return data_dict
 
@@ -104,54 +106,161 @@ def get_class_probs(model, dataloader, vocab_pad_index, accelerator):
     return all_probs, all_targets
 
 
-def evaluate_classification(model, dataloader, batch_vocab, vocab_pad_index, output_path, accelerator):
+def add_roc_curve(binary_targets, scores, region, ax):
+    RocCurveDisplay.from_predictions(
+        y_true=binary_targets,
+        y_pred=scores,
+        name=f"{region} ({binary_targets.sum()} samples)",
+        plot_chance_level=False,  # Plot only once outside the loop
+        ax=ax
+    )
+
+
+def save_roc_curve(ax, output_dir):
+    # add chance line
+    ax.plot([0, 1], [0, 1], linestyle='--', color='gray', label='Chance Level')
+    
+    ax.set_title("ROC Curves")
+    ax.set_xlabel("False Positive Rate")
+    ax.set_ylabel("True Positive Rate")
+    ax.grid(True)
+    ax.legend()
+    
+    output_path = os.path.join(output_dir, "roc_all_regions.png")
+    plt.savefig(output_path)
+    plt.close()
+    print(f"Saved combined ROC plot to {output_path}")
+    
+
+def evaluate_binary(region_name, y_probs, y_pred, y_test_binary):
+    
+    # Check that all shapes are equal
+    assert y_probs.shape == y_pred.shape == y_test_binary.shape, \
+        f"Shape mismatch: y_probs {y_probs.shape}, y_pred {y_pred.shape}, y_test_binary {y_test_binary.shape}"
+    print(f"y_probs {y_probs.shape}, y_pred {y_pred.shape}, y_test_binary {y_test_binary.shape}")
+    
+    # check that the shape of y_probs 1 dimensional
+    assert y_probs.ndim == 1, f"y_probs should be 1-dimensional, got {y_probs.ndim} dimensions"
+    
+    # Evaluate the model's accuracy on the test set
+    n_samples = np.sum(y_test_binary).item()
+    accuracy = accuracy_score(y_test_binary, y_pred)
+    auc = roc_auc_score(y_test_binary, y_probs)
+    average_precision = average_precision_score(y_test_binary, y_probs)
+    baseline_precision = np.mean(y_test_binary)
+
+    return {
+        "Region": region_name,
+        "n_samples": n_samples,
+        "Accuracy": accuracy,
+        "AUC (ROC)": auc,
+        "Average Precision": average_precision,
+        "Baseline Precision": baseline_precision
+    }
+
+def evaluate_multiclass_and_save(y_true, y_probs, train_class_labels, output_dir):
+    # evaluate, done for all
+    y_pred = train_class_labels[np.argmax(y_probs, axis=1)]
+    print("types of predictions and targets are:", y_pred.dtype, y_true.dtype)
+    total_accuracy = accuracy_score(y_true, y_pred)
+    conf_mat = confusion_matrix(y_true, y_pred)
+    region_scores = []
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    for index, region in enumerate(train_class_labels):
+        scores = y_probs[:, index]
+        binary_predictions = (y_pred == region).astype(int)
+        binary_targets = (y_true == region).astype(int)
+        region_scores.append(evaluate_binary(region, scores, binary_predictions, binary_targets))
+        add_roc_curve(binary_targets, scores, region, ax)
+    
+    save_roc_curve(ax, output_dir)
+    # Save the scores to a file
+    conf_row_strs = [str(row) for row in conf_mat]
+
+    region_scores.sort(key=lambda x: x["Region"])
+    region_scores.append({"Total Accuracy": total_accuracy,
+                        "Categories": list(train_class_labels),
+                        "Confusion Matrix": conf_row_strs})
+    os.makedirs(output_dir, exist_ok=True)
+    # Save the scores to a file
+    scores_file = os.path.join(output_dir, "multiclass_scores.json")
+    print(f"Scores for all regions saved to {scores_file}")
+    with open(scores_file, "w") as f:
+        json.dump(region_scores, f, indent=4)
+
+    print(f"Scores for all regions saved to {scores_file}")
+
+
+def evaluate_classification(model, dataloader, batch_vocab, vocab_pad_index, output_dir, accelerator):
     probs, targets = get_class_probs(model, dataloader, vocab_pad_index, accelerator)
     probs = probs.cpu().numpy()
     targets = targets.cpu().numpy()
-    
+    train_class_labels = batch_vocab.itos
     if accelerator.is_main_process:
-        print("shape of probs and targets is:", probs.shape, targets.shape)
-        predictions = np.argmax(probs, axis=1)
-        total_accuracy = accuracy_score(targets, predictions)
-        conf_mat = confusion_matrix(targets, predictions)
-        region_scores = []
-        for region, index in batch_vocab.stoi.items():
-            logger.info(f"region {region} is {index}")
-            if region == "unknown":
-                continue
-            scores = probs[:, index]
-            binary_predictions = np.array((predictions == index), dtype=int)
-            binary_targets = np.array((targets == index), dtype=int)
-            n_samples = np.sum(binary_targets).item()
-            accuracy = accuracy_score(binary_targets, binary_predictions)
-            auroc = roc_auc_score(binary_targets, scores)
-            aupr = average_precision_score(binary_targets, scores)
-            baseline_precision = np.mean(binary_targets)
-            
-            region_scores.append({
-                "Region": region,
-                "n_samples": n_samples,
-                "Accuracy": accuracy,
-                "AUC (ROC)": auroc,
-                "Average Precision": aupr,
-                "Baseline Precision": baseline_precision
-            })
-        
-        # Save the scores to a file
-        conf_row_strs = [str(row) for row in conf_mat]
-
-        region_scores.sort(key=lambda x: x["Region"])
-        region_scores.append({"Total Accuracy": total_accuracy,
-                              "Categories": batch_vocab.itos,
-                              "Confusion Matrix": conf_row_strs})
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        with open(output_path, "w") as f:
-            json.dump(region_scores, f, indent=4)
-
-        print(f"Scores for all regions saved to {output_path}")
+        evaluate_multiclass_and_save(
+            targets,
+            probs,
+            train_class_labels,
+            output_dir
+        )
 
 
-def evaluate_regression(model, dataloader, vocab_pad_index, output_path, accelerator):
+def plot_regression_results(y_true, y_pred, r2, output_dir):
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    
+    # 1. Predicted vs. Actual
+    ax1.scatter(y_true, y_pred, alpha=0.5)
+    min_val, max_val = min(y_true.min(), y_pred.min()), max(y_true.max(), y_pred.max())
+    ax1.plot([min_val, max_val], [min_val, max_val], 'r--', label="Ideal")
+    ax1.set_xlabel("Actual")
+    ax1.set_ylabel("Predicted")
+    ax1.set_title(f"Predicted vs Actual\nR² = {r2:.3f}")
+    ax1.legend()
+    ax1.grid(True)
+
+    # 2. Residuals histogram
+    residuals = y_pred - y_true
+    ax2.hist(residuals, bins=30, alpha=0.7, color='blue', edgecolor='black')
+    ax2.set_xlabel("Residual (Predicted - Actual)")
+    ax2.set_ylabel("Frequency")
+    ax2.set_title("Residuals Distribution")
+    ax2.grid(True)
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "regression_plots.png"))
+    plt.close()
+
+
+def evaluate_regression_and_save(y_true, y_pred, output_dir, mean=0, std=1):
+    """
+    y_true, y_pred: standardized values
+    mean, std: scalars for unnormalization
+    """
+    # Unstandardize
+    y_true_orig = y_true * std + mean
+    y_pred_orig = y_pred * std + mean
+    
+    mse = np.mean((y_true_orig - y_pred_orig) ** 2)
+    mae = np.mean(np.abs(y_true_orig - y_pred_orig))
+    r2 = r2_score(y_true_orig, y_pred_orig)
+    
+    results = {
+        "Mean Squared Error": mse,
+        "Mean Absolute Error": mae,
+        "R-squared": r2,
+    }
+    
+    os.makedirs(output_dir, exist_ok=True)
+    plot_regression_results(y_true_orig, y_pred_orig, r2, output_dir)
+    scores_file = os.path.join(output_dir, "regression_scores.json")
+    with open(scores_file, "w") as f:
+        json.dump(results, f, indent=4)
+    
+    print(f"Regression evaluation results saved to {scores_file}")
+
+
+def evaluate_regression(model, dataloader, vocab_pad_index, standardize_mean, standardize_std, output_dir, accelerator):
     """
     Evaluate the model on a regression task.
     
@@ -159,7 +268,7 @@ def evaluate_regression(model, dataloader, vocab_pad_index, output_path, acceler
         model: The model to evaluate.
         dataloader: The dataloader containing the test data.
         vocab_pad_index: The padding index for the vocabulary.
-        output_path: Path to save the evaluation results.
+        output_dir: Dir to save the evaluation results.
         accelerator: The Accelerator instance for distributed training.
     
     Returns:
@@ -174,7 +283,7 @@ def evaluate_regression(model, dataloader, vocab_pad_index, output_path, acceler
             taxa = data_dict["ids"]
             values = data_dict["values"]
             key_padding_mask = taxa.eq(vocab_pad_index)
-            targets = data_dict["batch_labels"]
+            targets = data_dict["continuous_labels"]
 
             with accelerator.autocast():
                 output_dict = model(
@@ -191,17 +300,15 @@ def evaluate_regression(model, dataloader, vocab_pad_index, output_path, acceler
     all_preds = torch.cat(all_preds, dim=0).cpu().numpy()
     all_targets = torch.cat(all_targets, dim=0).cpu().numpy()
     
+    assert all_preds.shape[1] == 1, f"Second dimension of predictions should be 1, got {preds.shape[1]}"
+    all_preds = all_preds.squeeze(dim=1)
+    assert all_preds.shape == all_targets.shape, f"Predictions shape {preds.shape} does not match targets shape {targets.shape}"
+    
     if accelerator.is_main_process:
-        mse = np.mean((all_preds - all_targets) ** 2)
-        mae = np.mean(np.abs(all_preds - all_targets))
-        
-        results = {
-            "Mean Squared Error": mse,
-            "Mean Absolute Error": mae
-        }
-        
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        with open(output_path, "w") as f:
-            json.dump(results, f, indent=4)
-        
-        print(f"Regression evaluation results saved to {output_path}")
+        evaluate_regression_and_save(
+            all_targets,
+            all_preds,
+            output_dir,
+            standardize_mean,
+            standardize_std
+        )
