@@ -275,8 +275,6 @@ def main():
     parser = argparse.ArgumentParser(description="Preprocess HMC taxonomic table.")
     parser.add_argument('--taxonomic_table_path', type=str, required=True, help='Path to the taxonomic table CSV file.')
     parser.add_argument('--save_dir', type=str, required=True, help='Directory to save pretrain data.')
-    parser.add_argument('--anndata_pretrain_filename', type=str, default="taxonomy_table_pretrain.h5ad", help='Pretrain .h5ad file name.')
-    parser.add_argument('--anndata_finetune_filename', type=str, default="taxonomy_table_finetune.h5ad", help='Finetune .h5ad file name.')
     parser.add_argument('--sample_metadata_path', type=str, required=True, help='metadata path')
     parser.add_argument('--tags_path', type=str, default="data/tags.tsv", help='Path to the tags file.')
 
@@ -291,8 +289,6 @@ def main():
 
     taxonomic_table_path = args.taxonomic_table_path
     save_dir = args.save_dir
-    anndata_pretrain_filename = args.anndata_pretrain_filename
-    anndata_finetune_filename = args.anndata_finetune_filename
     sample_metadata_path = args.sample_metadata_path
     tags_path = args.tags_path
     nrows = args.nrows
@@ -436,17 +432,19 @@ def main():
 
     # train test split for location
     train_adata, location_adata = split_anndata_by_study(pretrain_adata, split_ratio=0.7)
-    print(f"concatenating finetune data {finetune_adata.shape} to location data {location_adata.shape}")
     ad.concat([location_adata, finetune_adata])
-    print(f"Location data shape after concatenation: {location_adata}")
     location_train_adata, location_test_adata = split_anndata_by_study(location_adata, split_ratio=0.8)
     
-    save_adata(train_adata, os.path.join(save_dir, anndata_pretrain_filename))
-    save_adata(location_train_adata, os.path.join(save_dir, "finetune_data_train_location.h5ad"))
-    save_adata(location_test_adata, os.path.join(save_dir, "finetune_data_test_location.h5ad"))
+    save_adata(train_adata, os.path.join(save_dir, "pretrain.h5ad"))
+    save_adata(location_train_adata, os.path.join(save_dir, "finetune_loc_train.h5ad"))
+    save_adata(location_test_adata, os.path.join(save_dir, "finetune_loc_test.h5ad"))
+    
     
     print(location_train_adata.obs['location'].value_counts())
     print(location_test_adata.obs['location'].value_counts())
+    
+    all_train = []
+    all_test = []
     
     for key, dataset_dict in labeled_datasets.items():
         dataset = dataset_dict["adata"]
@@ -454,18 +452,42 @@ def main():
         print(dataset)
         print(f"for the label, unique values counts are: {dataset.obs['label'].value_counts()}")
         
-        stratify_key = "label" if dataset_dict.get("stratify", False) else None
+        label_dtype = dataset.obs["label"].dtype
+
+        if label_dtype.kind in {"f", "i"}:  # float or int → continuous label
+            dataset.obs = dataset.obs.rename(columns={"label": "continuous_label"})
+            dataset.obs["categorical_label"] = pd.NA
+            stratify_key = "continuous_label" if dataset_dict.get("stratify", False) else None
+        else:
+            dataset.obs["categorical_label"] = dataset.obs["label"].astype(str)
+            dataset.obs = dataset.obs.drop(columns=["label"])
+            dataset.obs["continuous_label"] = np.nan
+            stratify_key = "categorical_label" if dataset_dict.get("stratify", False) else None
+        
         train_adata, test_adata = train_test_split_anndata(
             dataset,
             test_size=0.2,
             random_state=42,
             stratify_obskey=stratify_key
         )
+        train_adata.obs["downstream_task"] = key
+        test_adata.obs["downstream_task"] = key
         
-        save_adata(train_adata, os.path.join(save_dir, f"finetune_data_train_{key}.h5ad"))
-        save_adata(test_adata, os.path.join(save_dir, f"finetune_data_test_{key}.h5ad"))
-        
-        
+        all_train.append(train_adata)
+        all_test.append(test_adata)
+    
+    train_all = ad.concat(all_train, join="outer")
+    test_all = ad.concat(all_test, join="outer")
+    
+    print(f"Final train data: {train_all}")
+    print(f"Final test data: {test_all}")
+    
+    save_adata(train_all, os.path.join(save_dir, "finetune_train.h5ad"))
+    save_adata(test_all, os.path.join(save_dir, "finetune_test.h5ad"))
+    
+    print(train_all.obs['downstream_task'].value_counts())
+    print(test_all.obs['downstream_task'].value_counts())
+
 
 if __name__ == '__main__':
     main()

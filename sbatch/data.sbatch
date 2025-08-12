@@ -16,16 +16,12 @@ METADATA_PATH="/project/aip-rahulgk/gutmodel/sample_metadata.tsv"
 TAGS_PATH="/project/aip-rahulgk/gutmodel/tags.tsv"
 
 SAVE_DIR="/project/aip-rahulgk/gutmodel/datasets_newsplit"
-ANN_PRETRAIN_FILENAME="taxonomy_table_pretrain.h5ad"
-ANN_FINETUNE_FILENAME="taxonomy_table_finetune.h5ad"
 
 # Run the script
 echo starting now
 python -m scripts.preprocess_hmc \
     --taxonomic_table_path "$TAXONOMIC_TABLE_PATH" \
     --save_dir "$SAVE_DIR" \
-    --anndata_pretrain_filename "$ANN_PRETRAIN_FILENAME" \
-    --anndata_finetune_filename "$ANN_FINETUNE_FILENAME" \
     --tags_path "$TAGS_PATH" \
     --seed 42 \
     --split_ratio 0.8 \
