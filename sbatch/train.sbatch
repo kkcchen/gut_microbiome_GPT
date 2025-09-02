@@ -16,12 +16,12 @@ python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not availabl
 
 # put your command here
 DATA_DIR="/project/aip-rahulgk/gutmodel/datasets_newsplit"
-RUN_NAME="taxa-mask-30"
-NOTES="30% masking with taxa masking and mvc, no batch labels"
+RUN_NAME="taxa-mask-30-locexc"
+NOTES="30% masking with taxa masking and mvc, no batch labels and some location labels held out"
 
 EXPERIMENT_PATH=experiment_saves/$RUN_NAME
 
-ANN_TABLE_PATH="$DATA_DIR/taxonomy_table_pretrain.h5ad"
+ANN_TABLE_PATH="$DATA_DIR/pretrain.h5ad"
 
 SAVE_DIR="$EXPERIMENT_PATH/model_checkpoints"
 BEST_DIR="$SAVE_DIR/best_model"
@@ -46,7 +46,7 @@ accelerate launch --main_process_port 0 -m scripts.trainer \
     --wandb-run-notes "$NOTES" \
     --init-lr 1e-3 \
     --batch-size 64 \
-    --max-epochs 25 \
+    --max-epochs 16 \
     --cosine-warmup-ratio-or-step 100 \
     --num-bins 15 \
     --log-interval 10 \
@@ -55,6 +55,6 @@ accelerate launch --main_process_port 0 -m scripts.trainer \
     --notes "$NOTES" \
     --train-mask-ratio 0.3 \
     --do-taxa-decoder \
-    --do-mvc
+    --do-mvc \
     # --use-batch-labels \
     # --do-contrastive &

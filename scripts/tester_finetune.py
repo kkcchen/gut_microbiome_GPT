@@ -30,7 +30,10 @@ def main():
     parser.add_argument("--nrows", type=int, default=None, help="Number of rows to use from the h5ad file (for debugging)")
     parser.add_argument("--output-dir", type=str, required=True, help="Path to save the output files.")
     parser.add_argument("--task-type", type=str, choices=["classification", "regression"], required=True, help="Specify the task type: classification or regression")
-    
+    parser.add_argument("--ignored-labels", type=str, nargs='*', default=["unknown"], help="List of labels to ignore in the target column.")
+    parser.add_argument("--downstream-task", type=str, required=True, help="Type of downstream task to perform.")
+
+
     args = parser.parse_args()
     is_classification = (args.task_type == "classification")
     
@@ -43,17 +46,29 @@ def main():
     
     batch_obskey = None
     continuous_obskey = None
-    if is_classification:
+    
+    if args.downstream_task == "location":
         batch_obskey = "location"
+        assert is_classification, "Location task is only supported for classification."
+        assert "unknown" in args.ignored_labels, "Location task requires 'unknown' to be in ignored labels."
+    elif is_classification:
+        batch_obskey = "categorical_label"
     else:
-        continuous_obskey = "continuous_labels"
+        continuous_obskey = "continuous_label"
         train_mean = model_config["train_mean"]
         train_std = model_config["train_std"]
         
     # load data and prepare dataloader
-    vocab, batch_vocab, adata = restore_vocab_test(args.anndata_path, args.finetune_vocab_dir, batch_obskey=batch_obskey)
+    vocab, batch_vocab, adata = restore_vocab_test(args.anndata_path, args.finetune_vocab_path, batch_obskey=batch_obskey)
     num_bins = model.base_model.n_input_bins
     
+    if args.downstream_task != "location":
+        adata = adata[adata.obs['downstream_task'] == args.downstream_task]
+    if is_classification:
+        adata = adata[~adata.obs[batch_obskey].isin(args.ignored_labels)]
+    else:
+        adata = adata[~adata.obs[continuous_obskey].isin(args.ignored_labels)]
+        
     data_dict = create_testdata_state(
         adata=adata,
         num_bins=num_bins,
@@ -68,8 +83,8 @@ def main():
     
     dataloader = prepare_dataloader(
         data_dict,
-        use_batch_labels=True,
-        use_continuous_labels=False,
+        use_batch_labels=is_classification,
+        use_continuous_labels=not is_classification,
         gen_percent=0.0,  # No generation for encoding
         vocab=vocab,
         batch_size=64,  # Adjust batch size as needed

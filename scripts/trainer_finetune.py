@@ -59,7 +59,7 @@ if __name__ == "__main__":
     parser.add_argument("--train-input", type=str, required=True, help="Path to train .h5ad file with X shape (samples, taxa)")
     parser.add_argument("--best-dir", type=str, required=True, help="Directory to save best model so far")
     parser.add_argument("--data-restore-dir", type=str, required=True, help="Directory to restore data state")
-    parser.add_argument("--vocab-restore-dir", type=str, required=True, help="Directory to restore vocab state")
+    parser.add_argument("--vocab-restore-path", type=str, required=True, help="Path to restore vocab state")
     # wandb
     parser.add_argument("--wandb-enabled", action="store_true", help="Enable Weights & Biases logging")
     parser.add_argument("--wandb-entity", type=str, default=None, help="wandb entity name")
@@ -86,7 +86,9 @@ if __name__ == "__main__":
     # for finetuning
     parser.add_argument("--model-config-path", type=str, required=True, help="Path to save model configuration file")
     parser.add_argument("--task-type", type=str, choices=["classification", "regression"], required=True, help="Specify the task type: classification or regression")
-    
+    parser.add_argument("--ignored-labels", type=str, nargs='*', default=["unknown"], help="List of labels to ignore in the target column.")
+    parser.add_argument("--downstream-task", type=str, required=True, help="Type of downstream task to perform.")
+
     args = parser.parse_args()
 
     base_model_config_path = args.base_model_config_path
@@ -94,7 +96,7 @@ if __name__ == "__main__":
     train_input = args.train_input
     best_dir = args.best_dir
     data_restore_dir = args.data_restore_dir
-    vocab_restore_dir = args.vocab_restore_dir
+    vocab_restore_path = args.vocab_restore_path
 
     wandb_enabled = args.wandb_enabled
     wandb_entity = args.wandb_entity
@@ -116,7 +118,7 @@ if __name__ == "__main__":
     
     task_type = args.task_type
     is_classification = (task_type == "classification")
-            
+    
     accelerator = Accelerator(gradient_accumulation_steps=grad_accumulation_steps, mixed_precision="fp16" if enable_fp16 else "no", log_with="wandb" if wandb_enabled else None)
         
     # Set random seed for reproducibility
@@ -142,20 +144,35 @@ if __name__ == "__main__":
             # the variable `data_restore_dir`.
             shutil.rmtree(data_restore_dir)
         os.makedirs(data_restore_dir, exist_ok=True)
-        # don't remove vocab_restore_dir, as it is from pretraining
+        # don't remove vocab_restore_path, as it is from pretraining
     
     accelerator.wait_for_everyone()
+    
+    if args.downstream_task == "location":
+        batch_obskey = "location"
+        continuous_obskey = None
+        assert "unknown" in args.ignored_labels, "For location task, 'unknown' label must be ignored."
+        assert is_classification, "For location task, task type must be classification."
+    elif is_classification:
+        batch_obskey = "categorical_label"
+        continuous_obskey = None
+    else:
+        batch_obskey = None
+        continuous_obskey = "continuous_label"
+        assert len(args.ignored_labels) == 0, "For regression task, no labels should be ignored."
 
     # Create or restore data state
     train_data_dict, valid_data_dict, vocab, batch_vocab = create_data_state_finetune(
         train_input, 
         num_bins, 
-        vocab_restore_dir, 
+        vocab_restore_path, 
         data_restore_dir, 
         accelerator, 
-        batch_obskey="location" if is_classification else None,
-        continuous_obskey="label" if not is_classification else None,
-        nrows=nrows, 
+        batch_obskey=batch_obskey,
+        continuous_obskey=continuous_obskey,
+        nrows=nrows,
+        downstream_task=args.downstream_task,
+        ignored_labels=args.ignored_labels if is_classification else [],
     )
         
     check_vocab_basemodel_match(base_model_config, vocab)
@@ -283,6 +300,7 @@ if __name__ == "__main__":
             best_dir=best_dir,
             best_val_loss=best_val_loss,
             loss_fn=loss_fn,
+            is_classification=is_classification,
         )
 
         # Log metrics to wandb
@@ -336,6 +354,7 @@ if __name__ == "__main__":
             best_dir=best_dir,
             best_val_loss=best_val_loss,
             loss_fn=loss_fn,
+            is_classification=is_classification,
         )
 
         # Log metrics to wandb

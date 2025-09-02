@@ -28,6 +28,7 @@ def main():
     parser.add_argument("--adata-path", type=str, required=True, help="Path to the training data h5ad file")
     parser.add_argument("--is-finetune", action="store_true", help="Path to the training data numpy file")
     parser.add_argument("--nrows", type=int, default=None, help="Number of rows to use from the anndata file (for debugging)")
+    parser.add_argument("--emb-colname", type=str, default="embedding", help="Column name for the embeddings in the output anndata file")
     args = parser.parse_args()
     
     safetensors_path = args.safetensors_path
@@ -104,11 +105,11 @@ def main():
     # === Save result (only main process) ===
     if accelerator.is_main_process:
         final_tensor = torch.cat(all_cell_embs, dim=0)
-        adata.obsm["embedding"] = np.array(final_tensor)
+        adata.obsm[args.emb_colname] = np.array(final_tensor)
         print(f"shape of samples is {final_tensor.shape}")
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         adata.write_h5ad(output_path)
-        print(f"Saved cell embeddings as anndata to {output_path}")
+        print(f"Saved cell embeddings as anndata to {output_path} with column {args.emb_colname}")
 
 
 if __name__ == "__main__":

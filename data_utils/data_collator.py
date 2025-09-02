@@ -86,7 +86,7 @@ class DataCollator:
                 out_dict["batch_labels"] = torch.tensor([example["batch_labels"] for example in examples], dtype=torch.long)
             
             if self.use_continuous_labels:
-                out_dict["continuous_labels"] = torch.stack([example["continuous_labels"] for example in examples], dtype=torch.float)
+                out_dict["continuous_labels"] = torch.tensor([example["continuous_labels"] for example in examples], dtype=torch.float)
 
             return out_dict
 

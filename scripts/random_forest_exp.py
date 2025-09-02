@@ -75,7 +75,7 @@ def train_rf(X_train, y_train, search_type, regression=False):
         )
     
     elif search_type == "none":
-        params = {"max_features": 0.3446384285364502, "max_samples": 0.8534286719238086, "min_samples_leaf": 3, "n_estimators": 618}
+        params = {"max_features": 0.6872700594236812, "max_samples": 0.8534286719238086, "min_samples_leaf": 3, "n_estimators": 861}
         print("Not doing any search, using fixed parameters:", params)
         rf_model.set_params(**params)
         rf_model.fit(X_train, y_train)
@@ -137,6 +137,7 @@ def main():
     parser.add_argument("--target-colname", type=str, default="location", help="Column name in the anndata obs to use as target labels.")
     parser.add_argument("--emb-name", type=str, default="embedding", help="Name of the obsm key where embeddings are stored.")
     parser.add_argument("--ignored-labels", type=str, nargs='*', default=["unknown"], help="List of labels to ignore in the target column.")
+    parser.add_argument("--downstream-task", type=str, required=True, help="Type of downstream task to perform: 'classification' or 'regression'.")
 
     args = parser.parse_args()
 
@@ -150,6 +151,11 @@ def main():
     
     # Load train embeddings and labels
     train_adata = ad.read_h5ad(train_embed_path)
+    if args.downstream_task == "location":
+        assert args.target_colname == "location", "For location task, target_colname must be 'location'."
+        assert "unknown" in args.ignored_labels, "For location task, 'unknown' must be in ignored labels."
+    else:
+        train_adata = train_adata[train_adata.obs['downstream_task'] == args.downstream_task]
     train_adata = train_adata[~train_adata.obs[args.target_colname].isin(args.ignored_labels)]
     X_train = train_adata.obsm[emb_name]
     Y_train = train_adata.obs[args.target_colname]
@@ -159,6 +165,8 @@ def main():
 
     # Load test embeddings and labels
     test_adata = ad.read_h5ad(test_embed_path)
+    if args.downstream_task != "location":
+        test_adata = test_adata[test_adata.obs['downstream_task'] == args.downstream_task]        
     test_adata = test_adata[~test_adata.obs[args.target_colname].isin(args.ignored_labels)]
     X_test = test_adata.obsm[emb_name]
     Y_test = test_adata.obs[args.target_colname]    

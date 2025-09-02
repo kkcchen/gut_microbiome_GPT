@@ -181,7 +181,7 @@ class Tokenizer:
         Returns:
             Dict[str, torch.Tensor]: The padded batch with labels added.
         """
-        if not labels:
+        if labels is None:
             return data_dict
         
         if len(labels) != data_dict["taxa_ids"].shape[0]:
@@ -231,9 +231,6 @@ class Tokenizer:
         
         if continuous_obskey:
             continuous_labels = adata.obs[continuous_obskey].to_list()
-            mean_label = np.mean(continuous_labels)
-            std_label = np.std(continuous_labels)
-            continuous_labels = (continuous_labels - mean_label ) / std_label
             sample_dict = self.add_labels(
                 sample_dict,
                 label_name="continuous_labels",

@@ -58,7 +58,7 @@ class FinetunedTransformer(nn.Module):
             src_key_padding_mask,
         )
         env_emb = self.base_model.get_cell_emb_from_layer(encoded_output)  # (batch, embsize)
-        output_dict['logits'] = self.classification_head(env_emb)
+        output_dict['logits'] = self.decoder_head(env_emb)
         return output_dict
 
 

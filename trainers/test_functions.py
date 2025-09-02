@@ -19,6 +19,7 @@ def restore_vocab_test(anndata_path, vocab_restore_path, batch_obskey=None):
         # load the vocab from the file
         adata_vocab = ad.read_h5ad(vocab_restore_path)
         assert "vocab_metadata" in adata_vocab.uns and "taxa_id" in adata_vocab.var, "vocab metadata or taxa_id not found in the adata"
+        logger.info(adata_vocab)
         vocab = MicrobiomeVocab.restore_vocab(adata_vocab)
         
         if batch_obskey is not None:
@@ -31,6 +32,7 @@ def restore_vocab_test(anndata_path, vocab_restore_path, batch_obskey=None):
         raise FileNotFoundError(f"Vocab file not found at {vocab_restore_path}")
 
     adata = ad.read_h5ad(anndata_path)
+    adata.var["taxa"] = adata.var_names
     adata.var["taxa_id"] = adata.var["taxa"].map(vocab.stoi)
     
     if batch_obskey:
@@ -39,6 +41,11 @@ def restore_vocab_test(anndata_path, vocab_restore_path, batch_obskey=None):
         # remove samples with NaN in batch_obskey_id
         adata = adata[~adata.obs[batch_obskey_id].isna(), :].copy()
     
+    # Sanity check for vocab
+    logger.info(f"First 5 elements of vocab.itos: {vocab.itos[:5]}")
+    logger.info(f"Last 3 elements of vocab.itos: {vocab.itos[-3:]}")
+    logger.info(f"Length of vocab.itos: {len(vocab.itos)}")
+    logger.info(adata)
     return vocab, batch_vocab, adata
 
 
@@ -160,17 +167,26 @@ def evaluate_binary(region_name, y_probs, y_pred, y_test_binary):
 
 def evaluate_multiclass_and_save(y_true, y_probs, train_class_labels, output_dir):
     # evaluate, done for all
-    y_pred = train_class_labels[np.argmax(y_probs, axis=1)]
+    os.makedirs(output_dir, exist_ok=True)
+    y_true = np.array(y_true)
+    train_class_labels = np.array(train_class_labels)
+    y_pred_index = np.argmax(y_probs, axis=1)
+    y_pred = train_class_labels[y_pred_index]
     print("types of predictions and targets are:", y_pred.dtype, y_true.dtype)
     total_accuracy = accuracy_score(y_true, y_pred)
     conf_mat = confusion_matrix(y_true, y_pred)
     region_scores = []
     fig, ax = plt.subplots(figsize=(8, 6))
 
-    for index, region in enumerate(train_class_labels):
+    index_label_pairs = enumerate(train_class_labels)
+    index_label_pairs = sorted(index_label_pairs, key=lambda x: x[1])
+    for index, region in index_label_pairs:
         scores = y_probs[:, index]
         binary_predictions = (y_pred == region).astype(int)
         binary_targets = (y_true == region).astype(int)
+        if binary_targets.sum() == 0:
+            print(f"Skipping region {region} as it has no positive samples")
+            continue
         region_scores.append(evaluate_binary(region, scores, binary_predictions, binary_targets))
         add_roc_curve(binary_targets, scores, region, ax)
     
@@ -182,7 +198,6 @@ def evaluate_multiclass_and_save(y_true, y_probs, train_class_labels, output_dir
     region_scores.append({"Total Accuracy": total_accuracy,
                         "Categories": list(train_class_labels),
                         "Confusion Matrix": conf_row_strs})
-    os.makedirs(output_dir, exist_ok=True)
     # Save the scores to a file
     scores_file = os.path.join(output_dir, "multiclass_scores.json")
     print(f"Scores for all regions saved to {scores_file}")
@@ -196,10 +211,12 @@ def evaluate_classification(model, dataloader, batch_vocab, vocab_pad_index, out
     probs, targets = get_class_probs(model, dataloader, vocab_pad_index, accelerator)
     probs = probs.cpu().numpy()
     targets = targets.cpu().numpy()
+    
     train_class_labels = batch_vocab.itos
+    target_labels = [batch_vocab.itos[target] for target in targets]
     if accelerator.is_main_process:
         evaluate_multiclass_and_save(
-            targets,
+            target_labels,
             probs,
             train_class_labels,
             output_dir
@@ -246,9 +263,9 @@ def evaluate_regression_and_save(y_true, y_pred, output_dir, mean=0, std=1):
     r2 = r2_score(y_true_orig, y_pred_orig)
     
     results = {
-        "Mean Squared Error": mse,
-        "Mean Absolute Error": mae,
-        "R-squared": r2,
+        "Mean Squared Error": float(mse),
+        "Mean Absolute Error": float(mae),
+        "R-squared": float(r2),
     }
     
     os.makedirs(output_dir, exist_ok=True)
@@ -300,9 +317,9 @@ def evaluate_regression(model, dataloader, vocab_pad_index, standardize_mean, st
     all_preds = torch.cat(all_preds, dim=0).cpu().numpy()
     all_targets = torch.cat(all_targets, dim=0).cpu().numpy()
     
-    assert all_preds.shape[1] == 1, f"Second dimension of predictions should be 1, got {preds.shape[1]}"
-    all_preds = all_preds.squeeze(dim=1)
-    assert all_preds.shape == all_targets.shape, f"Predictions shape {preds.shape} does not match targets shape {targets.shape}"
+    assert all_preds.shape[1] == 1, f"Second dimension of predictions should be 1, got {all_preds.shape[1]}"
+    all_preds = all_preds.squeeze(axis=1)
+    assert all_preds.shape == all_targets.shape, f"Predictions shape {all_preds.shape} does not match targets shape {all_targets.shape}"
     
     if accelerator.is_main_process:
         evaluate_regression_and_save(

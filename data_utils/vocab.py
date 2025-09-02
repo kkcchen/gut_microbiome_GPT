@@ -103,11 +103,11 @@ class MicrobiomeVocab():
         """
         
         assert "vocab_metadata" in adata.uns, "The AnnData object must have 'vocab_metadata' in uns."
-        assert "taxa_id" in adata.var, "The AnnData object must have 'taxa' in var."
+        assert "taxa_id" in adata.var, "The AnnData object must have 'taxa_id' in var."
         metadata = adata.uns["vocab_metadata"]
 
         return cls(
-            vocab_list=adata.var["taxa"].tolist(),
+            vocab_list=adata.var_names.tolist(),
             class_token=metadata["class_token"],
             mask_token=metadata["mask_token"],
             pad_token=metadata["pad_token"],

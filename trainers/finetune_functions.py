@@ -35,8 +35,8 @@ def finetune(
         best_dir: str,
         loss_fn,
         # save_interval: int = -1,
+        is_classification: bool,
         best_val_loss: float = float("inf"),
-        is_classification: bool = True,
     ):
     """
     Train the finetune model for one epoch.
@@ -66,6 +66,8 @@ def finetune(
                     src_key_padding_mask=key_padding_mask,
                 )
                 class_logits = output_dict["logits"]
+                if not is_classification:
+                    class_logits = class_logits.squeeze(-1)
                 loss = loss_fn(class_logits, targets)
                 accelerator.log({"train/loss_ce": loss.item()}, step=global_iter)
 
@@ -107,6 +109,7 @@ def finetune(
             global_iter=global_iter,
             accelerator=accelerator,
             loss_fn=loss_fn,
+            is_classification=is_classification,
         )
 
         best_val_loss = min(best_val_loss, val_loss)
@@ -129,8 +132,9 @@ def eval_and_save(
     global_iter: int,
     accelerator: Accelerator,
     loss_fn,
+    is_classification: bool,
 ) -> None:
-    val_loss, val_acc = evaluate(model, valid_loader, vocab, accelerator, loss_fn).values()
+    val_loss, val_acc = evaluate(model, valid_loader, vocab, accelerator, loss_fn, is_classification).values()
 
     # logger.info(f"valid loss/mse {val_loss:5.4f} | accuracy {val_acc:5.4f}")
     accelerator.log({
@@ -151,8 +155,8 @@ def evaluate(
     vocab: MicrobiomeVocab,
     accelerator: Accelerator,
     loss_fn,
-    is_classification: bool = True,
-    ) -> Dict[str, Any]:
+    is_classification: bool,
+) -> Dict[str, Any]:
     """
     Evaluate the model on the validation set.
     """
@@ -160,8 +164,12 @@ def evaluate(
     val_losses = []
 
     with torch.no_grad():
-        correct_predictions = 0
-        total_predictions = 0
+        if is_classification:
+            correct_predictions = 0
+            total_predictions = 0
+        else:
+            all_preds = []
+            all_targets = []
 
         for data_dict in valid_loader:
             taxa = data_dict["ids"]
@@ -175,22 +183,30 @@ def evaluate(
                     values,
                     src_key_padding_mask=key_padding_mask,
                 )
-                class_logits = output_dict["logits"]
-                loss = loss_fn(class_logits, targets)
+                preds = output_dict["logits"]
+                loss = loss_fn(preds, targets)
+
             val_losses.append(loss.item())
 
-            # Calculate accuracy
-            predictions = torch.argmax(class_logits, dim=-1)
-            correct_predictions += (predictions == targets).sum().item()
-            total_predictions += targets.size(0)
+            if is_classification:
+                predictions = torch.argmax(preds, dim=-1)
+                correct_predictions += (predictions == targets).sum().item()
+                total_predictions += targets.size(0)
+            else:
+                all_preds.append(preds.cpu())
+                all_targets.append(targets.cpu())
 
         avg_val_loss = np.mean(val_losses)
-        accuracy = correct_predictions / total_predictions
 
-    return {
-        "val_loss": avg_val_loss,
-        "val_acc": accuracy,
-    }
+        if is_classification:
+            metrics = {"val_acc": correct_predictions / total_predictions}
+        else:
+            all_preds = torch.cat(all_preds).numpy()
+            all_targets = torch.cat(all_targets).numpy()
+            mae = np.mean(np.abs(all_preds - all_targets))
+            metrics = {"val_mae": mae}
+
+    return {"val_loss": avg_val_loss, **metrics}
 
 
 def unfreeze_base_model(model: FinetunedTransformer, optimizer) -> List[nn.Parameter]:
@@ -261,17 +277,17 @@ def create_training_state_finetune(model_config, init_lr, warmup_ratio_or_step, 
     return model, optimizer, scheduler
 
 
-def create_data_state_finetune(anndata_path, num_bins, vocab_restore_dir, data_restore_dir, accelerator: Accelerator, batch_obskey=None, continuous_obskey=None, nrows=None):
+def create_data_state_finetune(anndata_path, num_bins, vocab_restore_path, data_restore_dir, accelerator: Accelerator, downstream_task, ignored_labels=[], batch_obskey=None, continuous_obskey=None, nrows=None):
     if accelerator.is_main_process:       
-        if os.path.exists(os.path.join(vocab_restore_dir, "augmented_data.h5ad")):
+        if os.path.exists(vocab_restore_path):
             # load the vocab from the file
-            adata_vocab = ad.read_h5ad(os.path.join(vocab_restore_dir, "augmented_data.h5ad"))
+            adata_vocab = ad.read_h5ad(vocab_restore_path)
             assert "vocab_metadata" in adata_vocab.uns and "taxa_id" in adata_vocab.var, "vocab metadata or taxa_id not found in the adata"
             vocab = MicrobiomeVocab.restore_vocab(adata_vocab)
-            logger.info(f"Vocab restored from {vocab_restore_dir}")
+            logger.info(f"Vocab restored from {vocab_restore_path}")
         else:
-            raise FileNotFoundError(f"Vocab file not found at {vocab_restore_dir}")
-        
+            raise FileNotFoundError(f"Vocab file not found at {vocab_restore_path}")
+                
         if os.path.exists(os.path.join(data_restore_dir, "augmented_data_finetune.h5ad")):
             adata = ad.read_h5ad(os.path.join(data_restore_dir, "augmented_data_finetune.h5ad"))
             
@@ -279,13 +295,8 @@ def create_data_state_finetune(anndata_path, num_bins, vocab_restore_dir, data_r
             if batch_obskey and f"{batch_obskey}_batch_vocab" in adata.uns:
                 batch_vocab = BatchVocab.restore_batchvocab(adata)
                 logger.info(f"Batch vocab restored from {data_restore_dir}")
-            elif continuous_obskey:
-                labels = adata.obs[continuous_obskey].values
-                mean_label = np.mean(labels)
-                std_label = np.std(labels)
-                logger.info(f"Mean of labels: {mean_label}, Std of labels: {std_label}")
-            else:
-                raise FileNotFoundError(f"Batch vocab or labels not found at {data_restore_dir}")
+            elif not continuous_obskey:
+                raise ValueError("Either batch_obskey or continuous_obskey must be provided")
             
             # load the data state from the file
             assert "split" in adata.obs and "binned_rows" in adata.layers, "The AnnData object must have 'split' in obs."
@@ -293,20 +304,22 @@ def create_data_state_finetune(anndata_path, num_bins, vocab_restore_dir, data_r
         else:
             os.makedirs(data_restore_dir, exist_ok=True)
             adata = ad.read_h5ad(anndata_path)
+            if downstream_task and downstream_task != "location":
+                adata = adata[adata.obs['downstream_task'] == downstream_task]
             if nrows:
                 adata = adata[:nrows, :].copy()
             
             # targets
             if batch_obskey:
+                adata = adata[~adata.obs[batch_obskey].isin(ignored_labels)]
+                assert adata.n_obs > 0, f"No samples found for downstream task {downstream_task} in the provided AnnData object."
+                logger.info(f"Number of samples after filtering: {adata.n_obs}")
                 batch_vocab = BatchVocab.create_batchvocab_from_scratch(batch_obskey, adata)
             elif continuous_obskey:
-                labels = adata.obs[continuous_obskey].values
-                mean_label = np.mean(labels)
-                std_label = np.std(labels)
-                logger.info(f"Mean of labels: {mean_label}, Std of labels: {std_label}")
-                adata.obs[f"{continuous_obskey}_norm"] = (adata.obs[continuous_obskey] - mean_label) / std_label
-                adata.uns[f"{continuous_obskey}_mean"] = mean_label
-                adata.uns[f"{continuous_obskey}_std"] = std_label
+                adata = adata[~adata.obs[continuous_obskey].isin(ignored_labels)]
+                assert adata.n_obs > 0, f"No samples found for downstream task {downstream_task} in the provided AnnData object."
+                logger.info(f"Number of samples after filtering: {adata.n_obs}")
+                batch_vocab = None
             else:
                 raise ValueError("Either batch_obskey or continuous_obskey must be provided")
             
