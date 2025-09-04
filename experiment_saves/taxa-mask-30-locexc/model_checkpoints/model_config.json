@@ -1,0 +1,18 @@
+{
+    "d_model": 128,
+    "nhead": 4,
+    "d_hid": 512,
+    "nlayers": 3,
+    "use_batch_labels": false,
+    "dropout": 0.1,
+    "n_input_bins": 15,
+    "do_mvc": true,
+    "do_taxa_decoder": true,
+    "do_attn_mask": false,
+    "vocab_len": 4683,
+    "vocab_num_special_tokens": 3,
+    "vocab_pad_index": 4682,
+    "vocab_pad_value": 0,
+    "vocab_mask_value": -1,
+    "num_batch_labels": 0
+}

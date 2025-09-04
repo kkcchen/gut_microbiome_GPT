@@ -1,0 +1,1 @@
+30% masking with taxa masking and mvc, no batch labels and some location labels held out
