@@ -11,15 +11,36 @@
 cd /project/aip-rahulgk/kchen13/gutmodel/gut_microbiome_GPT
 source ~/hmbenv/bin/activate
 
-EXPERIMENT_PATH=experiment_saves/taxa-mask-30-locexc
-EMB_SAVE_PATH=$EXPERIMENT_PATH/encoded_samples
+FROM_RAW=1
 
-TRAIN_EMBED_PATH=$EMB_SAVE_PATH/encoded_samples_train.h5ad
-TEST_EMBED_PATH=$EMB_SAVE_PATH/encoded_samples_test.h5ad
+if [ "$FROM_RAW" -eq 1 ]; then
+    echo "Using raw embeddings..."
+    EXPERIMENT_PATH=experiment_saves/raw_abundances_sep10
+    EMB_SAVE_PATH=/project/aip-rahulgk/gutmodel/up_to_date_sep10
+
+    TRAIN_EMBED_PATH=$EMB_SAVE_PATH/finetune_train.h5ad
+    TEST_EMBED_PATH=$EMB_SAVE_PATH/finetune_test.h5ad
+
+    OUTPUT_DIR_PARENT="$EXPERIMENT_PATH/rf_raw"
+
+    EMB_NAME=raw_embedding
+else
+    echo "Using pre-encoded embeddings..."
+    EXPERIMENT_PATH=experiment_saves/taxa-mask-30-locexc-batch
+    EMB_SAVE_PATH=$EXPERIMENT_PATH/encoded_samples
+
+    TRAIN_EMBED_PATH=$EMB_SAVE_PATH/encoded_samples_train.h5ad
+    TEST_EMBED_PATH=$EMB_SAVE_PATH/encoded_samples_test.h5ad
+
+    OUTPUT_DIR_PARENT="$EXPERIMENT_PATH/rf"
+
+    EMB_NAME=embedding
+fi
 
 SEARCH_TYPE="random"
 
-for TARGET in sex age bmi mice_diet supplement human_diet
+# for TARGET in sex location age bmi mice_diet supplement human_diet
+for TARGET in location
 do
     # Pick model type and target column name
     if [[ "$TARGET" == "age" || "$TARGET" == "bmi" ]]; then
@@ -30,7 +51,7 @@ do
         TARGET_COLNAME="categorical_label"
     fi
 
-    OUTPUT_DIR="$EXPERIMENT_PATH/rf/${TARGET}_rf"
+    OUTPUT_DIR="$OUTPUT_DIR_PARENT/${TARGET}_rf"
     NOTES="rf on raw, $TARGET ($MODEL_TYPE)"
 
     mkdir -p "$OUTPUT_DIR"
@@ -46,12 +67,14 @@ do
         --search-type \"$SEARCH_TYPE\" \
         --model-type \"$MODEL_TYPE\" \
         --target-colname \"$TARGET_COLNAME\" \
-        --emb-name embedding \
+        --emb-name $EMB_NAME \
         --downstream-task \"$TARGET\""
 
-    # Add ignored-label for sex only
+    # Add ignored-label for specific targets
     if [[ "$TARGET" == "sex" ]]; then
         CMD="$CMD --ignored-label other"
+    elif [[ "$TARGET" == "location" ]]; then
+        CMD="$CMD --ignored-label unknown"
     fi
 
     # Run the command

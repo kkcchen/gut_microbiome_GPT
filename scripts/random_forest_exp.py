@@ -152,10 +152,8 @@ def main():
     # Load train embeddings and labels
     train_adata = ad.read_h5ad(train_embed_path)
     if args.downstream_task == "location":
-        assert args.target_colname == "location", "For location task, target_colname must be 'location'."
         assert "unknown" in args.ignored_labels, "For location task, 'unknown' must be in ignored labels."
-    else:
-        train_adata = train_adata[train_adata.obs['downstream_task'] == args.downstream_task]
+    train_adata = train_adata[train_adata.obs['downstream_task'] == args.downstream_task]
     train_adata = train_adata[~train_adata.obs[args.target_colname].isin(args.ignored_labels)]
     X_train = train_adata.obsm[emb_name]
     Y_train = train_adata.obs[args.target_colname]
