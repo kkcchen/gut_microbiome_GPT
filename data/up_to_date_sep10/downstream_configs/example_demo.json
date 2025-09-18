@@ -1,0 +1,33 @@
+{"location": {
+    "label_type": "categorical_label",
+    "ignored_labels": ["unknown"],
+    "embed_name": ["raw_embedding"],
+    "target_colname": "downstream_task",
+    "methods": {
+      "random forest": {
+        "search_type": "none",
+        "task_type": "classification"
+      },
+      "linear": {
+        "search_type": "none",
+        "task_type": "classification"
+      }
+    }
+  },
+  "age": {
+    "label_type": "continuous_label",
+    "ignored_labels": [],
+    "embed_name": ["raw_embedding"],
+    "target_colname": "downstream_task",
+    "methods": {
+      "random forest": {
+        "search_type": "none",
+        "task_type": "regression"
+      },
+      "linear": {
+        "search_type": "none",
+        "task_type": "regression"
+      }
+    }
+  }
+}

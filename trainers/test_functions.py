@@ -113,11 +113,11 @@ def get_class_probs(model, dataloader, vocab_pad_index, accelerator):
     return all_probs, all_targets
 
 
-def add_roc_curve(binary_targets, scores, region, ax):
+def add_roc_curve(binary_targets, scores, label, ax):
     RocCurveDisplay.from_predictions(
         y_true=binary_targets,
-        y_pred=scores,
-        name=f"{region} ({binary_targets.sum()} samples)",
+        y_score=scores,
+        name=f"{label} ({binary_targets.sum()} samples)",
         plot_chance_level=False,  # Plot only once outside the loop
         ax=ax
     )
@@ -133,18 +133,18 @@ def save_roc_curve(ax, output_dir):
     ax.grid(True)
     ax.legend()
     
-    output_path = os.path.join(output_dir, "roc_all_regions.png")
+    output_path = os.path.join(output_dir, "roc_all_labels.png")
     plt.savefig(output_path)
     plt.close()
-    print(f"Saved combined ROC plot to {output_path}")
+    print(f"\t Saved combined ROC plot to {output_path}")
     
 
-def evaluate_binary(region_name, y_probs, y_pred, y_test_binary):
+def evaluate_binary(label_name, y_probs, y_pred, y_test_binary):
     
     # Check that all shapes are equal
     assert y_probs.shape == y_pred.shape == y_test_binary.shape, \
-        f"Shape mismatch: y_probs {y_probs.shape}, y_pred {y_pred.shape}, y_test_binary {y_test_binary.shape}"
-    print(f"y_probs {y_probs.shape}, y_pred {y_pred.shape}, y_test_binary {y_test_binary.shape}")
+        f"\t Shape mismatch: y_probs {y_probs.shape}, y_pred {y_pred.shape}, y_test_binary {y_test_binary.shape}"
+    print(f"\t y_probs {y_probs.shape}, y_pred {y_pred.shape}, y_test_binary {y_test_binary.shape}")
     
     # check that the shape of y_probs 1 dimensional
     assert y_probs.ndim == 1, f"y_probs should be 1-dimensional, got {y_probs.ndim} dimensions"
@@ -157,7 +157,7 @@ def evaluate_binary(region_name, y_probs, y_pred, y_test_binary):
     baseline_precision = np.mean(y_test_binary)
 
     return {
-        "Region": region_name,
+        "Label": label_name,
         "n_samples": n_samples,
         "Accuracy": accuracy,
         "AUC (ROC)": auc,
@@ -172,39 +172,39 @@ def evaluate_multiclass_and_save(y_true, y_probs, train_class_labels, output_dir
     train_class_labels = np.array(train_class_labels)
     y_pred_index = np.argmax(y_probs, axis=1)
     y_pred = train_class_labels[y_pred_index]
-    print("types of predictions and targets are:", y_pred.dtype, y_true.dtype)
+    # print("types of predictions and targets are:", y_pred.dtype, y_true.dtype)
     total_accuracy = accuracy_score(y_true, y_pred)
     conf_mat = confusion_matrix(y_true, y_pred)
-    region_scores = []
+    label_scores = []
     fig, ax = plt.subplots(figsize=(8, 6))
 
     index_label_pairs = enumerate(train_class_labels)
     index_label_pairs = sorted(index_label_pairs, key=lambda x: x[1])
-    for index, region in index_label_pairs:
+    for index, label in index_label_pairs:
         scores = y_probs[:, index]
-        binary_predictions = (y_pred == region).astype(int)
-        binary_targets = (y_true == region).astype(int)
+        binary_predictions = (y_pred == label).astype(int)
+        binary_targets = (y_true == label).astype(int)
         if binary_targets.sum() == 0:
-            print(f"Skipping region {region} as it has no positive samples")
+            print(f"\t Skipping label {label} as it has no positive samples")
             continue
-        region_scores.append(evaluate_binary(region, scores, binary_predictions, binary_targets))
-        add_roc_curve(binary_targets, scores, region, ax)
+        label_scores.append(evaluate_binary(label, scores, binary_predictions, binary_targets))
+        add_roc_curve(binary_targets, scores, label, ax)
     
     save_roc_curve(ax, output_dir)
     # Save the scores to a file
     conf_row_strs = [str(row) for row in conf_mat]
 
-    region_scores.sort(key=lambda x: x["Region"])
-    region_scores.append({"Total Accuracy": total_accuracy,
+    label_scores.sort(key=lambda x: x["Label"])
+    label_scores.append({"Total Accuracy": total_accuracy,
                         "Categories": list(train_class_labels),
                         "Confusion Matrix": conf_row_strs})
     # Save the scores to a file
     scores_file = os.path.join(output_dir, "multiclass_scores.json")
-    print(f"Scores for all regions saved to {scores_file}")
+    print(f"\t Scores for all labels saved to {scores_file}")
     with open(scores_file, "w") as f:
-        json.dump(region_scores, f, indent=4)
+        json.dump(label_scores, f, indent=4)
 
-    print(f"Scores for all regions saved to {scores_file}")
+    print(f"\t Scores for all labels saved to {scores_file}")
 
 
 def evaluate_classification(model, dataloader, batch_vocab, vocab_pad_index, output_dir, accelerator):
