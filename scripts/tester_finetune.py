@@ -47,11 +47,7 @@ def main():
     batch_obskey = None
     continuous_obskey = None
     
-    if args.downstream_task == "location":
-        batch_obskey = "location"
-        assert is_classification, "Location task is only supported for classification."
-        assert "unknown" in args.ignored_labels, "Location task requires 'unknown' to be in ignored labels."
-    elif is_classification:
+    if is_classification:
         batch_obskey = "categorical_label"
     else:
         continuous_obskey = "continuous_label"
@@ -62,8 +58,7 @@ def main():
     vocab, batch_vocab, adata = restore_vocab_test(args.anndata_path, args.finetune_vocab_path, batch_obskey=batch_obskey)
     num_bins = model.base_model.n_input_bins
     
-    if args.downstream_task != "location":
-        adata = adata[adata.obs['downstream_task'] == args.downstream_task]
+    adata = adata[adata.obs['downstream_task'] == args.downstream_task]
     if is_classification:
         adata = adata[~adata.obs[batch_obskey].isin(args.ignored_labels)]
     else:

@@ -42,10 +42,10 @@ def restore_vocab_test(anndata_path, vocab_restore_path, batch_obskey=None):
         adata = adata[~adata.obs[batch_obskey_id].isna(), :].copy()
     
     # Sanity check for vocab
-    logger.info(f"First 5 elements of vocab.itos: {vocab.itos[:5]}")
-    logger.info(f"Last 3 elements of vocab.itos: {vocab.itos[-3:]}")
-    logger.info(f"Length of vocab.itos: {len(vocab.itos)}")
-    logger.info(adata)
+    # logger.info(f"First 5 elements of vocab.itos: {vocab.itos[:5]}")
+    # logger.info(f"Last 3 elements of vocab.itos: {vocab.itos[-3:]}")
+    # logger.info(f"Length of vocab.itos: {len(vocab.itos)}")
+    logger.info("before:" + str(adata))
     return vocab, batch_vocab, adata
 
 

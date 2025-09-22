@@ -106,7 +106,7 @@ def main():
     if accelerator.is_main_process:
         final_tensor = torch.cat(all_cell_embs, dim=0)
         adata.obsm[args.emb_colname] = np.array(final_tensor)
-        print(f"shape of samples is {final_tensor.shape}")
+        print("after:", adata)
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         adata.write_h5ad(output_path)
         print(f"Saved cell embeddings as anndata to {output_path} with column {args.emb_colname}")

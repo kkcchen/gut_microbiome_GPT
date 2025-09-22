@@ -496,6 +496,7 @@ def create_or_restore_data_state(anndata_path, num_bins, restore_dir, accelerato
             if nrows:
                 adata = adata[:nrows, :].copy()
             vocab = MicrobiomeVocab.create_vocab_from_scratch(adata)
+            vocab.save_vocab(os.path.join(restore_dir, "vocab_file.json"))
             
             # make batch vocab
             if batch_obskey:

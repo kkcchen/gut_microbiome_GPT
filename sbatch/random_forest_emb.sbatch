@@ -11,7 +11,7 @@
 cd /project/aip-rahulgk/kchen13/gutmodel/gut_microbiome_GPT
 source ~/hmbenv/bin/activate
 
-FROM_RAW=1
+FROM_RAW=0
 
 if [ "$FROM_RAW" -eq 1 ]; then
     echo "Using raw embeddings..."
@@ -27,10 +27,10 @@ if [ "$FROM_RAW" -eq 1 ]; then
 else
     echo "Using pre-encoded embeddings..."
     EXPERIMENT_PATH=experiment_saves/taxa-mask-30-locexc-batch
-    EMB_SAVE_PATH=$EXPERIMENT_PATH/encoded_samples
+    EMB_SAVE_PATH=$EXPERIMENT_PATH/up_to_date_sep10
 
-    TRAIN_EMBED_PATH=$EMB_SAVE_PATH/encoded_samples_train.h5ad
-    TEST_EMBED_PATH=$EMB_SAVE_PATH/encoded_samples_test.h5ad
+    TRAIN_EMBED_PATH=$EMB_SAVE_PATH/encoded_train.h5ad
+    TEST_EMBED_PATH=$EMB_SAVE_PATH/encoded_test.h5ad
 
     OUTPUT_DIR_PARENT="$EXPERIMENT_PATH/rf"
 
@@ -39,8 +39,7 @@ fi
 
 SEARCH_TYPE="random"
 
-# for TARGET in sex location age bmi mice_diet supplement human_diet
-for TARGET in location
+for TARGET in sex location age bmi mice_diet supplement human_diet
 do
     # Pick model type and target column name
     if [[ "$TARGET" == "age" || "$TARGET" == "bmi" ]]; then

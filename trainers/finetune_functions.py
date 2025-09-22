@@ -277,7 +277,7 @@ def create_training_state_finetune(model_config, init_lr, warmup_ratio_or_step, 
     return model, optimizer, scheduler
 
 
-def create_data_state_finetune(anndata_path, num_bins, vocab_restore_path, data_restore_dir, accelerator: Accelerator, downstream_task, ignored_labels=[], batch_obskey=None, continuous_obskey=None, nrows=None):
+def create_data_state_finetune(anndata_path, num_bins, vocab_restore_path, data_restore_path, accelerator: Accelerator, downstream_task, ignored_labels=[], batch_obskey=None, continuous_obskey=None, nrows=None):
     if accelerator.is_main_process:       
         if os.path.exists(vocab_restore_path):
             # load the vocab from the file
@@ -288,23 +288,23 @@ def create_data_state_finetune(anndata_path, num_bins, vocab_restore_path, data_
         else:
             raise FileNotFoundError(f"Vocab file not found at {vocab_restore_path}")
                 
-        if os.path.exists(os.path.join(data_restore_dir, "augmented_data_finetune.h5ad")):
-            adata = ad.read_h5ad(os.path.join(data_restore_dir, "augmented_data_finetune.h5ad"))
+        if os.path.exists(data_restore_path):
+            adata = ad.read_h5ad(data_restore_path)
             
             # restore batch vocab
             if batch_obskey and f"{batch_obskey}_batch_vocab" in adata.uns:
                 batch_vocab = BatchVocab.restore_batchvocab(adata)
-                logger.info(f"Batch vocab restored from {data_restore_dir}")
+                logger.info(f"Batch vocab restored from {data_restore_path}")
             elif not continuous_obskey:
                 raise ValueError("Either batch_obskey or continuous_obskey must be provided")
             
             # load the data state from the file
             assert "split" in adata.obs and "binned_rows" in adata.layers, "The AnnData object must have 'split' in obs."
-            logger.info("Data state restored from {}".format(data_restore_dir))
+            logger.info("Data state restored from {}".format(data_restore_path))
         else:
-            os.makedirs(data_restore_dir, exist_ok=True)
+            os.makedirs(os.path.dirname(data_restore_path), exist_ok=True)
             adata = ad.read_h5ad(anndata_path)
-            if downstream_task and downstream_task != "location":
+            if downstream_task:
                 adata = adata[adata.obs['downstream_task'] == downstream_task]
             if nrows:
                 adata = adata[:nrows, :].copy()
@@ -343,7 +343,7 @@ def create_data_state_finetune(anndata_path, num_bins, vocab_restore_path, data_
             is_train = np.zeros(adata.n_obs, dtype=bool)
             is_train[train_indices] = True            
             adata.obs["split"] = np.where(is_train, "train", "val")
-            adata.write_h5ad(os.path.join(data_restore_dir, "augmented_data_finetune.h5ad"))
+            adata.write_h5ad(data_restore_path)
         
         data_dict = tokenizer.tokenize_and_pad_batch(adata, batch_obskey=batch_obskey, continuous_obskey=continuous_obskey)
         # Create train and validation splits

@@ -92,28 +92,55 @@ class MicrobiomeVocab():
         return vocab
     
     
-    @classmethod 
-    def restore_vocab(cls, adata) -> 'MicrobiomeVocab':
+    @classmethod
+    def restore_vocab(cls, source) -> 'MicrobiomeVocab':
         """
-        Load the vocabulary.
-        Args:
-            adata
-        Returns:
-            MicrobiomeVocab: An instance of MicrobiomeVocab with the loaded vocabulary.
-        """
-        
-        assert "vocab_metadata" in adata.uns, "The AnnData object must have 'vocab_metadata' in uns."
-        assert "taxa_id" in adata.var, "The AnnData object must have 'taxa_id' in var."
-        metadata = adata.uns["vocab_metadata"]
+        Restore the vocabulary from either an AnnData object (old way)
+        or a JSON file (new way).
 
-        return cls(
-            vocab_list=adata.var_names.tolist(),
-            class_token=metadata["class_token"],
-            mask_token=metadata["mask_token"],
-            pad_token=metadata["pad_token"],
-            pad_value=metadata["pad_value"],
-            mask_value=metadata["mask_value"],
-        )
+        Args:
+            source: AnnData object OR path to a JSON file.
+        """
+        if hasattr(source, "uns"):  # looks like AnnData
+            assert "vocab_metadata" in source.uns, "The AnnData object must have 'vocab_metadata' in uns."
+            assert "taxa_id" in source.var, "The AnnData object must have 'taxa_id' in var."
+            metadata = source.uns["vocab_metadata"]
+
+            return cls(
+                vocab_list=source.var_names.tolist(),
+                class_token=metadata["class_token"],
+                mask_token=metadata["mask_token"],
+                pad_token=metadata["pad_token"],
+                pad_value=metadata["pad_value"],
+                mask_value=metadata["mask_value"],
+            )
+        else:  # assume it's a path to JSON
+            with open(source, "r") as f:
+                data = json.load(f)
+            return cls(
+                vocab_list=data["vocab_list"],
+                class_token=data["class_token"],
+                mask_token=data["mask_token"],
+                pad_token=data["pad_token"],
+                pad_value=data["pad_value"],
+                mask_value=data["mask_value"],
+            )
+    
+    def save_vocab(self, filepath: str):
+        """
+        Save the vocabulary to a JSON file.
+        """
+        metadata = {
+            "vocab_list": self.vocab_list,
+            "class_token": self.class_token,
+            "mask_token": self.mask_token,
+            "pad_token": self.pad_token,
+            "pad_value": self.pad_value,
+            "mask_value": self.mask_value,
+        }
+        with open(filepath, "w") as f:
+            json.dump(metadata, f, indent=2)
+
 
 class BatchVocab():
     """

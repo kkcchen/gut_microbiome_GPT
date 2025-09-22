@@ -58,7 +58,7 @@ if __name__ == "__main__":
     parser.add_argument("--base-model-path", type=str, default=None, help="Path to the base model state dictionary")
     parser.add_argument("--train-input", type=str, required=True, help="Path to train .h5ad file with X shape (samples, taxa)")
     parser.add_argument("--best-dir", type=str, required=True, help="Directory to save best model so far")
-    parser.add_argument("--data-restore-dir", type=str, required=True, help="Directory to restore data state")
+    parser.add_argument("--data-restore-path", type=str, required=True, help="Path to restore data state")
     parser.add_argument("--vocab-restore-path", type=str, required=True, help="Path to restore vocab state")
     # wandb
     parser.add_argument("--wandb-enabled", action="store_true", help="Enable Weights & Biases logging")
@@ -86,7 +86,7 @@ if __name__ == "__main__":
     # for finetuning
     parser.add_argument("--model-config-path", type=str, required=True, help="Path to save model configuration file")
     parser.add_argument("--task-type", type=str, choices=["classification", "regression"], required=True, help="Specify the task type: classification or regression")
-    parser.add_argument("--ignored-labels", type=str, nargs='*', default=["unknown"], help="List of labels to ignore in the target column.")
+    parser.add_argument("--ignored-labels", type=str, nargs='*', default=[], help="List of labels to ignore in the target column.")
     parser.add_argument("--downstream-task", type=str, required=True, help="Type of downstream task to perform.")
 
     args = parser.parse_args()
@@ -95,7 +95,7 @@ if __name__ == "__main__":
     base_model_path = args.base_model_path
     train_input = args.train_input
     best_dir = args.best_dir
-    data_restore_dir = args.data_restore_dir
+    data_restore_path = args.data_restore_path
     vocab_restore_path = args.vocab_restore_path
 
     wandb_enabled = args.wandb_enabled
@@ -138,22 +138,13 @@ if __name__ == "__main__":
 
     if args.start_over and accelerator.is_main_process:
         logger.info("Starting over from scratch, deleting existing training state.")
-        if os.path.exists(data_restore_dir):
-            # The above code is using the `shutil.rmtree()` function in Python to recursively remove a
-            # directory and all its contents. In this case, it is removing the directory specified by
-            # the variable `data_restore_dir`.
-            shutil.rmtree(data_restore_dir)
-        os.makedirs(data_restore_dir, exist_ok=True)
+        if os.path.exists(data_restore_path):
+            os.remove(data_restore_path)
         # don't remove vocab_restore_path, as it is from pretraining
     
     accelerator.wait_for_everyone()
     
-    if args.downstream_task == "location":
-        batch_obskey = "location"
-        continuous_obskey = None
-        assert "unknown" in args.ignored_labels, "For location task, 'unknown' label must be ignored."
-        assert is_classification, "For location task, task type must be classification."
-    elif is_classification:
+    if is_classification:
         batch_obskey = "categorical_label"
         continuous_obskey = None
     else:
@@ -166,7 +157,7 @@ if __name__ == "__main__":
         train_input, 
         num_bins, 
         vocab_restore_path, 
-        data_restore_dir, 
+        data_restore_path, 
         accelerator, 
         batch_obskey=batch_obskey,
         continuous_obskey=continuous_obskey,
