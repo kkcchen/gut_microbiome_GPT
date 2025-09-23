@@ -4,11 +4,15 @@
     "embed_name": ["raw_embedding"],
     "target_colname": "downstream_task",
     "methods": {
-      "random forest": {
+      "random_forest": {
         "search_type": "none",
         "task_type": "classification"
       },
       "linear": {
+        "search_type": "none",
+        "task_type": "classification"
+      },
+      "xgboost": {
         "search_type": "none",
         "task_type": "classification"
       }
@@ -20,11 +24,15 @@
     "embed_name": ["raw_embedding"],
     "target_colname": "downstream_task",
     "methods": {
-      "random forest": {
+      "random_forest": {
         "search_type": "none",
         "task_type": "regression"
       },
       "linear": {
+        "search_type": "none",
+        "task_type": "regression"
+      },
+      "xgboost": {
         "search_type": "none",
         "task_type": "regression"
       }

@@ -13,8 +13,8 @@ from sklearn.linear_model import LogisticRegression, Lasso
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from scipy.stats import randint, uniform
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
-
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from xgboost import XGBClassifier, XGBRegressor
 from trainers.test_functions import evaluate_multiclass_and_save, evaluate_regression_and_save
 
 
@@ -241,6 +241,82 @@ def train_linear(X_train, y_train, search_type, regression=False):
     return search.best_params_, search.best_estimator_
 
 
+def train_xgboost(X_train, y_train, search_type, regression=False):
+    """
+    basically same as train_rf, but for xgboost
+    """
+    print("\t X_train shape:", X_train.shape)
+    print("\t y_train shape:", y_train.shape)
+
+    if regression:
+        xgb_model = Pipeline([
+            ('scaler', StandardScaler()),
+            ('xgb', XGBRegressor(tree_method='hist', random_state=42))
+        ])
+        param_distributions = {
+            'xgb__n_estimators': [100, 200],
+            'xgb__max_depth': [3, 5],
+            'xgb__learning_rate': [0.01, 0.1],
+            'xgb__subsample': [0.8, 1.0]
+        }
+        search_scoring = 'neg_mean_squared_error'
+    else:
+        xgb_model = Pipeline([
+            ('scaler', StandardScaler()),
+            ('xgb', XGBClassifier(use_label_encoder=False, eval_metric='logloss', tree_method='hist', random_state=42))
+        ])
+        param_distributions = {
+            'xgb__n_estimators': [100, 200, 300],
+            'xgb__max_depth': [3, 6, 10],
+            'xgb__learning_rate': [0.01, 0.1, 0.3],
+            'xgb__subsample': [0.7, 0.8, 1.0]
+        }
+        search_scoring = 'accuracy'
+
+    # hyperparameter search
+    if search_type == "grid":
+        search = GridSearchCV(
+            xgb_model,
+            param_distributions,
+            cv=5,
+            scoring=search_scoring,
+            n_jobs=-1,
+            verbose=1
+        )
+    elif search_type == "random":
+        search = RandomizedSearchCV(
+            xgb_model,
+            param_distributions,
+            cv=5,
+            scoring=search_scoring,
+            n_jobs=-1,
+            n_iter=25,
+            random_state=42,
+            verbose=1
+        )
+    elif search_type == "none": # for debugging
+        params = {
+            'xgb__n_estimators': 10,
+            'xgb__max_depth': 3,
+            'xgb__learning_rate': 0.01,
+            'xgb__subsample': 1.0
+        }
+        print("\t Not doing any search, using fixed parameters:", params)
+        xgb_model.set_params(**params)
+        xgb_model.fit(X_train, y_train)
+        return params, xgb_model
+    else:
+        raise ValueError(f"\t Unknown search_type: {search_type}")
+
+    # Fit the search
+    start_time = time.time()
+    search.fit(X_train, y_train)
+    end_time = time.time()
+    print(f"\t Time elapsed for search: {(end_time - start_time):.2f} seconds")
+
+    return search.best_params_, search.best_estimator_
+
+
 def model_exists(label_name, output_dir):
     label_name = label_name.replace("/", " ")
     label_name = label_name.replace(" ", "_")
@@ -414,6 +490,74 @@ def run_linear(method_conf, X_train, Y_train, X_test, Y_test, output_dir):
         # print(all_probs.shape, Y_test.shape)
         evaluate_regression_and_save(Y_test, all_probs, reg_output_dir)
 
+
+def run_xgboost(method_conf, X_train, Y_train, X_test, Y_test, output_dir):
+    # run one vs all + multiclass
+    if method_conf["task_type"] == "classification":
+        # one vs all
+        print("Running XGBoost, one vs all")
+        unique_labels = np.unique(Y_train)
+        mask_valid = Y_test.isin(unique_labels)
+        if not mask_valid.all():
+            raise Exception("this dataset contains unseen labels in test")
+        ova_probs = np.empty((len(Y_test), len(unique_labels)))
+        ova_output_dir = f"{output_dir}/ova"
+        os.makedirs(ova_output_dir, exist_ok=True)
+
+        for i, label_name in enumerate(unique_labels):
+            if not model_exists(label_name, ova_output_dir):
+                print(f"\t [One-vs-All XGBoost] Starting xgboost classifier on label {label_name}")
+                y_train_binary = (Y_train == label_name).astype(int)
+                best_params, best_model = train_xgboost(X_train, y_train_binary, method_conf["search_type"])
+                save_model(label_name, ova_output_dir, best_params, best_model)
+            else:
+                print(f"\t [One-vs-All XGBoost] Only doing eval for {label_name}")
+                best_params, best_model = load_model(label_name, ova_output_dir)
+
+            # Predict the labels for the test set using the best model
+            y_probs = best_model.predict_proba(X_test)
+            assert np.allclose(y_probs.sum(axis=1), 1.0,
+                               atol=1e-6), "\t[One-vs-All XGBoost] Not all rows sum to 1"
+            ova_probs[:, i] = y_probs[:, 1]  # Store probabilities for the positive class
+        evaluate_multiclass_and_save(Y_test, ova_probs, unique_labels, ova_output_dir)
+        # multiclass
+        print("Running XGBoost, multiclass")
+        multiclass_output_dir = f"{output_dir}/multiclass"
+        os.makedirs(multiclass_output_dir, exist_ok=True)
+        le = LabelEncoder()
+        Y_train_encoded = le.fit_transform(Y_train)
+        Y_test_encoded = le.transform(Y_test)
+        if not model_exists("multiclass_xgboost", multiclass_output_dir):
+            print(f"\t [One-vs-All XGBoost] Starting XGBoost classifier on all regions")
+            best_params, best_model = train_xgboost(X_train, Y_train_encoded, method_conf["search_type"])
+            save_model("multiclass_xgboost", multiclass_output_dir, best_params, best_model)
+        else:
+            print(f"\t [One-vs-All XGBoost] Only doing eval for all regions")
+            best_params, best_model = load_model("multiclass_xgboost", multiclass_output_dir)
+
+        all_probs = best_model.predict_proba(X_test)
+        # unique_labels = best_model.classes_
+        unique_labels = np.unique(Y_train)
+        print("\t shape of probs and targets is:", all_probs.shape, Y_test_encoded.shape)
+        evaluate_multiclass_and_save(Y_test, all_probs, unique_labels, multiclass_output_dir)
+    # run regression
+    if method_conf["task_type"] == "regression":
+        print("Running XGBoost Regression")
+        reg_output_dir = f"{output_dir}/regression"
+        os.makedirs(reg_output_dir, exist_ok=True)
+        if not model_exists("regression_xgboost", reg_output_dir):
+            print(f"\t [XGBoost Regression] Starting XGBoost regressor")
+            best_params, best_model = train_xgboost(X_train, Y_train, method_conf["search_type"], regression=True)
+            save_model("regression_xgboost", reg_output_dir, best_params, best_model)
+        else:
+            print(f"\t [XGBoost Regression] Only doing eval for regression")
+            best_params, best_model = load_model("regression_xgboost", reg_output_dir)
+
+        all_probs = best_model.predict(X_test).squeeze()
+        # print(all_probs.shape, Y_test.shape)
+        evaluate_regression_and_save(Y_test, all_probs, reg_output_dir)
+
+
 def run_task(task_name: str,
              task_config: Dict,
              adata_train_all: ad.AnnData,
@@ -436,10 +580,10 @@ def run_task(task_name: str,
         os.makedirs(embed_output_path, exist_ok=True)
         for method_name, method_conf in methods.items():
             # assert method is implemented
-            if method_name not in ["random forest", "linear"]:
+            if method_name not in ["random_forest", "linear", "xgboost"]:
                 print(f"Task '{task_name}' method '{method_name}' is not implemented.")
                 continue
-            if method_name == "random forest":
+            if method_name == "random_forest":
                 rf_output_path = f"{embed_output_path}/random_forest"
                 os.makedirs(rf_output_path, exist_ok=True)
                 print(f"Running random forest for task {task_name}\n")
@@ -447,8 +591,13 @@ def run_task(task_name: str,
             elif method_name == "linear":
                 linear_output_path = f"{embed_output_path}/linear"
                 os.makedirs(linear_output_path, exist_ok=True)
-                print(f"Running linear regression for task {task_name}\n")
+                print(f"Running linear models for task {task_name}\n")
                 run_linear(method_conf, X_train, Y_train, X_test, Y_test, linear_output_path)
+            elif method_name == "xgboost":
+                xgboost_output_path = f"{embed_output_path}/xgboost"
+                os.makedirs(xgboost_output_path, exist_ok=True)
+                print(f"Running XGBoost models for task {task_name}\n")
+                run_xgboost(method_conf, X_train, Y_train, X_test, Y_test, xgboost_output_path)
 
 def main():
     parser = argparse.ArgumentParser(description="Script for running all downstream tasks")
