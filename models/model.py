@@ -62,6 +62,8 @@ class TransformerModel(nn.Module):
         mvc_decoder_style: str = "inner product",
         pre_norm: bool = False,
         vocab_num_special_tokens: int = 3,
+        init_vocab_path: str = None,
+        freeze_vocab: bool = False,
     ):
         super().__init__()
         self.model_type = "Transformer"
@@ -96,7 +98,7 @@ class TransformerModel(nn.Module):
 
         # TODO: add dropout in the TaxaEncoder
         # self.flag_encoder = nn.Embedding(2, d_model)
-        self.encoder = TaxaEncoder(vocab_len, d_model, padding_idx=vocab_pad_index)
+        self.encoder = TaxaEncoder(vocab_len, d_model, init_vocab_path, freeze_vocab, padding_idx=vocab_pad_index)
 
         # Value Encoder, NOTE: the scaling style is also handled in _encode method
         if input_emb_style == "continuous":

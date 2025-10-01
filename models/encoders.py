@@ -1,5 +1,6 @@
 # TODO: do proper attribution from scGPT
 import torch
+import numpy as np
 from torch import nn, Tensor
 from typing import Optional
 
@@ -9,16 +10,35 @@ class TaxaEncoder(nn.Module):
         self,
         num_embeddings: int,
         embedding_dim: int,
+        init_vocab_path: Optional[str] = None,
+        freeze_vocab: bool = False,
         padding_idx: Optional[int] = None,
     ):
         super().__init__()
-        self.embedding = nn.Embedding(
-            num_embeddings, embedding_dim, padding_idx=padding_idx
-        )
+        if init_vocab_path is not None:
+            assert init_vocab_path.endswith('.npy'), "init_vocab_path must be a .npy file"
+            print("Loading initial vocab from ", init_vocab_path)
+            vocab = np.load(init_vocab_path)
+            n, d_vocab = vocab.shape
+            print(f"Loaded vocab of shape {vocab.shape}")
+            # Now create embedding matrix of shape (n+3, d_vocab)
+            self.embedding = nn.Embedding(num_embeddings, d_vocab, padding_idx=padding_idx)
+            with torch.no_grad():
+                self.embedding.weight[:n].copy_(torch.from_numpy(vocab))
+            self.embedding.weight.requires_grad = not freeze_vocab
+            self.proj = nn.Linear(d_vocab, embedding_dim)
+            self.enc_norm = nn.LayerNorm(embedding_dim)
+        else:
+            self.embedding = nn.Embedding(
+                num_embeddings, embedding_dim, padding_idx=padding_idx
+            )
+            self.proj = None
         self.enc_norm = nn.LayerNorm(embedding_dim)
 
     def forward(self, x: Tensor) -> Tensor:
         x = self.embedding(x)  # (batch, seq_len, embsize)
+        if self.proj is not None:
+            x = self.proj(x)
         x = self.enc_norm(x)
         return x
     

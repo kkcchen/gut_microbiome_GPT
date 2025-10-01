@@ -128,7 +128,6 @@ def train_rf(X_train, y_train, search_type, regression=False):
             scoring=search_scoring,
             cv=3,
             n_jobs=-1,
-            random_state=42,
             verbose=1
         )
     elif search_type == "random":
@@ -183,7 +182,7 @@ def train_linear(X_train, y_train, search_type, regression=False):
             ('lasso', Lasso(random_state=42))
         ])
         param_distributions = {
-            'lasso__max_iter': 2000,
+            'lasso__max_iter': [500, 1000, 2000, 5000],
             'lasso__alpha': np.logspace(-4, 2, 10)
         }
         search_scoring = 'neg_mean_squared_error'
@@ -194,7 +193,7 @@ def train_linear(X_train, y_train, search_type, regression=False):
             ('logistic', LogisticRegression(penalty='l1', solver='liblinear', random_state=42))
         ])
         param_distributions = {
-            'logistic__max_iter': 2000,
+            'logistic__max_iter': [500, 1000, 2000, 5000],
             'logistic__C': 1.0 / np.logspace(-4, 2, 10)  # C is inverse of alpha in LogisticRegression
         }
         search_scoring = 'roc_auc' if n_classes == 2 else 'f1_weighted'
@@ -216,7 +215,7 @@ def train_linear(X_train, y_train, search_type, regression=False):
             cv=5,
             scoring=search_scoring,
             n_jobs=-1,
-            n_iter=20,
+            n_iter=5,
             random_state=42,
             verbose=1
         )
@@ -290,7 +289,7 @@ def train_xgboost(X_train, y_train, search_type, regression=False):
             cv=5,
             scoring=search_scoring,
             n_jobs=-1,
-            n_iter=25,
+            n_iter=5,
             random_state=42,
             verbose=1
         )
