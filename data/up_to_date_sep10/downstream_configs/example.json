@@ -1,0 +1,86 @@
+{
+  "age": {
+    "label_type": "continuous_label",
+    "ignored_labels": [],
+    "embed_name": ["raw_embedding"],
+    "target_colname": "downstream_task",
+    "methods": {
+      "random forest": {
+        "search_type": "grid",
+        "task_type": "regression"
+      }
+    }
+  },
+  "bmi": {
+    "label_type": "continuous_label",
+    "ignored_labels": [],
+    "embed_name": ["raw_embedding"],
+    "target_colname": "downstream_task",
+    "methods": {
+      "random forest": {
+        "search_type": "grid",
+        "task_type": "regression"
+      }
+    }
+  },
+  "human_diet": {
+    "label_type": "categorical_label",
+    "ignored_labels": [],
+    "embed_name": ["raw_embedding"],
+    "target_colname": "downstream_task",
+    "methods": {
+      "random forest": {
+        "search_type": "grid",
+        "task_type": "classification"
+      }
+    }
+  },
+  "mice_diet": {
+    "label_type": "categorical_label",
+    "ignored_labels": [],
+    "embed_name": ["raw_embedding"],
+    "target_colname": "downstream_task",
+    "methods": {
+      "random forest": {
+        "search_type": "grid",
+        "task_type": "classification"
+      }
+    }
+  },
+  "supplement": {
+    "label_type": "categorical_label",
+    "ignored_labels": [],
+    "embed_name": ["raw_embedding"],
+    "target_colname": "downstream_task",
+    "methods": {
+      "random forest": {
+        "search_type": "grid",
+        "task_type": "classification"
+      }
+    }
+  },
+  "sex": {
+    "label_type": "categorical_label",
+    "ignored_labels": [],
+    "embed_name": ["raw_embedding"],
+    "target_colname": "downstream_task",
+    "methods": {
+      "random forest": {
+        "search_type": "grid",
+        "task_type": "classification"
+      }
+    }
+  },
+  "location": {
+    "label_type": "categorical_label",
+    "ignored_labels": [],
+    "embed_name": ["raw_embedding"],
+    "target_colname": "location",
+    "methods": {
+      "random forest": {
+        "search_type": "grid",
+        "task_type": "classification"
+      }
+    }
+  }
+}

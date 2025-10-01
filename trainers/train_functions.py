@@ -469,6 +469,7 @@ def commit_state(extra_state, epoch, best_val_loss, patience_counter, checkpoint
 
 
 def create_or_restore_data_state(anndata_path, num_bins, restore_dir, accelerator: Accelerator, batch_obskey=None, nrows=None):
+    print(f"Creating vocab and data from scratch using {anndata_path}")
     if accelerator.is_main_process:
         os.makedirs(restore_dir, exist_ok=True)
         
@@ -537,6 +538,7 @@ def create_or_restore_data_state(anndata_path, num_bins, restore_dir, accelerato
             valid_data_dict[key] = data_dict[key][val_mask]
         
         adata.write_h5ad(os.path.join(restore_dir, "augmented_data.h5ad"))
+        print(f"length of train and valid data: {len(train_data_dict['taxa_ids'])}, {len(valid_data_dict['taxa_ids'])}")
         data_list = [train_data_dict, valid_data_dict, vocab, batch_vocab]
     else:
         data_list = [None, None, None, None]

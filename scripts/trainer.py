@@ -23,6 +23,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train TransformerModel on microbiome data")
     parser.add_argument("--model-config-path", type=str, required=True, help="Path to model configuration file")
     parser.add_argument("--ann-table-path", type=str, required=True, help="Path to HMC table file")
+    parser.add_argument("--vocab-path", type=str, default=None, help="Path to vocabulary file (if any), e.g. vocab created from evo2")
     parser.add_argument("--best-dir", type=str, required=True, help="Directory to save best model so far")
     parser.add_argument("--checkpoint-dir", type=str, required=True, help="Directory to save checkpoints for preemption")
     parser.add_argument("--data-restore-dir", type=str, required=True, help="Directory to restore data state")
@@ -52,6 +53,8 @@ if __name__ == "__main__":
     parser.add_argument("--do-taxa-decoder", action="store_true", help="do taxa task for pretraining")
     parser.add_argument("--do-contrastive", action="store_true", help="Use contrastive embedding in the model")
     parser.add_argument("--train-mask-ratio", type=float, default=0.15, help="train mask ratio")
+    parser.add_argument("--freeze-vocab", action="store_true", help="Freeze the embedding layer of the vocab, if initialized from a pre-trained embedding")
+
 
     # for debugging
     parser.add_argument("--nrows", type=int, default=None, help="For debugging to limit number of samples in set")
@@ -63,6 +66,7 @@ if __name__ == "__main__":
 
     model_config_path = args.model_config_path
     ann_table_path = args.ann_table_path
+    vocab_path = args.vocab_path
     best_dir = args.best_dir
     checkpoint_dir = args.checkpoint_dir
     data_restore_dir = args.data_restore_dir
@@ -86,6 +90,7 @@ if __name__ == "__main__":
     do_taxa_decoder = args.do_taxa_decoder
     do_contrastive = args.do_contrastive
     train_mask_ratio = args.train_mask_ratio
+    freeze_vocab = args.freeze_vocab
     
     use_batch_labels = args.use_batch_labels
     nrows = args.nrows
@@ -162,13 +167,14 @@ if __name__ == "__main__":
         "do_mvc": do_mvc,
         "do_taxa_decoder": do_taxa_decoder,
         "do_attn_mask": False,
-
         "vocab_len": len(vocab),
         "vocab_num_special_tokens": vocab.num_special_tokens,
         "vocab_pad_index": vocab.pad_index,
         "vocab_pad_value": vocab.pad_value,
         "vocab_mask_value": vocab.mask_value,
         "num_batch_labels": len(batch_vocab) if use_batch_labels else 0,
+        "init_vocab_path": vocab_path,
+        "freeze_vocab": freeze_vocab,
     }
     
     import json
