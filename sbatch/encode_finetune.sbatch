@@ -8,8 +8,49 @@
 #SBATCH --error=logs/encode_finetune/%j.err
 #SBATCH --gres=gpu:4
 
+# prepare your environment here
 cd /project/aip-rahulgk/kchen13/gutmodel/gut_microbiome_GPT
 source ~/hmbenv/bin/activate
+
+python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not available. Exiting.'" || exit 1
+
+# === Set paths ===
+EXPERIMENT_PATH=experiment_saves/taxa-mask-30-locexc-batch
+
+SAFETENSORS_PATH=$EXPERIMENT_PATH/model_checkpoints/best_model/model.safetensors
+VOCAB_PATH=$EXPERIMENT_PATH/model_checkpoints/data_checkpoint/augmented_data.h5ad
+MODEL_CONFIG_PATH=$EXPERIMENT_PATH/model_checkpoints/model_config.json
+
+TRAIN_OUTPUT_PATH=$EXPERIMENT_PATH/up_to_date_sep10/encoded_train.h5ad
+TEST_OUTPUT_PATH=$EXPERIMENT_PATH/up_to_date_sep10/encoded_test.h5ad
+
+TRAIN_ANN_PATH=/project/aip-rahulgk/gutmodel/up_to_date_sep10/finetune_train.h5ad
+TEST_ANN_PATH=/project/aip-rahulgk/gutmodel/up_to_date_sep10/finetune_test.h5ad
+
+# === Run the encoding script ===
+echo "Running encoding for finetune train set..."
+accelerate launch -m scripts.encode_samples \
+  --safetensors-path $SAFETENSORS_PATH \
+  --output-path $TRAIN_OUTPUT_PATH \
+  --vocab-path $VOCAB_PATH \
+  --model-config-path $MODEL_CONFIG_PATH \
+  --adata-path $TRAIN_ANN_PATH \
+
+
+echo "Running encoding for finetune test set..."
+accelerate launch -m scripts.encode_samples \
+  --safetensors-path $SAFETENSORS_PATH \
+  --output-path $TEST_OUTPUT_PATH \
+  --vocab-path $VOCAB_PATH \
+  --model-config-path $MODEL_CONFIG_PATH \
+  --adata-path $TEST_ANN_PATH \
+
+echo "Encoding complete."
+
+
+
+# cd /project/aip-rahulgk/kchen13/gutmodel/gut_microbiome_GPT
+# source ~/hmbenv/bin/activate
 
 python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not available. Exiting.'" || exit 1
 
@@ -17,7 +58,7 @@ EXPERIMENT_PATH=experiment_saves/taxa-mask-30-locexc-batch
 
 # Just the category names
 CATEGORIES=(
-  # age
+  age
   bmi
   human_diet
   location

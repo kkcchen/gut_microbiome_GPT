@@ -152,10 +152,10 @@ if __name__ == "__main__":
 
     # Create or restore training state
     model_config = {
-        "d_model": 128,
-        "nhead": 4,
+        "d_model": 256,
+        "nhead": 5,
         "d_hid": 512,
-        "nlayers": 3,
+        "nlayers": 4,
         "use_batch_labels": use_batch_labels,
         "dropout": 0.1,
         "n_input_bins": num_bins,

@@ -12,7 +12,7 @@ from trainers import logger
 from data_utils.vocab import MicrobiomeVocab, BatchVocab
 
 
-from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_score, confusion_matrix
+from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_score, confusion_matrix, f1_score
 
 def restore_vocab_test(anndata_path, vocab_restore_path, batch_obskey=None):
     if os.path.exists(vocab_restore_path):
@@ -174,7 +174,9 @@ def evaluate_multiclass_and_save(y_true, y_probs, train_class_labels, output_dir
     y_pred = train_class_labels[y_pred_index]
     print("types of predictions and targets are:", y_pred.dtype, y_true.dtype)
     total_accuracy = accuracy_score(y_true, y_pred)
-    conf_mat = confusion_matrix(y_true, y_pred)
+    micro_f1 = f1_score(y_true, y_pred, average='micro')
+    macro_f1 = f1_score(y_true, y_pred, average='macro')
+    conf_mat = confusion_matrix(y_true, y_pred) # automatically sorts labels
     region_scores = []
     fig, ax = plt.subplots(figsize=(8, 6))
 
@@ -196,7 +198,9 @@ def evaluate_multiclass_and_save(y_true, y_probs, train_class_labels, output_dir
 
     region_scores.sort(key=lambda x: x["Region"])
     region_scores.append({"Total Accuracy": total_accuracy,
-                        "Categories": list(train_class_labels),
+                        "Micro F1": micro_f1,
+                        "Macro F1": macro_f1,
+                        "Categories": sorted(list(train_class_labels)),
                         "Confusion Matrix": conf_row_strs})
     # Save the scores to a file
     scores_file = os.path.join(output_dir, "multiclass_scores.json")
