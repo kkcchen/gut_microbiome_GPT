@@ -21,6 +21,7 @@ class MicrobiomeVocab():
             mask_token (str): The token representing the mask.
         """
         # IMPORTANT: special tokens must be at end of the vocabulary list
+        self.vocab_list = vocab_list
         special_tokens = [class_token, mask_token, pad_token]
         self.itos = vocab_list + special_tokens
         self.num_special_tokens = len(special_tokens)
