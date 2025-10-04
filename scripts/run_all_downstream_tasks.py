@@ -535,8 +535,8 @@ def run_xgboost(method_conf, X_train, Y_train, X_test, Y_test, output_dir):
             best_params, best_model = load_model("multiclass_xgboost", multiclass_output_dir)
 
         all_probs = best_model.predict_proba(X_test)
-        # unique_labels = best_model.classes_
-        unique_labels = np.unique(Y_train)
+        unique_labels = le.classes_
+        # unique_labels = np.unique(Y_train)
         print("\t shape of probs and targets is:", all_probs.shape, Y_test_encoded.shape)
         evaluate_multiclass_and_save(Y_test, all_probs, unique_labels, multiclass_output_dir)
     # run regression

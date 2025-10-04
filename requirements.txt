@@ -13,3 +13,5 @@ scipy
 wandb
 anndata
 matplotlib
+xgboost
+seaborn

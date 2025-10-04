@@ -1,17 +1,17 @@
 #!/bin/bash
-#SBATCH --job-name=random_forest_microbiome
+#SBATCH --job-name=tree_train
 #SBATCH -A aip-rahulgk
-#SBATCH --output=logs/random_forest/%j.out
-#SBATCH --error=logs/random_forest/%j.err
+#SBATCH --output=logs/tree_train/%j.out
+#SBATCH --error=logs/tree_train/%j.err
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --time=6:00:00              
+#SBATCH --time=1:00:00              
 
 # Activate your virtual environment
 cd /project/aip-rahulgk/kchen13/gutmodel/gut_microbiome_GPT
 source ~/hmbenv/bin/activate
 
-FROM_RAW=0
+FROM_RAW=1
 FINETUNE=1
 
 if [ "$FROM_RAW" -eq 1 ]; then
@@ -22,7 +22,7 @@ if [ "$FROM_RAW" -eq 1 ]; then
     TRAIN_EMBED_PATH=$EMB_SAVE_PATH/finetune_train.h5ad
     TEST_EMBED_PATH=$EMB_SAVE_PATH/finetune_test.h5ad
 
-    OUTPUT_DIR_PARENT="$EXPERIMENT_PATH/rf_raw"
+    OUTPUT_DIR_PARENT="$EXPERIMENT_PATH/xgb_raw_bigger"
 
     EMB_NAME=raw_embedding
 else
@@ -40,9 +40,10 @@ else
     fi
 fi
 
-SEARCH_TYPE="random"
+SEARCH_TYPE="none"
 
-for TARGET in sex location age bmi mice_diet supplement human_diet
+# for TARGET in sex location age bmi mice_diet supplement human_diet
+for TARGET in location
 do
     if [ "$FROM_RAW" -eq 0 ]; then
         if [ "$FINETUNE" -eq 0 ]; then
@@ -60,20 +61,19 @@ do
         TARGET_COLNAME="categorical_label"
     fi
 
-    OUTPUT_DIR="$OUTPUT_DIR_PARENT/${TARGET}_rf"
-    NOTES="rf on raw, $TARGET ($MODEL_TYPE)"
+    OUTPUT_DIR="$OUTPUT_DIR_PARENT/${TARGET}_${MODEL_TYPE}"
 
     mkdir -p "$OUTPUT_DIR"
-    echo "$NOTES" > "$OUTPUT_DIR/notes.txt"
 
-    echo "Running Random Forest for $TARGET with $MODEL_TYPE and $TARGET_COLNAME..."
+    echo "Tree model training for $TARGET with $MODEL_TYPE and $TARGET_COLNAME..."
 
     # Build the command
-    CMD="python -m scripts.random_forest_exp \
+    CMD="python -m scripts.tree_learn \
         --train-embed-path \"$TRAIN_EMBED_PATH\" \
         --test-embed-path \"$TEST_EMBED_PATH\" \
         --output-dir \"$OUTPUT_DIR\" \
         --search-type \"$SEARCH_TYPE\" \
+        --model-arch \"xgb\" \
         --model-type \"$MODEL_TYPE\" \
         --target-colname \"$TARGET_COLNAME\" \
         --emb-name $EMB_NAME \
@@ -86,9 +86,11 @@ do
         CMD="$CMD --ignored-label unknown"
     fi
 
+    echo "$CMD" > "$OUTPUT_DIR/notes.txt"
+
     # Run the command
     eval $CMD
 done
 
 
-echo "Random Forest job finished."
+echo "Tree model training job finished."

@@ -10,6 +10,7 @@ from data_utils.preprocessor import Preprocessor
 from data_utils.tokenizer import Tokenizer
 from trainers import logger
 from data_utils.vocab import MicrobiomeVocab, BatchVocab
+import seaborn as sns
 
 
 from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_score, confusion_matrix, f1_score
@@ -137,7 +138,34 @@ def save_roc_curve(ax, output_dir):
     plt.savefig(output_path)
     plt.close()
     print(f"\t Saved combined ROC plot to {output_path}")
+
+def save_confusion_matrix(confusion_matrix, categories, output_dir):
+    # Ensure array
+    confusion_matrix = np.array(confusion_matrix, dtype=np.float64)
+
+    # Normalized for colors
+    row_sums = confusion_matrix.sum(axis=1, keepdims=True)
+    confusion_matrix_normalized = confusion_matrix / row_sums
+
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(
+        confusion_matrix_normalized,              # use normalized values for colors
+        annot=confusion_matrix.astype(int),       # show raw counts in text
+        fmt="d",
+        cmap="Blues",
+        xticklabels=categories,
+        yticklabels=categories
+    )
     
+    plt.title("Confusion Matrix (counts with normalized colors)")
+    plt.xlabel("Predicted Label")
+    plt.ylabel("True Label")
+    plt.tight_layout()
+    
+    output_path = os.path.join(output_dir, "confusion_matrix.png")
+    plt.savefig(output_path)
+    plt.close()
+    print(f"\t Saved confusion matrix plot to {output_path}")
 
 def evaluate_binary(label_name, y_probs, y_pred, y_test_binary):
     
@@ -176,8 +204,8 @@ def evaluate_multiclass_and_save(y_true, y_probs, train_class_labels, output_dir
     total_accuracy = accuracy_score(y_true, y_pred)
     micro_f1 = f1_score(y_true, y_pred, average='micro')
     macro_f1 = f1_score(y_true, y_pred, average='macro')
-    conf_mat = confusion_matrix(y_true, y_pred) # automatically sorts labels
-    region_scores = []
+    conf_mat = confusion_matrix(y_true, y_pred, labels=train_class_labels)
+    label_scores = []
     fig, ax = plt.subplots(figsize=(8, 6))
 
     index_label_pairs = enumerate(train_class_labels)
@@ -193,14 +221,15 @@ def evaluate_multiclass_and_save(y_true, y_probs, train_class_labels, output_dir
         add_roc_curve(binary_targets, scores, label, ax)
     
     save_roc_curve(ax, output_dir)
+    save_confusion_matrix(conf_mat, train_class_labels, output_dir)
     # Save the scores to a file
     conf_row_strs = [str(row) for row in conf_mat]
 
-    region_scores.sort(key=lambda x: x["Region"])
-    region_scores.append({"Total Accuracy": total_accuracy,
+    label_scores.sort(key=lambda x: x["Label"])
+    label_scores.append({"Total Accuracy": total_accuracy,
                         "Micro F1": micro_f1,
                         "Macro F1": macro_f1,
-                        "Categories": sorted(list(train_class_labels)),
+                        "Categories": list(train_class_labels),
                         "Confusion Matrix": conf_row_strs})
     # Save the scores to a file
     scores_file = os.path.join(output_dir, "multiclass_scores.json")

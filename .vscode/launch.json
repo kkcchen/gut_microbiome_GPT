@@ -74,15 +74,15 @@
           "python": "/home/kchen/miniconda3/envs/hmbGPT/bin/python"  // optional: usually auto-detected
         },
         {
-          "name": "Debug random_forest_exp.py",
+          "name": "Debug tree_learn.py",
           "type": "debugpy",
           "request": "launch",
-          "module": "scripts.random_forest_exp",
+          "module": "scripts.tree_learn",
           "console": "integratedTerminal",
           "args": [
             "--train-embed-path", "/home/kchen/microbiome/gut_microbiome_GPT/experiment_saves/encoded_samples/raw_encoded_train.h5ad",
             "--test-embed-path", "/home/kchen/microbiome/gut_microbiome_GPT/experiment_saves/encoded_samples/raw_encoded_test.h5ad",
-            "--output-dir", "experiment_saves/random_forest_exp",
+            "--output-dir", "experiment_saves/tree_learn",
             "--multiclass",
           ],
           "python": "/home/kchen/miniconda3/envs/hmbGPT/bin/python"  // optional: usually auto-detected

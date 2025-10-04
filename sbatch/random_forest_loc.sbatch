@@ -62,7 +62,7 @@ mkdir -p "$OUTPUT_DIR"
 echo -e "$NOTES" > "$OUTPUT_DIR/notes.txt"
 echo -e "$NOTES"
 
-python -m scripts.random_forest_exp \
+python -m scripts.tree_learn \
   --train-embed-path $TRAIN_EMBED_PATH \
   --test-embed-path $TEST_EMBED_PATH \
   --output-dir $OUTPUT_DIR \
