@@ -8,15 +8,15 @@ import numpy as np
 import anndata as ad
 
 from typing import List, Dict, Tuple
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import LogisticRegression, Lasso
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from scipy.stats import randint, uniform
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, LabelEncoder
-from xgboost import XGBClassifier, XGBRegressor
+from sklearn.utils.class_weight import compute_class_weight
 from trainers.test_functions import evaluate_multiclass_and_save, evaluate_regression_and_save
 
+from scripts.tree_learn import train_rf, train_xgb, train_linear, save_model, load_model, model_exists
 
 def tasks_type(string: str) -> Dict:
     """Convert JSON path to a dict with hard format, this is the expected type of task input,
@@ -89,263 +89,7 @@ def tasks_type(string: str) -> Dict:
     return data
 
 
-def train_rf(X_train, y_train, search_type, regression=False):
-    """
-    from Kevin Chen, original code for training random forest
-    """
-    print("\t X_train shape:", X_train.shape)
-    print("\t y_train shape:", y_train.shape)
-
-    if regression:
-        rf_model = RandomForestRegressor(
-            bootstrap=True,
-            random_state=42,
-            n_jobs=-1
-        )
-        search_scoring = 'neg_mean_squared_error'
-    else:
-        n_classes = len(np.unique(y_train))
-        rf_model = RandomForestClassifier(
-            bootstrap=True,
-            random_state=42,
-            class_weight="balanced",
-            n_jobs=-1
-        )
-        search_scoring = 'roc_auc' if n_classes == 2 else 'f1_weighted'
-
-    if search_type == "grid":
-        param_grid = {
-            "min_samples_leaf": [1, 10, 100],
-            "max_samples": [1.0, 0.75, 0.5],
-            "max_features": [0.1, 0.2, 0.3],
-            "n_estimators": [50, 250, 500, 1000]
-        }
-
-        # Perform grid search with cross-validation
-        search = GridSearchCV(
-            estimator=rf_model,
-            param_grid=param_grid,
-            scoring=search_scoring,
-            cv=3,
-            n_jobs=-1,
-            verbose=1
-        )
-    elif search_type == "random":
-        param_distributions = {  # discrete for min_samples_leaf?
-            "min_samples_leaf": randint(2, 20),
-            "max_samples": uniform(0.5, 0.5),
-            "max_features": uniform(0.5, 0.5),
-            "n_estimators": randint(200, 1000)
-        }
-
-        # Perform random search with cross-validation
-        search = RandomizedSearchCV(
-            estimator=rf_model,
-            param_distributions=param_distributions,
-            n_iter=10,  # Number of parameter combinations to try
-            scoring=search_scoring,
-            cv=3,
-            n_jobs=-1,
-            random_state=42,
-            verbose=1
-        )
-    elif search_type == "none":
-        params = {"max_features": 0.3446384285364502, "max_samples": 0.8534286719238086, "min_samples_leaf": 3,
-                  "n_estimators": 10}
-        print("\t Not doing any search, using fixed parameters:", params)
-        rf_model.set_params(**params)
-        rf_model.fit(X_train, y_train)
-        return params, rf_model
-    else:
-        raise ValueError("search_type must be 'grid', 'random', or 'none'")
-
-    # Train the model using search
-    start_time = time.time()
-    search.fit(X_train, y_train)
-    end_time = time.time()
-    print(f"\t Time elapsed for search: {(end_time - start_time):.2f} seconds")
-
-    # Get the best parameters and model
-    return search.best_params_, search.best_estimator_
-
-def train_linear(X_train, y_train, search_type, regression=False):
-    """
-    basically same as train_rf, but for linear models
-    """
-    print("\t X_train shape:", X_train.shape)
-    print("\t y_train shape:", y_train.shape)
-
-    # Create pipeline with scaling (important for Lasso)
-    if regression:
-        ln_model = Pipeline([
-            ('scaler', StandardScaler()),
-            ('lasso', Lasso(random_state=42))
-        ])
-        param_distributions = {
-            'lasso__max_iter': [500, 1000, 2000, 5000],
-            'lasso__alpha': np.logspace(-4, 2, 10)
-        }
-        search_scoring = 'neg_mean_squared_error'
-    else:
-        n_classes = len(np.unique(y_train))
-        ln_model = Pipeline([
-            ('scaler', StandardScaler()),
-            ('logistic', LogisticRegression(penalty='l1', solver='liblinear', random_state=42))
-        ])
-        param_distributions = {
-            'logistic__max_iter': [500, 1000, 2000, 5000],
-            'logistic__C': 1.0 / np.logspace(-4, 2, 10)  # C is inverse of alpha in LogisticRegression
-        }
-        search_scoring = 'roc_auc' if n_classes == 2 else 'f1_weighted'
-
-    # hyperparameter search
-    if search_type == "grid":
-        search = GridSearchCV(
-            ln_model,
-            param_distributions,
-            cv=5,
-            scoring=search_scoring,
-            n_jobs=-1,
-            verbose=1
-        )
-    elif search_type == "random":
-        search = RandomizedSearchCV(
-            ln_model,
-            param_distributions,
-            cv=5,
-            scoring=search_scoring,
-            n_jobs=-1,
-            n_iter=5,
-            random_state=42,
-            verbose=1
-        )
-    elif search_type == "none": # for debugging
-        if regression:
-            params = {"lasso__alpha": 1}
-        else:
-            params = {"logistic__C": 1}
-        print("\t Not doing any search, using fixed parameters:", params)
-        ln_model.set_params(**params)
-        ln_model.fit(X_train, y_train)
-        return params, ln_model
-    else:
-        raise ValueError(f"\t Unknown search_type: {search_type}")
-
-    # Fit the search
-    start_time = time.time()
-    search.fit(X_train, y_train)
-    end_time = time.time()
-    print(f"\t Time elapsed for search: {(end_time - start_time):.2f} seconds")
-
-    return search.best_params_, search.best_estimator_
-
-
-def train_xgboost(X_train, y_train, search_type, regression=False):
-    """
-    basically same as train_rf, but for xgboost
-    """
-    print("\t X_train shape:", X_train.shape)
-    print("\t y_train shape:", y_train.shape)
-
-    if regression:
-        xgb_model = Pipeline([
-            ('scaler', StandardScaler()),
-            ('xgb', XGBRegressor(tree_method='hist', random_state=42))
-        ])
-        param_distributions = {
-            'xgb__n_estimators': [100, 200],
-            'xgb__max_depth': [3, 5],
-            'xgb__learning_rate': [0.01, 0.1],
-            'xgb__subsample': [0.8, 1.0]
-        }
-        search_scoring = 'neg_mean_squared_error'
-    else:
-        xgb_model = Pipeline([
-            ('scaler', StandardScaler()),
-            ('xgb', XGBClassifier(use_label_encoder=False, eval_metric='logloss', tree_method='hist', random_state=42))
-        ])
-        param_distributions = {
-            'xgb__n_estimators': [100, 200, 300],
-            'xgb__max_depth': [3, 6, 10],
-            'xgb__learning_rate': [0.01, 0.1, 0.3],
-            'xgb__subsample': [0.7, 0.8, 1.0]
-        }
-        search_scoring = 'accuracy'
-
-    # hyperparameter search
-    if search_type == "grid":
-        search = GridSearchCV(
-            xgb_model,
-            param_distributions,
-            cv=5,
-            scoring=search_scoring,
-            n_jobs=-1,
-            verbose=1
-        )
-    elif search_type == "random":
-        search = RandomizedSearchCV(
-            xgb_model,
-            param_distributions,
-            cv=5,
-            scoring=search_scoring,
-            n_jobs=-1,
-            n_iter=5,
-            random_state=42,
-            verbose=1
-        )
-    elif search_type == "none": # for debugging
-        params = {
-            'xgb__n_estimators': 10,
-            'xgb__max_depth': 3,
-            'xgb__learning_rate': 0.01,
-            'xgb__subsample': 1.0
-        }
-        print("\t Not doing any search, using fixed parameters:", params)
-        xgb_model.set_params(**params)
-        xgb_model.fit(X_train, y_train)
-        return params, xgb_model
-    else:
-        raise ValueError(f"\t Unknown search_type: {search_type}")
-
-    # Fit the search
-    start_time = time.time()
-    search.fit(X_train, y_train)
-    end_time = time.time()
-    print(f"\t Time elapsed for search: {(end_time - start_time):.2f} seconds")
-
-    return search.best_params_, search.best_estimator_
-
-
-def model_exists(label_name, output_dir):
-    label_name = label_name.replace("/", " ")
-    label_name = label_name.replace(" ", "_")
-    region_dir = os.path.join(output_dir, f"{label_name}")
-    return os.path.exists(region_dir) and os.path.exists(os.path.join(region_dir, "best_model.pkl")) and os.path.exists(
-        os.path.join(region_dir, "best_params.json"))
-
-def save_model(label_name, output_dir, best_params, best_model):
-    label_name = label_name.replace("/", " ")
-    label_name = label_name.replace(" ", "_")
-    label_dir = os.path.join(output_dir, f"{label_name}")
-    os.makedirs(label_dir, exist_ok=True)
-
-    # Save best parameters
-    with open(os.path.join(label_dir, "best_params.json"), "w") as f:
-        json.dump(best_params, f)
-
-    # Save best model
-    joblib.dump(best_model, os.path.join(label_dir, "best_model.pkl"))
-
-def load_model(label_name, output_dir):
-    label_name = label_name.replace("/", " ")
-    label_name = label_name.replace(" ", "_")
-    label_dir = os.path.join(output_dir, f"{label_name}")
-    with open(os.path.join(label_dir, "best_params.json"), "r") as f:
-        best_params = json.load(f)
-    best_model = joblib.load(os.path.join(label_dir, "best_model.pkl"))
-    return best_params, best_model
-
-def run_random_forest(method_conf: Dict, X_train, Y_train, X_test, Y_test, output_dir):
+def run_random_forest(method_conf: Dict, X_train, Y_train, X_test, Y_test, output_dir, sample_weights=None):
     # run one vs all + multiclass
     if method_conf["task_type"] == "classification":
         # one vs all
@@ -362,7 +106,7 @@ def run_random_forest(method_conf: Dict, X_train, Y_train, X_test, Y_test, outpu
             if not model_exists(label_name, ova_output_dir):
                 print(f"\t [One-vs-All Random Forest] Starting Random Forest classifier on label {label_name}")
                 y_train_binary = (Y_train == label_name).astype(int)
-                best_params, best_model = train_rf(X_train, y_train_binary, method_conf["search_type"])
+                best_params, best_model = train_rf(X_train, y_train_binary, method_conf["search_type"], sample_weights)
                 save_model(label_name, ova_output_dir, best_params, best_model)
             else:
                 print(f"\t [One-vs-All Random Forest] Only doing eval for {label_name}")
@@ -379,7 +123,7 @@ def run_random_forest(method_conf: Dict, X_train, Y_train, X_test, Y_test, outpu
         os.makedirs(multiclass_output_dir, exist_ok=True)
         if not model_exists("multiclass_tree", multiclass_output_dir):
             print(f"\t [Multiclass Random Forest] Starting Random Forest classifier on all regions")
-            best_params, best_model = train_rf(X_train, Y_train, method_conf["search_type"])
+            best_params, best_model = train_rf(X_train, Y_train, method_conf["search_type"], sample_weights)
             save_model("multiclass_tree", multiclass_output_dir, best_params, best_model)
         else:
             print(f"\t [Multiclass Random Forest] Only doing eval for all regions")
@@ -400,7 +144,7 @@ def run_random_forest(method_conf: Dict, X_train, Y_train, X_test, Y_test, outpu
         print("\t shape of probs and targets is:", all_probs.shape, Y_test_filtered.shape)
         evaluate_multiclass_and_save(Y_test_filtered, all_probs, unique_labels, multiclass_output_dir)
     # run regression
-    if method_conf["task_type"] == "regression":
+    elif method_conf["task_type"] == "regression":
         print("Running Random Forest Regression")
         reg_output_dir = f"{output_dir}/regression"
         os.makedirs(reg_output_dir, exist_ok=True)
@@ -417,7 +161,7 @@ def run_random_forest(method_conf: Dict, X_train, Y_train, X_test, Y_test, outpu
         evaluate_regression_and_save(Y_test, all_probs, reg_output_dir)
 
 
-def run_linear(method_conf, X_train, Y_train, X_test, Y_test, output_dir):
+def run_linear(method_conf, X_train, Y_train, X_test, Y_test, output_dir, sample_weights=None):
     # run one vs all + multiclass
     if method_conf["task_type"] == "classification":
         # one vs all
@@ -473,8 +217,10 @@ def run_linear(method_conf, X_train, Y_train, X_test, Y_test, output_dir):
         print("\t shape of probs and targets is:", all_probs.shape, Y_test_filtered.shape)
         evaluate_multiclass_and_save(Y_test_filtered, all_probs, unique_labels, multiclass_output_dir)
     # run regression
-    if method_conf["task_type"] == "regression":
+    elif method_conf["task_type"] == "regression":
         print("Running Linear Regression")
+        scaler_y = StandardScaler()
+        Y_train = scaler_y.fit_transform(Y_train.values.reshape(-1, 1)).squeeze()
         reg_output_dir = f"{output_dir}/regression"
         os.makedirs(reg_output_dir, exist_ok=True)
         if not model_exists("lasso_regression", reg_output_dir):
@@ -486,11 +232,12 @@ def run_linear(method_conf, X_train, Y_train, X_test, Y_test, output_dir):
             best_params, best_model = load_model("lasso_regression", reg_output_dir)
 
         all_probs = best_model.predict(X_test).squeeze()
+        all_probs = scaler_y.inverse_transform(all_probs.reshape(-1, 1)).squeeze()
         # print(all_probs.shape, Y_test.shape)
         evaluate_regression_and_save(Y_test, all_probs, reg_output_dir)
 
 
-def run_xgboost(method_conf, X_train, Y_train, X_test, Y_test, output_dir):
+def run_xgboost(method_conf, X_train, Y_train, X_test, Y_test, output_dir, sample_weights=None):
     # run one vs all + multiclass
     if method_conf["task_type"] == "classification":
         # one vs all
@@ -507,7 +254,7 @@ def run_xgboost(method_conf, X_train, Y_train, X_test, Y_test, output_dir):
             if not model_exists(label_name, ova_output_dir):
                 print(f"\t [One-vs-All XGBoost] Starting xgboost classifier on label {label_name}")
                 y_train_binary = (Y_train == label_name).astype(int)
-                best_params, best_model = train_xgboost(X_train, y_train_binary, method_conf["search_type"])
+                best_params, best_model = train_xgb(X_train, y_train_binary, method_conf["search_type"])
                 save_model(label_name, ova_output_dir, best_params, best_model)
             else:
                 print(f"\t [One-vs-All XGBoost] Only doing eval for {label_name}")
@@ -528,7 +275,7 @@ def run_xgboost(method_conf, X_train, Y_train, X_test, Y_test, output_dir):
         Y_test_encoded = le.transform(Y_test)
         if not model_exists("multiclass_xgboost", multiclass_output_dir):
             print(f"\t [One-vs-All XGBoost] Starting XGBoost classifier on all regions")
-            best_params, best_model = train_xgboost(X_train, Y_train_encoded, method_conf["search_type"])
+            best_params, best_model = train_xgb(X_train, Y_train_encoded, sample_weights, method_conf["search_type"])
             save_model("multiclass_xgboost", multiclass_output_dir, best_params, best_model)
         else:
             print(f"\t [One-vs-All XGBoost] Only doing eval for all regions")
@@ -546,7 +293,7 @@ def run_xgboost(method_conf, X_train, Y_train, X_test, Y_test, output_dir):
         os.makedirs(reg_output_dir, exist_ok=True)
         if not model_exists("regression_xgboost", reg_output_dir):
             print(f"\t [XGBoost Regression] Starting XGBoost regressor")
-            best_params, best_model = train_xgboost(X_train, Y_train, method_conf["search_type"], regression=True)
+            best_params, best_model = train_xgb(X_train, Y_train, method_conf["search_type"], regression=True)
             save_model("regression_xgboost", reg_output_dir, best_params, best_model)
         else:
             print(f"\t [XGBoost Regression] Only doing eval for regression")
@@ -576,6 +323,20 @@ def run_task(task_name: str,
         X_test = adata_test_task.obsm[embed_name]
         Y_test = adata_test_task.obs[task_config["label_type"]]
         embed_output_path = f"{output_path}/{embed_name}"
+        
+        if method_conf["task_type"] == "classification":
+            classes = np.unique(Y_train)
+            class_weights = compute_class_weight(
+                class_weight="balanced",
+                classes=classes,
+                y=Y_train
+            )
+            class_weights_dict = dict(zip(classes, class_weights))
+            print("Class weights:", list(zip(classes, class_weights)))
+            sample_weights = np.array([class_weights_dict[label] for label in Y_train])
+        else:
+            sample_weights = None
+            
         os.makedirs(embed_output_path, exist_ok=True)
         for method_name, method_conf in methods.items():
             # assert method is implemented
@@ -586,17 +347,17 @@ def run_task(task_name: str,
                 rf_output_path = f"{embed_output_path}/random_forest"
                 os.makedirs(rf_output_path, exist_ok=True)
                 print(f"Running random forest for task {task_name}\n")
-                run_random_forest(method_conf, X_train, Y_train, X_test, Y_test, rf_output_path)
+                run_random_forest(method_conf, X_train, Y_train, X_test, Y_test, rf_output_path, sample_weights=sample_weights)
             elif method_name == "linear":
                 linear_output_path = f"{embed_output_path}/linear"
                 os.makedirs(linear_output_path, exist_ok=True)
                 print(f"Running linear models for task {task_name}\n")
-                run_linear(method_conf, X_train, Y_train, X_test, Y_test, linear_output_path)
+                run_linear(method_conf, X_train, Y_train, X_test, Y_test, linear_output_path, sample_weights=sample_weights)
             elif method_name == "xgboost":
                 xgboost_output_path = f"{embed_output_path}/xgboost"
                 os.makedirs(xgboost_output_path, exist_ok=True)
                 print(f"Running XGBoost models for task {task_name}\n")
-                run_xgboost(method_conf, X_train, Y_train, X_test, Y_test, xgboost_output_path)
+                run_xgboost(method_conf, X_train, Y_train, X_test, Y_test, xgboost_output_path, sample_weights=sample_weights)
 
 def main():
     parser = argparse.ArgumentParser(description="Script for running all downstream tasks")

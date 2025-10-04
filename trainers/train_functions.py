@@ -512,15 +512,15 @@ def create_or_restore_data_state(anndata_path, num_bins, restore_dir, accelerato
             stacked_rows, _ = preprocessor.process_from_np(hmc_npy, taxa_ids)
             # create tokenizer
             adata.layers["binned_rows"] = stacked_rows
-            tokenizer = Tokenizer(vocab)
-            data_dict = tokenizer.tokenize_and_pad_batch(adata, batch_obskey=batch_obskey)
             
             # Randomly select exactly n_train indices without replacement
             train_indices = np.random.choice(adata.n_obs, size=int(adata.n_obs * 0.8), replace=False)
             is_train = np.zeros(adata.n_obs, dtype=bool)
             is_train[train_indices] = True            
             adata.obs["split"] = np.where(is_train, "train", "val")
-
+        
+        tokenizer = Tokenizer(vocab)
+        data_dict = tokenizer.tokenize_and_pad_batch(adata, batch_obskey=batch_obskey)
         train_data_dict = {}
         valid_data_dict = {}
         # train and validation split

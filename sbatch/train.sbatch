@@ -15,9 +15,9 @@ source ~/hmbenv/bin/activate
 python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not available. Exiting.'" || exit 1
 
 # put your command here
-DATA_DIR="/project/aip-rahulgk/gutmodel/datasets_newsplit"
-RUN_NAME="taxa-mask-30-locexc"
-NOTES="30% masking with taxa masking and mvc, no batch labels and some location labels held out"
+DATA_DIR="/project/aip-rahulgk/gutmodel/up_to_date_sep10"
+RUN_NAME="big-model"
+NOTES="oct 4 bigger model"
 
 EXPERIMENT_PATH=experiment_saves/$RUN_NAME
 
@@ -47,8 +47,8 @@ accelerate launch --main_process_port 0 -m scripts.trainer \
     --init-lr 1e-3 \
     --batch-size 64 \
     --max-epochs 16 \
-    --cosine-warmup-ratio-or-step 100 \
-    --num-bins 15 \
+    --cosine-warmup-ratio-or-step 1000 \
+    --num-bins 20 \
     --log-interval 10 \
     --enable-fp16 \
     --seed 42 \

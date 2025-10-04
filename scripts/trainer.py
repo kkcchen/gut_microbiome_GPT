@@ -158,7 +158,7 @@ if __name__ == "__main__":
     # Create or restore training state
     model_config = {
         "d_model": 256,
-        "nhead": 5,
+        "nhead": 8,
         "d_hid": 512,
         "nlayers": 4,
         "use_batch_labels": use_batch_labels,

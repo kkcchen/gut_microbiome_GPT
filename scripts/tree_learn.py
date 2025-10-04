@@ -3,13 +3,14 @@ import time
 import os
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from xgboost import XGBClassifier, XGBRegressor
-from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_score, confusion_matrix
 import json
 import joblib
 from scipy.stats import randint, uniform
 import anndata as ad
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import LabelEncoder
+from sklearn.linear_model import LogisticRegression, Lasso
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.utils.class_weight import compute_class_weight
 
 import argparse
@@ -22,6 +23,7 @@ def train_rf(X_train, y_train, search_type, sample_weights=None, regression=Fals
     print("y_train shape:", y_train.shape)
     
     if regression:
+        assert sample_weights is None, "Sample weights not supported for regression in RandomForestRegressor"
         rf_model = RandomForestRegressor(
             bootstrap=True,
             random_state=42,
@@ -192,36 +194,105 @@ def train_xgb(X_train, y_train, search_type, sample_weights=None, regression=Fal
     return search.best_params_, search.best_estimator_
 
 
-def save_model(region_name, output_dir, best_params, best_model):
-    # Save the best parameters and model for the current region
-    region_name = region_name.replace("/", " ")
-    region_dir = os.path.join(output_dir, f"{region_name}")
-    os.makedirs(region_dir, exist_ok=True)
+def train_linear(X_train, y_train, search_type, sample_weights=None, regression=False):
+    """
+    basically same as train_rf, but for linear models
+    """
+    print("\t X_train shape:", X_train.shape)
+    print("\t y_train shape:", y_train.shape)
+
+    # Create pipeline with scaling (important for Lasso)
+    if regression:
+        ln_model = Pipeline([
+            ('scaler', StandardScaler()),
+            ('lasso', Lasso(random_state=42))
+        ])
+        param_distributions = {
+            'lasso__max_iter': [500, 1000, 2000, 5000],
+            'lasso__alpha': np.logspace(-4, 2, 10)
+        }
+        search_scoring = 'neg_mean_squared_error'
+    else:
+        n_classes = len(np.unique(y_train))
+        ln_model = Pipeline([
+            ('scaler', StandardScaler()),
+            ('logistic', LogisticRegression(penalty='l1', solver='liblinear', random_state=42))
+        ])
+        param_distributions = {
+            'logistic__max_iter': [500, 1000, 2000, 5000],
+            'logistic__C': 1.0 / np.logspace(-4, 2, 10)  # C is inverse of alpha in LogisticRegression
+        }
+        search_scoring = 'roc_auc' if n_classes == 2 else 'f1_weighted'
+
+    # hyperparameter search
+    if search_type == "grid":
+        search = GridSearchCV(
+            ln_model,
+            param_distributions,
+            cv=5,
+            scoring=search_scoring,
+            n_jobs=-1,
+            verbose=1
+        )
+    elif search_type == "random":
+        search = RandomizedSearchCV(
+            ln_model,
+            param_distributions,
+            cv=5,
+            scoring=search_scoring,
+            n_jobs=-1,
+            n_iter=5,
+            random_state=42,
+            verbose=1
+        )
+    elif search_type == "none": # for debugging
+        if regression:
+            params = {"lasso__alpha": 1}
+        else:
+            params = {"logistic__C": 1}
+        print("\t Not doing any search, using fixed parameters:", params)
+        ln_model.set_params(**params)
+        ln_model.fit(X_train, y_train, sample_weight=sample_weights)
+        return params, ln_model
+    else:
+        raise ValueError(f"\t Unknown search_type: {search_type}")
+
+    # Fit the search
+    start_time = time.time()
+    search.fit(X_train, y_train, sample_weight=sample_weights)
+    end_time = time.time()
+    print(f"\t Time elapsed for search: {(end_time - start_time):.2f} seconds")
+
+    return search.best_params_, search.best_estimator_
+
+
+def save_model(label_name, output_dir, best_params, best_model):
+    label_name = label_name.replace("/", " ")
+    label_name = label_name.replace(" ", "_")
+    label_dir = os.path.join(output_dir, f"{label_name}")
+    os.makedirs(label_dir, exist_ok=True)
 
     # Save best parameters
-    with open(os.path.join(region_dir, "best_params.json"), "w") as f:
+    with open(os.path.join(label_dir, "best_params.json"), "w") as f:
         json.dump(best_params, f)
 
     # Save best model
-    joblib.dump(best_model, os.path.join(region_dir, "best_model.pkl"))
+    joblib.dump(best_model, os.path.join(label_dir, "best_model.pkl"))
 
-def model_exists(region_name, output_dir):
-    region_name = region_name.replace("/", " ")
-    region_dir = os.path.join(output_dir, f"{region_name}")
-    return os.path.exists(region_dir) and os.path.exists(os.path.join(region_dir, "best_model.pkl")) and os.path.exists(os.path.join(region_dir, "best_params.json"))
-    
-def load_model(region_name, output_dir):
-    # Make region name filesystem-safe
-    region_name = region_name.replace("/", " ")
-    region_dir = os.path.join(output_dir, f"{region_name}")
+def model_exists(label_name, output_dir):
+    label_name = label_name.replace("/", " ")
+    label_name = label_name.replace(" ", "_")
+    label_dir = os.path.join(output_dir, f"{label_name}")
+    return os.path.exists(label_dir) and os.path.exists(os.path.join(label_dir, "best_model.pkl")) and os.path.exists(
+        os.path.join(label_dir, "best_params.json"))
 
-    # Load parameters
-    with open(os.path.join(region_dir, "best_params.json"), "r") as f:
+def load_model(label_name, output_dir):
+    label_name = label_name.replace("/", " ")
+    label_name = label_name.replace(" ", "_")
+    label_dir = os.path.join(output_dir, f"{label_name}")
+    with open(os.path.join(label_dir, "best_params.json"), "r") as f:
         best_params = json.load(f)
-
-    # Load model
-    best_model = joblib.load(os.path.join(region_dir, "best_model.pkl"))
-
+    best_model = joblib.load(os.path.join(label_dir, "best_model.pkl"))
     return best_params, best_model
 
 
@@ -304,20 +375,20 @@ def main():
         if args.model_type == "one-vs-all":
             raise NotImplementedError("One-vs-all is not implemented in this version.")
             all_probs = np.empty((len(Y_test_filtered), len(unique_labels)))
-            for i, region_name in enumerate(unique_labels):
-                if not model_exists(region_name, output_dir):
-                    print(f"Starting classifier on region {region_name}")
+            for i, label_name in enumerate(unique_labels):
+                if not model_exists(label_name, output_dir):
+                    print(f"Starting classifier on label {label_name}")
                     
-                    # Create binary labels: 1 for current region, 0 otherwise
-                    y_train_binary = (Y_train == region_name).astype(int)
+                    # Create binary labels: 1 for current label, 0 otherwise
+                    y_train_binary = (Y_train == label_name).astype(int)
                     # sample_weights = 
                     # best_params, best_model = train_func(X_train, y_train_binary, args.search_type, sample_weights)
 
-                    # Save the best parameters and model for the current region
-                    save_model(region_name, output_dir, best_params, best_model)
+                    # Save the best parameters and model for the current label
+                    save_model(label_name, output_dir, best_params, best_model)
                 else:
-                    print(f"Only doing eval for {region_name}")
-                    best_params, best_model = load_model(region_name, output_dir)
+                    print(f"Only doing eval for {label_name}")
+                    best_params, best_model = load_model(label_name, output_dir)
                 
                 # Predict the labels for the test set using the best model
                 y_probs = best_model.predict_proba(X_test_filtered)
@@ -326,11 +397,11 @@ def main():
                 evaluate_multiclass_and_save(Y_test_filtered, all_probs, unique_labels, output_dir)
         elif args.model_type == "multiclass":
             if not model_exists("multiclass_tree", output_dir):
-                print(f"Starting classifier on all regions")
+                print(f"Starting classifier on all labels")
                 best_params, best_model = train_func(X_train, Y_train, args.search_type, sample_weights)
                 save_model("multiclass_tree", output_dir, best_params, best_model)
             else:
-                print(f"Only doing eval for all regions")
+                print(f"Only doing eval for all labels")
                 best_params, best_model = load_model("multiclass_tree", output_dir)
             
             all_probs = best_model.predict_proba(X_test_filtered)
