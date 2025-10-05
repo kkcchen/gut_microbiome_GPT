@@ -204,7 +204,7 @@ def evaluate_multiclass_and_save(y_true, y_probs, train_class_labels, output_dir
     total_accuracy = accuracy_score(y_true, y_pred)
     micro_f1 = f1_score(y_true, y_pred, average='micro')
     macro_f1 = f1_score(y_true, y_pred, average='macro')
-    conf_mat = confusion_matrix(y_true, y_pred, labels=train_class_labels)
+    conf_mat = confusion_matrix(y_true, y_pred, labels=sorted(train_class_labels))
     label_scores = []
     fig, ax = plt.subplots(figsize=(8, 6))
 
@@ -221,7 +221,7 @@ def evaluate_multiclass_and_save(y_true, y_probs, train_class_labels, output_dir
         add_roc_curve(binary_targets, scores, label, ax)
     
     save_roc_curve(ax, output_dir)
-    save_confusion_matrix(conf_mat, train_class_labels, output_dir)
+    save_confusion_matrix(conf_mat, sorted(train_class_labels), output_dir)
     # Save the scores to a file
     conf_row_strs = [str(row) for row in conf_mat]
 
@@ -229,7 +229,7 @@ def evaluate_multiclass_and_save(y_true, y_probs, train_class_labels, output_dir
     label_scores.append({"Total Accuracy": total_accuracy,
                         "Micro F1": micro_f1,
                         "Macro F1": macro_f1,
-                        "Categories": list(train_class_labels),
+                        "Categories": list(sorted(train_class_labels)),
                         "Confusion Matrix": conf_row_strs})
     # Save the scores to a file
     scores_file = os.path.join(output_dir, "multiclass_scores.json")
