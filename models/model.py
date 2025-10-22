@@ -13,17 +13,9 @@ from torch.distributions import Bernoulli
 
 from functools import lru_cache
 
-# from .flash_layers import (
-#     FlashscGPTLayer,
-#     FlashscGPTGenerator,
-# )
-
-
-# from .dsbn import DomainSpecificBatchNorm1d
-# from .grad_reverse import grad_reverse
-
 from .encoders import (
     TaxaEncoder,
+    TaxaGraphEncoder,
     ContinuousValueEncoder,
     CategoryValueEncoder,
     BatchLabelEncoder
@@ -32,7 +24,6 @@ from .encoders import (
 from .decoders import (
     OutputMulticlassDecoder,
     MVCDecoder,
-    # AdversarialDiscriminator
 )
 
 
@@ -64,6 +55,8 @@ class TransformerModel(nn.Module):
         vocab_num_special_tokens: int = 3,
         init_vocab_path: str = None,
         freeze_vocab: bool = False,
+        use_gnn: bool = False,
+        num_gnn_nodes: Optional[int] = None,
     ):
         super().__init__()
         self.model_type = "Transformer"
@@ -86,19 +79,19 @@ class TransformerModel(nn.Module):
             )
         if cell_emb_style not in ["cls", "avg-pool", "w-pool"]:
             raise ValueError(f"Unknown cell_emb_style: {cell_emb_style}")
-        # if use_fast_transformer:
-        #     if not flash_attn_available:
-        #         warnings.warn(
-        #             "flash-attn is not installed, using pytorch transformer instead. "
-        #             "Set use_fast_transformer=False to avoid this warning. "
-        #             "Installing flash-attn is highly recommended."
-        #         )
-        #         use_fast_transformer = False
-        # self.use_fast_transformer = use_fast_transformer
 
         # TODO: add dropout in the TaxaEncoder
         # self.flag_encoder = nn.Embedding(2, d_model)
-        self.encoder = TaxaEncoder(vocab_len, d_model, init_vocab_path, freeze_vocab, padding_idx=vocab_pad_index)
+        self.use_gnn = use_gnn
+        if use_gnn:
+            assert num_gnn_nodes is not None, "num_gnn_nodes must be provided when use_gnn is True"
+            self.encoder = TaxaGraphEncoder(num_gnn_nodes, 
+                                            vocab_num_special_tokens, 
+                                            vocab_len - vocab_num_special_tokens, 
+                                            d_model, 
+                                            padding_idx=vocab_pad_index)
+        else:
+            self.encoder = TaxaEncoder(vocab_len, d_model, init_vocab_path, freeze_vocab, padding_idx=vocab_pad_index)
 
         # Value Encoder, NOTE: the scaling style is also handled in _encode method
         if input_emb_style == "continuous":
@@ -127,49 +120,6 @@ class TransformerModel(nn.Module):
                 explicit_zero_prob=explicit_zero_prob,
                 use_batch_labels=use_batch_labels,
             )
-        # if domain_spec_batchnorm is True or domain_spec_batchnorm == "dsbn":
-        #     use_affine = True if domain_spec_batchnorm == "do_affine" else False
-        #     print(f"Use domain specific batchnorm with affine={use_affine}")
-        #     self.dsbn = DomainSpecificBatchNorm1d(
-        #         d_model, num_batch_labels, eps=6.1e-5, affine=use_affine
-        #     )
-        # elif domain_spec_batchnorm == "batchnorm":
-        #     print("Using simple batchnorm instead of domain specific batchnorm")
-        #     self.bn = nn.BatchNorm1d(d_model, eps=6.1e-5)
-
-        # if use_generative_training:
-        #     encoder_layers = FlashscGPTLayer(
-        #         d_model,
-        #         nhead,
-        #         d_hid,
-        #         dropout,
-        #         batch_first=True,
-        #         norm_scheme=self.norm_scheme,
-        #     )
-        #     self.transformer_encoder = FlashscGPTGenerator(encoder_layers, nlayers)
-        # elif use_fast_transformer:
-        #     if fast_transformer_backend == "linear":
-        #         self.transformer_encoder = FastTransformerEncoderWrapper(
-        #             d_model, nhead, d_hid, nlayers, dropout
-        #         )
-        #     elif fast_transformer_backend == "flash":
-        #         encoder_layers = FlashTransformerEncoderLayer(
-        #             d_model,
-        #             nhead,
-        #             d_hid,
-        #             dropout,
-        #             batch_first=True,
-        #             norm_scheme=self.norm_scheme,
-        #         )
-        #         self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
-        # else:
-        #     NotImplementedError(
-        #         "use_generative_training should be true!"
-        #     )
-        #     encoder_layers = TransformerEncoderLayer(
-        #         d_model, nhead, d_hid, dropout, batch_first=True
-        #     )
-        #     self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
         
         # use unified TransformerEncoder
         encoder_layers = TransformerEncoderLayer(
@@ -193,46 +143,40 @@ class TransformerModel(nn.Module):
                 use_batch_labels=use_batch_labels,
             )
 
-        self.init_weights()
+        # self.init_weights()
 
-    def encode(
-        self,
-        src: Tensor,
-        values: Tensor,
-        src_key_padding_mask: Tensor,
-        # batch_labels: Optional[Tensor] = None,  # (batch,)
-    ) -> Tensor:
-        # self._check_batch_labels(batch_labels)
+    # def encode(
+    #     self,
+    #     src: Tensor,
+    #     values: Tensor,
+    #     src_key_padding_mask: Tensor,
+    #     # batch_labels: Optional[Tensor] = None,  # (batch,)
+    # ) -> Tensor:
+    #     # self._check_batch_labels(batch_labels)
 
-        src = self.encoder(src)  # (batch, seq_len, embsize)
-        cur_taxa_token_embs = src
+    #     if self.use_gnn:
+    #         src = self.encoder(src)
+    #     else:
+    #         src = self.encoder(src)  # (batch, seq_len, embsize)
+    #     cur_taxa_token_embs = src
 
-        values = self.value_encoder(values)  # (batch, seq_len, embsize)
-        if self.input_emb_style == "scaling":
-            values = values.unsqueeze(2)
-            total_embs = src * values
-        else:
-            total_embs = src + values
+    #     values = self.value_encoder(values)  # (batch, seq_len, embsize)
+    #     if self.input_emb_style == "scaling":
+    #         values = values.unsqueeze(2)
+    #         total_embs = src * values
+    #     else:
+    #         total_embs = src + values
 
-        # to do with dsbn. ignore for now
-        # if getattr(self, "dsbn", None) is not None:
-        #     batch_label = int(batch_labels[0].item())
-        #     total_embs = self.dsbn(total_embs.permute(0, 2, 1), batch_label).permute(
-        #         0, 2, 1
-        #     )  # the batch norm always works on dim 1
-        # elif getattr(self, "bn", None) is not None:
-        #     total_embs = self.bn(total_embs.permute(0, 2, 1)).permute(0, 2, 1)
-
-        output = self.transformer_encoder(
-            total_embs, src_key_padding_mask=src_key_padding_mask
-        )
-        return output, cur_taxa_token_embs # (batch, seq_len, embsize), (batch, seq_len, embsize)
+    #     output = self.transformer_encoder(
+    #         total_embs, src_key_padding_mask=src_key_padding_mask
+    #     )
+    #     return output, cur_taxa_token_embs # (batch, seq_len, embsize), (batch, seq_len, embsize)
     
-    # this only initializes the taxa embedding layer
-    def init_weights(self) -> None:
-        initrange = 0.1
-        # TODO: check if this initialization is helpful and shall we apply to all?
-        self.encoder.embedding.weight.data.uniform_(-initrange, initrange)
+    # # this only initializes the taxa embedding layer
+    # def init_weights(self) -> None:
+    #     initrange = 0.1
+    #     # TODO: check if this initialization is helpful and shall we apply to all?
+    #     self.encoder.embedding.weight.data.uniform_(-initrange, initrange)
 
     # for the <cls> embedding this will be the first token in the sequence
     def get_cell_emb_from_layer(
@@ -260,23 +204,6 @@ class TransformerModel(nn.Module):
             cell_emb = F.normalize(cell_emb, p=2, dim=1)  # (batch, embsize)
 
         return cell_emb
-    
-    # @lru_cache(maxsize=1)
-    # @staticmethod
-    # def make_mask(mask_len, seq_len, device):
-    #     assert mask_len <= seq_len, "mask_len should be less than or equal to seq_len"
-    #     attention_mask = torch.zeros((seq_len, seq_len), device=device, dtype=torch.bool)
-
-    #     split = seq_len - mask_len
-    #     # Top part: mask right mask_len columns
-    #     if split > 0:
-    #         attention_mask[:split, split:] = True
-
-    #     # Bottom mask_len x mask_len block: mask everything except diagonal
-    #     if mask_len > 0:
-    #         attention_mask[split:, split:] = ~torch.eye(mask_len, device=device, dtype=torch.bool)
-
-    #     return attention_mask
     
     def make_mask(known_positions: torch.Tensor, device: torch.device) -> torch.Tensor:
         """
@@ -317,47 +244,21 @@ class TransformerModel(nn.Module):
         known_positions: Optional[Tensor] = None, # (batch, seq_len)
         # batch_labels: Optional[Tensor] = None,  # (batch,)
         input_cell_emb: Optional[Tensor] = None,  # (batch, embsize)
+        edge_index: Optional[Tensor] = None,
+        vocabindex_to_nodeindex: Optional[Tensor] = None,
     ) -> Tuple[Tensor, Tensor]:
         # self._check_batch_labels(batch_labels)
 
-        token_embs = self.encoder(taxa)  # (batch, seq_len, embsize)
+        if self.use_gnn:
+            assert edge_index is not None, "edge_index should not be None when use_gnn is True"
+            assert vocabindex_to_nodeindex is not None, "vocabindex_to_nodeindex should not be None when use_gnn is True"
+            token_embs = self.encoder(taxa, edge_index, vocabindex_to_nodeindex)
+        else:
+            token_embs = self.encoder(taxa)  # (batch, seq_len, embsize)
         values = self.value_encoder(values)  # (batch, seq_len, embsize)
         total_embs = token_embs + values
 
         assert self.input_emb_style != "scaling"
-        # if gen_taxa is not None:
-        #     gen_token_embs = self.encoder(gen_taxa)  # (batch, gen_len, embsize)
-        #     cur_taxa_token_embs = torch.cat(
-        #         [pcpt_token_embs, gen_token_embs], dim=1
-        #     )
-        #     # this is a flag to let the model know that this is a generative training
-        #     gen_flags = self.flag_encoder(
-        #         torch.tensor(1).to(pcpt_values.device)
-        #     ).expand(gen_taxa.shape[0], gen_taxa.shape[1], -1)
-
-        #     gen_total_embs = gen_token_embs + gen_flags
-        # else:
-        #     raise NotImplementedError(
-        #         "gen_taxa should not be none..."
-        #     )
-            # cur_taxa_token_embs = pcpt_token_embs
-            # gen_total_embs = None
-
-        # if self.domain_spec_batchnorm:
-        #     batch_label = int(batch_labels[0].item())
-        #     pcpt_total_embs = self.dsbn(
-        #         pcpt_total_embs.permute(0, 2, 1), batch_label
-        #     ).permute(0, 2, 1)
-        #     if gen_taxa is not None:
-        #         gen_total_embs = self.dsbn(
-        #             gen_total_embs.permute(0, 2, 1), batch_label
-        #         ).permute(0, 2, 1)
-        # else:
-        #     pcpt_total_embs = self.bn(pcpt_total_embs.permute(0, 2, 1)).permute(0, 2, 1)
-        #     if gen_taxa is not None:
-        #         gen_total_embs = self.bn(gen_total_embs.permute(0, 2, 1)).permute(
-        #             0, 2, 1
-        #         )
 
         if input_cell_emb is not None:
             # this is for the second step of pretraining, where we replace the cls token with the cell embedding
@@ -394,6 +295,8 @@ class TransformerModel(nn.Module):
         # ECS: bool = False,
         # do_sample: bool = False,
         input_cell_emb: Optional[Tensor] = None,
+        edge_index: Optional[Tensor] = None,
+        vocabindex_to_nodeindex: Optional[Tensor] = None,
     ) -> Mapping[str, Tensor]:
         """
         Forward pass of the model.
@@ -423,6 +326,8 @@ class TransformerModel(nn.Module):
             known_positions,
             # batch_labels,
             input_cell_emb=input_cell_emb,
+            edge_index=edge_index,
+            vocabindex_to_nodeindex=vocabindex_to_nodeindex,
         )
 
         output = {}

@@ -9,8 +9,11 @@ import os
 import shutil
 import json
 
+from torch_geometric.data import Data
+
 from data_utils.preprocessor import Preprocessor
 from data_utils.tokenizer import Tokenizer
+from data_utils.graph_helpers import build_tg_data_from_taxon_df
 
 from accelerate import Accelerator
 from accelerate.utils import broadcast_object_list
@@ -59,6 +62,7 @@ def pretrain(
         use_contrastive: bool,
         # save_interval: int = -1,
         best_val_loss: float = float("inf"),
+        graph_data: Data = None,  
     ) -> None:
     """
     Train the model for one epoch.
@@ -126,6 +130,8 @@ def pretrain(
                     MVC=use_mvc,
                     TCS=use_tcs,
                     batch_labels=batch_labels,
+                    edge_index=graph_data.edge_index if graph_data is not None else None,
+                    vocabindex_to_nodeindex=graph_data.vocabindex_to_nodeindex if graph_data is not None else None,
                 )
                 abundance_preds = output_values = output_dict["preds"]
 
@@ -191,6 +197,8 @@ def pretrain(
                         # CLS=False,
                         MVC=False,
                         batch_labels=batch_labels,
+                        edge_index=graph_data.edge_index if graph_data is not None else None,
+                        vocabindex_to_nodeindex=graph_data.vocabindex_to_nodeindex if graph_data is not None else None,
                         # generative_training=True,
                     )
                     # gather doesn't work because it doesn't support backprop. do local contrastive loss only for now
@@ -320,7 +328,8 @@ def pretrain(
             best_val_loss=best_val_loss,
             global_iter=global_iter,
             accelerator=accelerator,
-            use_batch_labels=use_batch_labels
+            use_batch_labels=use_batch_labels,
+            graph_data=graph_data,
             # save=(save_interval > 0 and batch % save_interval == 0),
         )
 
@@ -343,10 +352,11 @@ def eval_and_save(
     best_val_loss: float,
     global_iter: int,
     accelerator: Accelerator,
-    use_batch_labels: bool
+    use_batch_labels: bool,
+    graph_data: Data = None,
     # save: bool = True,
 ) -> None:
-    val_loss, val_mre = evaluate(model, valid_loader, vocab, accelerator, use_batch_labels).values()
+    val_loss, val_mre = evaluate(model, valid_loader, vocab, accelerator, use_batch_labels, graph_data).values()
     val_loss, val_mre = val_loss.item(), val_mre.item()
 
     logger.info(f"valid loss/mse {val_loss:5.4f} | mre {val_mre:5.4f}")
@@ -368,7 +378,8 @@ def evaluate(
         valid_loader: DataLoader,
         vocab: MicrobiomeVocab,
         accelerator: Accelerator,
-        use_batch_labels: bool
+        use_batch_labels: bool,
+        graph_data: Data = None,
         ) -> Dict[str, torch.Tensor]:
     """
     Evaluate the model on the evaluation data.
@@ -403,6 +414,8 @@ def evaluate(
                     key_padding_mask,
                     known_positions=known_positions,
                     batch_labels=batch_labels,
+                    edge_index=graph_data.edge_index if graph_data is not None else None,
+                    vocabindex_to_nodeindex=graph_data.vocabindex_to_nodeindex if graph_data is not None else None,
                     MVC=False,
                 )
                 abundance_preds = output_dict["preds"]
@@ -468,26 +481,30 @@ def commit_state(extra_state, epoch, best_val_loss, patience_counter, checkpoint
     logger.info("Training state committed to {} at time {}".format(actual_checkpoint_dir, time.ctime(time.time())))
 
 
-def create_or_restore_data_state(anndata_path, num_bins, restore_dir, accelerator: Accelerator, batch_obskey=None, nrows=None):
+def create_or_restore_data_state(anndata_path, num_bins, restore_dir, accelerator: Accelerator, use_gnn=False, batch_obskey=None, nrows=None):
     print(f"Creating vocab and data from scratch using {anndata_path}")
     if accelerator.is_main_process:
         os.makedirs(restore_dir, exist_ok=True)
         
         batch_vocab = None
         
-        if os.path.exists(os.path.join(restore_dir, "augmented_data.h5ad")):
+        if os.path.exists(os.path.join(restore_dir, "augmented_data.h5ad")) and os.path.exists(os.path.join(restore_dir, "vocab_file.json")):
             # load the vocab from the file
-            adata = ad.read_h5ad(os.path.join(restore_dir, "augmented_data.h5ad"))
-            assert "vocab_metadata" in adata.uns and "taxa_id" in adata.var
-            vocab = MicrobiomeVocab.restore_vocab(adata)
+            vocab = MicrobiomeVocab.restore_vocab(os.path.join(restore_dir, "vocab_file.json"))
             logger.info(f"Vocab restored from {restore_dir}")
             
+            adata = ad.read_h5ad(os.path.join(restore_dir, "augmented_data.h5ad"))
             if batch_obskey:
                 if f"{batch_obskey}_batch_vocab" in adata.uns:
                     batch_vocab = BatchVocab.restore_batchvocab(adata)
                     logger.info(f"Batch vocab restored from {restore_dir}")
                 else:
                     batch_vocab = BatchVocab.create_batchvocab_from_scratch(batch_obskey, adata)
+            
+            # load graph
+            if use_gnn:
+                assert os.path.exists(os.path.join(restore_dir, "graph_data.pt")), "Graph data file not found in restore directory."
+                graph_data = torch.load(os.path.join(restore_dir, "graph_data.pt"), weights_only=False)
             
             # load the data state from the file
             assert "split" in adata.obs and "binned_rows" in adata.layers, "The AnnData object must have 'split' in obs."
@@ -502,6 +519,11 @@ def create_or_restore_data_state(anndata_path, num_bins, restore_dir, accelerato
             # make batch vocab
             if batch_obskey:
                 batch_vocab = BatchVocab.create_batchvocab_from_scratch(batch_obskey, adata)
+            
+            if use_gnn:
+                # make graph
+                graph_data = build_tg_data_from_taxon_df(adata.varm['taxonomy'], vocab.vocab_list)
+                torch.save(graph_data, os.path.join(restore_dir, "graph_data.pt"))
             
             # make data
             preprocessor = Preprocessor(
@@ -539,9 +561,9 @@ def create_or_restore_data_state(anndata_path, num_bins, restore_dir, accelerato
         
         adata.write_h5ad(os.path.join(restore_dir, "augmented_data.h5ad"))
         print(f"length of train and valid data: {len(train_data_dict['taxa_ids'])}, {len(valid_data_dict['taxa_ids'])}")
-        data_list = [train_data_dict, valid_data_dict, vocab, batch_vocab]
+        data_list = [train_data_dict, valid_data_dict, vocab, batch_vocab, graph_data if use_gnn else None]
     else:
-        data_list = [None, None, None, None]
+        data_list = [None, None, None, None, None]
     # broadcast to all other ranks
     accelerator.wait_for_everyone()
     broadcast_object_list(data_list)

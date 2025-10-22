@@ -54,6 +54,7 @@ if __name__ == "__main__":
     parser.add_argument("--do-contrastive", action="store_true", help="Use contrastive embedding in the model")
     parser.add_argument("--train-mask-ratio", type=float, default=0.15, help="train mask ratio")
     parser.add_argument("--freeze-vocab", action="store_true", help="Freeze the embedding layer of the vocab, if initialized from a pre-trained embedding")
+    parser.add_argument("--use-gnn", action="store_true", help="Use GNN embeddings as input features")
 
 
     # for debugging
@@ -123,13 +124,14 @@ if __name__ == "__main__":
             shutil.rmtree(checkpoint_dir)
 
     # Create or restore data state
-    train_data_dict, valid_data_dict, vocab, batch_vocab = create_or_restore_data_state(
+    train_data_dict, valid_data_dict, vocab, batch_vocab, graph_data = create_or_restore_data_state(
         ann_table_path, 
         num_bins, 
         data_restore_dir, 
         accelerator, 
         batch_obskey="study_id" if use_batch_labels else None, 
-        nrows=nrows, 
+        nrows=nrows,
+        use_gnn=args.use_gnn
     )
 
     logger.info("Preparing dataloaders...")
@@ -175,6 +177,8 @@ if __name__ == "__main__":
         "num_batch_labels": len(batch_vocab) if use_batch_labels else 0,
         "init_vocab_path": vocab_path,
         "freeze_vocab": freeze_vocab,
+        "use_gnn": args.use_gnn,
+        "num_gnn_nodes": graph_data.num_nodes if args.use_gnn else None,
     }
     
     import json
@@ -231,6 +235,7 @@ if __name__ == "__main__":
             use_mvc=do_mvc,
             use_tcs=do_taxa_decoder,
             use_contrastive=do_contrastive,
+            graph_data=graph_data if args.use_gnn else None,
         )
 
         # Log metrics to wandb
