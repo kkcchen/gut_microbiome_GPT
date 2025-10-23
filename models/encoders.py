@@ -72,7 +72,7 @@ class TaxaGraphEncoder(nn.Module):
             
         self.enc_norm = nn.LayerNorm(embedding_dim)
 
-    def forward(self, x: torch.Tensor, edge_list, vocabindex_to_nodeindex) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, graph_data: Data) -> torch.Tensor:
         """
         x: Tensor of shape (batch_size, seq_len)
         containing vocab indices (taxon + special tokens)
@@ -83,6 +83,8 @@ class TaxaGraphEncoder(nn.Module):
         Returns:
             Tensor of shape (batch_size, seq_len, embedding_dim)
         """
+        edge_list = graph_data.edge_index  # (2, num_edges)
+        vocabindex_to_nodeindex = graph_data.vocabindex_to_nodeindex
 
         # ---- 1. Run (or reuse) GCN on the graph ----
         if (not hasattr(self, "cached_node_embs")) or self.training:

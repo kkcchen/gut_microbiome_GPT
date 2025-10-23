@@ -23,7 +23,7 @@ def main():
     parser = argparse.ArgumentParser(description="Encode data with a model using safetensors weights.")
     parser.add_argument("--safetensors-path", type=str, required=True, help="Path to the .safetensors file")
     parser.add_argument("--output-path", type=str, required=True, help="Where to save the output tensor")
-    parser.add_argument("--vocab-path", type=str, required=True, help="dir of vocab h5ad")
+    parser.add_argument("--vocab-dir", type=str, required=True, help="dir of vocab h5ad")
     parser.add_argument("--model-config-path", type=str, required=True, help="Path to the model configuration file (not used in this script but can be useful for reference)")
     parser.add_argument("--adata-path", type=str, required=True, help="Path to the training data h5ad file")
     parser.add_argument("--is-finetune", action="store_true", help="Path to the training data numpy file")
@@ -33,7 +33,7 @@ def main():
     
     safetensors_path = args.safetensors_path
     output_path = args.output_path
-    vocab_path = args.vocab_path
+    vocab_dir = args.vocab_dir
     adata_path = args.adata_path
     model_config_path = args.model_config_path
     
@@ -41,26 +41,27 @@ def main():
     
     # Initialize accelerator
     accelerator = Accelerator()
-    
-    # restore vocab
-    vocab, _, adata = restore_vocab_test(adata_path, vocab_path)
 
     # === Load model ===
     from models import TransformerModel
     
     if args.is_finetune:
-        finetuned_model, _ = load_finetuned_model(model_config_path, safetensors_path)
+        finetuned_model, model_config = load_finetuned_model(model_config_path, safetensors_path)
         model = finetuned_model.base_model
         num_bins = model.n_input_bins
-
+        use_gnn = model_config["base_model_config"].get("use_gnn", False)
     else:
         with open(model_config_path, 'r') as f:
             model_config = json.load(f)
         model = TransformerModel(**model_config)
         state_dict = load_file(safetensors_path)
         model.load_state_dict(state_dict)
+        use_gnn = model_config.get("use_gnn", False)
     model.eval()
     num_bins = model.n_input_bins
+    
+    # restore vocab
+    vocab, _, adata, graph_data = restore_vocab_test(adata_path, vocab_dir, use_gnn, batch_obskey=None, nrows=nrows)
 
     # === Load test dataloader ===
     data_dict = create_testdata_state(
@@ -97,6 +98,7 @@ def main():
                 src=taxa,  # (batch, seq_len)
                 values=values,  # (batch, seq_len)
                 src_key_padding_mask=src_padding_mask,  # (batch, seq_len)
+                graph_data=graph_data,  # Graph data if applicable
             )  # (batch, seq_len, embsize)
             cell_emb = unwrapped_model.get_cell_emb_from_layer(output)  # (batch, embsize)
             gathered = accelerator.gather_for_metrics(cell_emb)  # Gather across processes

@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
-from models import TransformerModel, FinetunedTransformer
+from models import TransformerModel
 import os
 import shutil
 import json
@@ -130,8 +130,7 @@ def pretrain(
                     MVC=use_mvc,
                     TCS=use_tcs,
                     batch_labels=batch_labels,
-                    edge_index=graph_data.edge_index if graph_data is not None else None,
-                    vocabindex_to_nodeindex=graph_data.vocabindex_to_nodeindex if graph_data is not None else None,
+                    graph_data=graph_data,
                 )
                 abundance_preds = output_values = output_dict["preds"]
 
@@ -414,8 +413,7 @@ def evaluate(
                     key_padding_mask,
                     known_positions=known_positions,
                     batch_labels=batch_labels,
-                    edge_index=graph_data.edge_index if graph_data is not None else None,
-                    vocabindex_to_nodeindex=graph_data.vocabindex_to_nodeindex if graph_data is not None else None,
+                    graph_data=graph_data,
                     MVC=False,
                 )
                 abundance_preds = output_dict["preds"]
@@ -483,23 +481,23 @@ def commit_state(extra_state, epoch, best_val_loss, patience_counter, checkpoint
 
 def create_or_restore_data_state(anndata_path, num_bins, restore_dir, accelerator: Accelerator, use_gnn=False, batch_obskey=None, nrows=None):
     print(f"Creating vocab and data from scratch using {anndata_path}")
+    batchvocab_path = os.path.join(restore_dir, f"batchvocab_{batch_obskey}.json")
+    vocab_path = os.path.join(restore_dir, "vocab_file.json")
     if accelerator.is_main_process:
         os.makedirs(restore_dir, exist_ok=True)
         
         batch_vocab = None
         
-        if os.path.exists(os.path.join(restore_dir, "augmented_data.h5ad")) and os.path.exists(os.path.join(restore_dir, "vocab_file.json")):
+        if os.path.exists(vocab_path) and os.path.exists(batchvocab_path):
             # load the vocab from the file
-            vocab = MicrobiomeVocab.restore_vocab(os.path.join(restore_dir, "vocab_file.json"))
+            vocab = MicrobiomeVocab.restore_vocab(vocab_path)
             logger.info(f"Vocab restored from {restore_dir}")
             
             adata = ad.read_h5ad(os.path.join(restore_dir, "augmented_data.h5ad"))
             if batch_obskey:
-                if f"{batch_obskey}_batch_vocab" in adata.uns:
-                    batch_vocab = BatchVocab.restore_batchvocab(adata)
-                    logger.info(f"Batch vocab restored from {restore_dir}")
-                else:
-                    batch_vocab = BatchVocab.create_batchvocab_from_scratch(batch_obskey, adata)
+                batch_vocab = BatchVocab.restore_batchvocab(batchvocab_path)
+                assert batch_vocab.batch_obskey == batch_obskey, "Batch obskey does not match the restored batch vocab."
+                logger.info(f"Batch vocab restored from {restore_dir} using key {batch_obskey}")
             
             # load graph
             if use_gnn:
@@ -519,6 +517,8 @@ def create_or_restore_data_state(anndata_path, num_bins, restore_dir, accelerato
             # make batch vocab
             if batch_obskey:
                 batch_vocab = BatchVocab.create_batchvocab_from_scratch(batch_obskey, adata)
+                batch_vocab.save_batchvocab(batchvocab_path)
+                adata = batch_vocab.assign_batchvocab(adata)
             
             if use_gnn:
                 # make graph

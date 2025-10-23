@@ -29,24 +29,53 @@ def is_invalid_name(name):
     return False
 
 
+# def get_valid_name(name_array):
+#     valid_chain = []
+#     end_invalid = False
+#     for name in name_array:
+#         if pd.isna(name):
+#             continue
+#         name = str(name).strip()
+#         if is_invalid_name(name):
+#             continue
+#         valid_chain.append(name)
+    
+#     if valid_chain:
+#         last_name = name_array[-1]
+#         if is_invalid_name(last_name):
+#             end_invalid = True
+    
+#     return valid_chain, end_invalid
 def get_valid_name(name_array):
     valid_chain = []
     end_invalid = False
-    for name in name_array:
+
+    for i, name in enumerate(name_array):
         if pd.isna(name):
             continue
         name = str(name).strip()
         if is_invalid_name(name):
+            # check if invalid name is surrounded by valid names
+            # if i > 0 and i < len(name_array) - 1:
+            #     prev_name = name_array[i - 1]
+            #     next_name = name_array[i + 1]
+            #     if (
+            #         not pd.isna(prev_name)
+            #         and not is_invalid_name(str(prev_name).strip())
+            #         and not pd.isna(next_name)
+            #         and not is_invalid_name(str(next_name).strip())
+            #     ):
+            #         print("Invalid name surrounded by valids:", name_array)
             continue
         valid_chain.append(name)
-    
+
     if valid_chain:
         last_name = name_array[-1]
         if is_invalid_name(last_name):
             end_invalid = True
-    
+
     return valid_chain, end_invalid
-        
+
 
 # --- build initial parent->children mapping from taxon dataframe ---
 def build_parent_children(taxon_df):

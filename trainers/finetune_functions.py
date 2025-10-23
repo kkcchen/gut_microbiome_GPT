@@ -11,6 +11,8 @@ import wandb
 import os
 import anndata as ad
 
+from torch_geometric.data import Data
+
 from data_utils.preprocessor import Preprocessor
 from data_utils.tokenizer import Tokenizer
 
@@ -36,6 +38,7 @@ def finetune(
         loss_fn,
         # save_interval: int = -1,
         is_classification: bool,
+        graph_data: Data = None,
         best_val_loss: float = float("inf"),
     ):
     """
@@ -63,7 +66,8 @@ def finetune(
                 output_dict = model(
                     taxa,
                     values,
-                    src_key_padding_mask=key_padding_mask,
+                    key_padding_mask,
+                    graph_data,
                 )
                 class_logits = output_dict["logits"]
                 if not is_classification:
@@ -110,6 +114,7 @@ def finetune(
             accelerator=accelerator,
             loss_fn=loss_fn,
             is_classification=is_classification,
+            graph_data=graph_data
         )
 
         best_val_loss = min(best_val_loss, val_loss)
@@ -133,8 +138,9 @@ def eval_and_save(
     accelerator: Accelerator,
     loss_fn,
     is_classification: bool,
+    graph_data: Data = None,
 ) -> None:
-    val_loss, val_acc = evaluate(model, valid_loader, vocab, accelerator, loss_fn, is_classification).values()
+    val_loss, val_acc = evaluate(model, valid_loader, vocab, accelerator, loss_fn, is_classification, graph_data).values()
 
     # logger.info(f"valid loss/mse {val_loss:5.4f} | accuracy {val_acc:5.4f}")
     accelerator.log({
@@ -156,6 +162,7 @@ def evaluate(
     accelerator: Accelerator,
     loss_fn,
     is_classification: bool,
+    graph_data: Data = None,
 ) -> Dict[str, Any]:
     """
     Evaluate the model on the validation set.
@@ -182,6 +189,7 @@ def evaluate(
                     taxa,
                     values,
                     src_key_padding_mask=key_padding_mask,
+                    graph_data=graph_data
                 )
                 preds = output_dict["logits"]
                 loss = loss_fn(preds, targets)
@@ -277,24 +285,29 @@ def create_training_state_finetune(model_config, init_lr, warmup_ratio_or_step, 
     return model, optimizer, scheduler
 
 
-def create_data_state_finetune(anndata_path, num_bins, vocab_restore_path, data_restore_path, accelerator: Accelerator, downstream_task, ignored_labels=[], batch_obskey=None, continuous_obskey=None, nrows=None):
-    if accelerator.is_main_process:       
-        if os.path.exists(vocab_restore_path):
+def create_data_state_finetune(anndata_path, num_bins, vocab_restore_dir, data_restore_path, use_gnn, accelerator: Accelerator, downstream_task, ignored_labels=[], batch_obskey=None, continuous_obskey=None, nrows=None):
+    if accelerator.is_main_process:
+        vocab_path = os.path.join(vocab_restore_dir, "vocab_file.json")
+        batchvocab_path = os.path.join(vocab_restore_dir, f"batchvocab_{downstream_task}.json")
+        if os.path.exists(vocab_restore_dir):
             # load the vocab from the file
-            adata_vocab = ad.read_h5ad(vocab_restore_path)
-            assert "vocab_metadata" in adata_vocab.uns and "taxa_id" in adata_vocab.var, "vocab metadata or taxa_id not found in the adata"
-            vocab = MicrobiomeVocab.restore_vocab(adata_vocab)
-            logger.info(f"Vocab restored from {vocab_restore_path}")
+            vocab = MicrobiomeVocab.restore_vocab(vocab_path)
+            logger.info(f"Vocab restored from {vocab_path}")
+            
+            if use_gnn:
+                assert os.path.exists(os.path.join(vocab_restore_dir, "graph_data.pt")), f"Graph data file not found at {os.path.join(vocab_restore_dir, 'graph_data.pt')}"
+                graph_data = torch.load(os.path.join(vocab_restore_dir, "graph_data.pt"), weights_only=False)
         else:
-            raise FileNotFoundError(f"Vocab file not found at {vocab_restore_path}")
+            raise FileNotFoundError(f"Vocab file not found at {vocab_restore_dir}")
                 
         if os.path.exists(data_restore_path):
             adata = ad.read_h5ad(data_restore_path)
             
             # restore batch vocab
             if batch_obskey and f"{batch_obskey}_batch_vocab" in adata.uns:
-                batch_vocab = BatchVocab.restore_batchvocab(adata)
-                logger.info(f"Batch vocab restored from {data_restore_path}")
+                batch_vocab = BatchVocab.restore_batchvocab(batchvocab_path)
+                adata = batch_vocab.assign_batchvocab(adata)
+                logger.info(f"Batch vocab restored from {batchvocab_path}")
             elif not continuous_obskey:
                 raise ValueError("Either batch_obskey or continuous_obskey must be provided")
             
@@ -315,6 +328,8 @@ def create_data_state_finetune(anndata_path, num_bins, vocab_restore_path, data_
                 assert adata.n_obs > 0, f"No samples found for downstream task {downstream_task} in the provided AnnData object."
                 logger.info(f"Number of samples after filtering: {adata.n_obs}")
                 batch_vocab = BatchVocab.create_batchvocab_from_scratch(batch_obskey, adata)
+                batch_vocab.save_batchvocab(batchvocab_path)
+                adata = batch_vocab.assign_batchvocab(adata)
             elif continuous_obskey:
                 adata = adata[~adata.obs[continuous_obskey].isin(ignored_labels)]
                 assert adata.n_obs > 0, f"No samples found for downstream task {downstream_task} in the provided AnnData object."
@@ -329,7 +344,6 @@ def create_data_state_finetune(anndata_path, num_bins, vocab_restore_path, data_
             )
             hmc_npy = np.array(adata.layers["top_512"].todense(), dtype=np.float32)
             
-            adata.uns["vocab_metadata"] = adata_vocab.uns["vocab_metadata"]
             adata.var["taxa_id"] = adata.var_names.map(vocab.stoi)
             taxa_ids = np.array(adata.var["taxa_id"])
             
@@ -365,9 +379,9 @@ def create_data_state_finetune(anndata_path, num_bins, vocab_restore_path, data_
             train_data_dict[key] = data_dict[key][train_mask]
             valid_data_dict[key] = data_dict[key][val_mask]
     
-        data_list = [train_data_dict, valid_data_dict, vocab, batch_vocab]
+        data_list = [train_data_dict, valid_data_dict, vocab, batch_vocab, graph_data if use_gnn else None]
     else:
-        data_list = [None, None, None, None]
+        data_list = [None, None, None, None, None]
     # broadcast to all other ranks
     accelerator.wait_for_everyone()
     broadcast_object_list(data_list)

@@ -12,42 +12,47 @@ from trainers import logger
 from data_utils.vocab import MicrobiomeVocab, BatchVocab
 import seaborn as sns
 
-
 from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_score, confusion_matrix, f1_score
 
-def restore_vocab_test(anndata_path, vocab_restore_path, batch_obskey=None):
-    if os.path.exists(vocab_restore_path):
+def restore_vocab_test(anndata_path, vocab_restore_dir, use_gnn, downstream_task, batch_obskey=None, nrows=None):
+    vocab_path = os.path.join(vocab_restore_dir, "vocab_file.json")
+    batchvocab_path = os.path.join(vocab_restore_dir, f"batchvocab_{downstream_task}.json") if batch_obskey else None
+    if os.path.exists(vocab_restore_dir):
         # load the vocab from the file
-        adata_vocab = ad.read_h5ad(vocab_restore_path)
-        assert "vocab_metadata" in adata_vocab.uns and "taxa_id" in adata_vocab.var, "vocab metadata or taxa_id not found in the adata"
-        logger.info(adata_vocab)
-        vocab = MicrobiomeVocab.restore_vocab(adata_vocab)
-        
-        if batch_obskey is not None:
-            batch_vocab = BatchVocab.restore_batchvocab(adata_vocab, batch_obskey)
+        vocab = MicrobiomeVocab.restore_vocab(vocab_path) 
+        if batch_obskey:
+            batch_vocab = BatchVocab.restore_batchvocab(batchvocab_path)
         else:
             batch_vocab = None
         
-        logger.info(f"Vocab and/or batch vocab restored from {vocab_restore_path}")
+        logger.info(f"Vocab and/or batch vocab restored from {vocab_restore_dir}")
     else:
-        raise FileNotFoundError(f"Vocab file not found at {vocab_restore_path}")
+        raise FileNotFoundError(f"Vocab file not found at {vocab_restore_dir}")
 
     adata = ad.read_h5ad(anndata_path)
+
     adata.var["taxa"] = adata.var_names
     adata.var["taxa_id"] = adata.var["taxa"].map(vocab.stoi)
     
     if batch_obskey:
+        adata = batch_vocab.assign_batchvocab(adata)
         batch_obskey_id = f"{batch_obskey}_id"
-        adata.obs[batch_obskey_id] = adata.obs[batch_obskey].map(batch_vocab.stoi)
         # remove samples with NaN in batch_obskey_id
         adata = adata[~adata.obs[batch_obskey_id].isna(), :].copy()
-    
+        
+    if nrows and nrows < adata.n_obs:
+        adata = adata[:nrows, :].copy()
+    if use_gnn:
+        graph_data = torch.load(os.path.join(vocab_restore_dir, "graph_data.pt"), weights_only=False)
+    else:
+        graph_data = None
+        
     # Sanity check for vocab
     # logger.info(f"First 5 elements of vocab.itos: {vocab.itos[:5]}")
     # logger.info(f"Last 3 elements of vocab.itos: {vocab.itos[-3:]}")
     # logger.info(f"Length of vocab.itos: {len(vocab.itos)}")
     logger.info("before:" + str(adata))
-    return vocab, batch_vocab, adata
+    return vocab, batch_vocab, adata, graph_data
 
 
 def create_testdata_state(adata, num_bins, vocab, batch_obskey, continuous_obskey, nrows=None):
@@ -73,7 +78,7 @@ def create_testdata_state(adata, num_bins, vocab, batch_obskey, continuous_obske
     return data_dict
 
 
-def get_class_probs(model, dataloader, vocab_pad_index, accelerator):
+def get_class_probs(model, dataloader, vocab_pad_index, accelerator, graph_data):
     """
     Get class probabilities from the model for the given dataloader.
     
@@ -101,6 +106,7 @@ def get_class_probs(model, dataloader, vocab_pad_index, accelerator):
                     taxa,
                     values,
                     src_key_padding_mask=key_padding_mask,
+                    graph_data=graph_data
                 )
                 class_logits = output_dict["logits"]
             # Convert logits to probabilities
@@ -240,8 +246,8 @@ def evaluate_multiclass_and_save(y_true, y_probs, train_class_labels, output_dir
     print(f"\t Scores for all labels saved to {scores_file}")
 
 
-def evaluate_classification(model, dataloader, batch_vocab, vocab_pad_index, output_dir, accelerator):
-    probs, targets = get_class_probs(model, dataloader, vocab_pad_index, accelerator)
+def evaluate_classification(model, dataloader, batch_vocab, vocab_pad_index, output_dir, accelerator, graph_data):
+    probs, targets = get_class_probs(model, dataloader, vocab_pad_index, accelerator, graph_data)
     probs = probs.cpu().numpy()
     targets = targets.cpu().numpy()
     
@@ -310,7 +316,7 @@ def evaluate_regression_and_save(y_true, y_pred, output_dir, mean=0, std=1):
     print(f"Regression evaluation results saved to {scores_file}")
 
 
-def evaluate_regression(model, dataloader, vocab_pad_index, standardize_mean, standardize_std, output_dir, accelerator):
+def evaluate_regression(model, dataloader, vocab_pad_index, standardize_mean, standardize_std, output_dir, accelerator, graph_data):
     """
     Evaluate the model on a regression task.
     
@@ -340,6 +346,7 @@ def evaluate_regression(model, dataloader, vocab_pad_index, standardize_mean, st
                     taxa,
                     values,
                     src_key_padding_mask=key_padding_mask,
+                    graph_data=graph_data
                 )
                 preds = output_dict["logits"]
             

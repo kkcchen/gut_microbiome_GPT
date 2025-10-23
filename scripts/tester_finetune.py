@@ -23,7 +23,7 @@ def main():
     parser.add_argument("--best-path", type=str, required=True, help="Path best model is saved in")
     parser.add_argument("--model-config-path", type=str, required=True, help="Path to model configuration file")
 
-    parser.add_argument("--finetune-vocab-path", type=str, required=True, help="Path to the vocabulary JSON file")
+    parser.add_argument("--vocab-dir", type=str, required=True, help="Dir to the vocabulary files")
     
     parser.add_argument("--anndata-path", type=str, required=True, help="Path to test .h5ad file (samples, taxa, 2)")
 
@@ -44,6 +44,8 @@ def main():
     model, model_config = load_finetuned_model(args.model_config_path, args.best_path)
     model.eval()
     
+    use_gnn = model_config.get("base_model_config", {}).get("use_gnn", False)
+    
     batch_obskey = None
     continuous_obskey = None
     
@@ -55,7 +57,7 @@ def main():
         train_std = model_config["train_std"]
         
     # load data and prepare dataloader
-    vocab, batch_vocab, adata = restore_vocab_test(args.anndata_path, args.finetune_vocab_path, batch_obskey=batch_obskey)
+    vocab, batch_vocab, adata, graph_data = restore_vocab_test(args.anndata_path, args.vocab_dir, downstream_task=args.downstream_task, batch_obskey=batch_obskey, use_gnn=use_gnn, nrows=args.nrows)
     num_bins = model.base_model.n_input_bins
     
     adata = adata[adata.obs['downstream_task'] == args.downstream_task]
@@ -91,9 +93,9 @@ def main():
 
     # evaluate
     if is_classification:
-        evaluate_classification(model, dataloader, batch_vocab, vocab.pad_index, args.output_dir, accelerator)
+        evaluate_classification(model, dataloader, batch_vocab, vocab.pad_index, args.output_dir, accelerator, graph_data)
     else:
-        evaluate_regression(model, dataloader, vocab.pad_index, train_mean, train_std, args.output_dir, accelerator)
+        evaluate_regression(model, dataloader, vocab.pad_index, train_mean, train_std, args.output_dir, accelerator, graph_data)
 
 if __name__ == "__main__":
     main()

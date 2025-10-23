@@ -9,6 +9,8 @@ import torch.distributed as dist
 import torch.nn.functional as F
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 from torch.distributions import Bernoulli
+
+from torch_geometric.data import Data
 # from tqdm import trange
 
 from functools import lru_cache
@@ -145,32 +147,34 @@ class TransformerModel(nn.Module):
 
         # self.init_weights()
 
-    # def encode(
-    #     self,
-    #     src: Tensor,
-    #     values: Tensor,
-    #     src_key_padding_mask: Tensor,
-    #     # batch_labels: Optional[Tensor] = None,  # (batch,)
-    # ) -> Tensor:
-    #     # self._check_batch_labels(batch_labels)
+    def encode(
+        self,
+        src: Tensor,
+        values: Tensor,
+        src_key_padding_mask: Tensor,
+        graph_data: Optional[Data] = None,
+        # batch_labels: Optional[Tensor] = None,  # (batch,)
+    ) -> Tensor:
+        # self._check_batch_labels(batch_labels)
 
-    #     if self.use_gnn:
-    #         src = self.encoder(src)
-    #     else:
-    #         src = self.encoder(src)  # (batch, seq_len, embsize)
-    #     cur_taxa_token_embs = src
+        if self.use_gnn:
+            assert graph_data is not None, "graph_data should not be None when use_gnn is True"
+            src = self.encoder(src, graph_data)
+        else:
+            src = self.encoder(src)  # (batch, seq_len, embsize)
+        cur_taxa_token_embs = src
 
-    #     values = self.value_encoder(values)  # (batch, seq_len, embsize)
-    #     if self.input_emb_style == "scaling":
-    #         values = values.unsqueeze(2)
-    #         total_embs = src * values
-    #     else:
-    #         total_embs = src + values
+        values = self.value_encoder(values)  # (batch, seq_len, embsize)
+        if self.input_emb_style == "scaling":
+            values = values.unsqueeze(2)
+            total_embs = src * values
+        else:
+            total_embs = src + values
 
-    #     output = self.transformer_encoder(
-    #         total_embs, src_key_padding_mask=src_key_padding_mask
-    #     )
-    #     return output, cur_taxa_token_embs # (batch, seq_len, embsize), (batch, seq_len, embsize)
+        output = self.transformer_encoder(
+            total_embs, src_key_padding_mask=src_key_padding_mask
+        )
+        return output, cur_taxa_token_embs # (batch, seq_len, embsize), (batch, seq_len, embsize)
     
     # # this only initializes the taxa embedding layer
     # def init_weights(self) -> None:
@@ -244,15 +248,12 @@ class TransformerModel(nn.Module):
         known_positions: Optional[Tensor] = None, # (batch, seq_len)
         # batch_labels: Optional[Tensor] = None,  # (batch,)
         input_cell_emb: Optional[Tensor] = None,  # (batch, embsize)
-        edge_index: Optional[Tensor] = None,
-        vocabindex_to_nodeindex: Optional[Tensor] = None,
+        graph_data: Optional[Data] = None,
     ) -> Tuple[Tensor, Tensor]:
         # self._check_batch_labels(batch_labels)
 
         if self.use_gnn:
-            assert edge_index is not None, "edge_index should not be None when use_gnn is True"
-            assert vocabindex_to_nodeindex is not None, "vocabindex_to_nodeindex should not be None when use_gnn is True"
-            token_embs = self.encoder(taxa, edge_index, vocabindex_to_nodeindex)
+            token_embs = self.encoder(taxa, graph_data)
         else:
             token_embs = self.encoder(taxa)  # (batch, seq_len, embsize)
         values = self.value_encoder(values)  # (batch, seq_len, embsize)
@@ -295,8 +296,7 @@ class TransformerModel(nn.Module):
         # ECS: bool = False,
         # do_sample: bool = False,
         input_cell_emb: Optional[Tensor] = None,
-        edge_index: Optional[Tensor] = None,
-        vocabindex_to_nodeindex: Optional[Tensor] = None,
+        graph_data: Optional[Data] = None,
     ) -> Mapping[str, Tensor]:
         """
         Forward pass of the model.
@@ -319,6 +319,8 @@ class TransformerModel(nn.Module):
         else:
             assert batch_labels is None, "batch_labels should be None when use_batch_labels is False"
         
+        if self.use_gnn:
+            assert graph_data is not None, "graph_data should not be None when use_gnn is True"
         transformer_output, cur_taxa_token_embs = self.transformer_generate(
             taxa,
             values,
@@ -326,8 +328,7 @@ class TransformerModel(nn.Module):
             known_positions,
             # batch_labels,
             input_cell_emb=input_cell_emb,
-            edge_index=edge_index,
-            vocabindex_to_nodeindex=vocabindex_to_nodeindex,
+            graph_data=graph_data,
         )
 
         output = {}

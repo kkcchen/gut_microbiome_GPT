@@ -147,8 +147,7 @@ class BatchVocab():
     """
     A class to represent the vocabulary of batches in the dataset.
     """
-
-    def __init__(self, vocab):
+    def __init__(self, vocab, batch_obskey):
         """
         Initialize the vocabulary with taxa and special tokens.
 
@@ -157,8 +156,9 @@ class BatchVocab():
                 The first column should be the sample names, and the rest are batch names
         """
         assert len(vocab) == len(set(vocab)), "Duplicate batch names found in the vocabulary."
-        self.itos = vocab.tolist()
+        self.itos = np.array(vocab)
         self.stoi = {token: idx for idx, token in enumerate(self.itos)}
+        self.batch_obskey = batch_obskey
         
     def __getitem__(self, item: str):
         return self.stoi.get(item, -1)
@@ -171,20 +171,40 @@ class BatchVocab():
         assert batch_obskey in adata.obs, f"The AnnData object must have '{batch_obskey}' in obs."
         batch_vocab = cls(
             vocab=adata.obs[batch_obskey].unique(),
+            batch_obskey=batch_obskey,
         )
         
-        adata.obs[f"{batch_obskey}_id"] = adata.obs[batch_obskey].map(batch_vocab.stoi)
-        adata.uns[f"{batch_obskey}_batch_vocab"] = batch_vocab.itos
         return batch_vocab
 
-    
     @classmethod
-    def restore_batchvocab(cls, adata, batch_obskey) -> 'BatchVocab':
+    def restore_batchvocab(cls, filepath) -> 'BatchVocab':
         """
-        Load the vocabulary from an anndata
+        Load the vocabulary from an file.
         Args:
-            adata (ad.AnnData): The AnnData object containing the batch vocabulary.
+            filepath (str): The path to the AnnData object containing the batch vocabulary.
         """
-        assert f"{batch_obskey}_batch_vocab" in adata.uns, "The AnnData object must have 'batch_vocab' in uns."
-        vocab_list = adata.uns[f"{batch_obskey}_batch_vocab"]
-        return cls(vocab_list)
+        with open(filepath, "r") as f:
+            data = json.load(f)
+        return cls(data["vocab_list"], data["batch_obskey"])
+
+    def save_batchvocab(self, filepath):
+        """
+        Save the batch vocabulary to an AnnData object.
+        Args:
+            adata (ad.AnnData): The AnnData object to save the batch vocabulary to.
+        """
+        metadata = {
+            "vocab_list": self.itos.tolist(),
+            "batch_obskey": self.batch_obskey,
+        }
+        with open(filepath, "w") as f:
+            json.dump(metadata, f, indent=2)
+    
+    def assign_batchvocab(self, adata):
+        """
+        Assign the batch vocabulary to an AnnData object.
+        Args:
+            adata (ad.AnnData): The AnnData object to assign the batch vocabulary to.
+        """
+        adata.obs[f"{self.batch_obskey}_id"] = adata.obs[self.batch_obskey].map(self.stoi)
+        return adata

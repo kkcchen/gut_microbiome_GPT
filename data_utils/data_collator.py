@@ -198,6 +198,8 @@ class DataCollator:
             perm = torch.randperm(total_valid, device=device)
             mask_indices = valid_indices[perm[:num_to_mask]]
 
+            # Ensure at least one value is changed
+            assert len(mask_indices) > 0, "At least one value must be changed."
 
             probs = torch.rand(len(mask_indices), device=device)
 
@@ -214,6 +216,7 @@ class DataCollator:
                 unchanged_mask = (probs >= 0.9)
                 
                 # save original ids for target
+                assert mask_indices[id_mask_mask | id_rand_mask | unchanged_mask].numel() > 0, "At least one id must be changed."
                 target_ids[i, mask_indices[id_mask_mask | id_rand_mask | unchanged_mask]] = ids[i, mask_indices[id_mask_mask | id_rand_mask | unchanged_mask]]
             else:
                 # 80% replace with [MASK] value
@@ -224,6 +227,7 @@ class DataCollator:
                 unchanged_mask = (probs >= 0.9)
             
             # save original values for target
+            assert mask_indices[mask_mask | rand_mask | unchanged_mask].numel() > 0, "At least one value must be changed."
             target_values[i, mask_indices[mask_mask | rand_mask | unchanged_mask]] = values[i, mask_indices[mask_mask | rand_mask | unchanged_mask]]
 
             if mask_mask.any():

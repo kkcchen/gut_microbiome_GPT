@@ -1,5 +1,8 @@
 from models import TransformerModel
 from torch import nn, Tensor
+from typing import Optional
+
+from torch_geometric.data import Data
 
 class FinetunedTransformer(nn.Module):
     def __init__(self, model_config):
@@ -50,12 +53,14 @@ class FinetunedTransformer(nn.Module):
         src: Tensor, # (batch, seq_len)
         values: Tensor, # (batch, seq_len)
         src_key_padding_mask: Tensor, # (batch, seq_len)
+        graph_data: Optional[Data] = None,
     ) -> Tensor:
         output_dict = {}
         encoded_output, _ = self.base_model.encode(
             src,
             values,
             src_key_padding_mask,
+            graph_data=graph_data,
         )
         env_emb = self.base_model.get_cell_emb_from_layer(encoded_output)  # (batch, embsize)
         output_dict['logits'] = self.decoder_head(env_emb)

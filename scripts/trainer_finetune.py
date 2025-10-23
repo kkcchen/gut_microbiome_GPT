@@ -59,7 +59,7 @@ if __name__ == "__main__":
     parser.add_argument("--train-input", type=str, required=True, help="Path to train .h5ad file with X shape (samples, taxa)")
     parser.add_argument("--best-dir", type=str, required=True, help="Directory to save best model so far")
     parser.add_argument("--data-restore-path", type=str, required=True, help="Path to restore data state")
-    parser.add_argument("--vocab-restore-path", type=str, required=True, help="Path to restore vocab state")
+    parser.add_argument("--vocab-restore-dir", type=str, required=True, help="Dir to restore vocab state, from pretraining")
     # wandb
     parser.add_argument("--wandb-enabled", action="store_true", help="Enable Weights & Biases logging")
     parser.add_argument("--wandb-entity", type=str, default=None, help="wandb entity name")
@@ -96,7 +96,7 @@ if __name__ == "__main__":
     train_input = args.train_input
     best_dir = args.best_dir
     data_restore_path = args.data_restore_path
-    vocab_restore_path = args.vocab_restore_path
+    vocab_restore_dir = args.vocab_restore_dir
 
     wandb_enabled = args.wandb_enabled
     wandb_entity = args.wandb_entity
@@ -140,7 +140,7 @@ if __name__ == "__main__":
         logger.info("Starting over from scratch, deleting existing training state.")
         if os.path.exists(data_restore_path):
             os.remove(data_restore_path)
-        # don't remove vocab_restore_path, as it is from pretraining
+        # don't remove vocab_restore_dir, as it is from pretraining
     
     accelerator.wait_for_everyone()
     
@@ -153,11 +153,13 @@ if __name__ == "__main__":
         assert len(args.ignored_labels) == 0, "For regression task, no labels should be ignored."
 
     # Create or restore data state
-    train_data_dict, valid_data_dict, vocab, batch_vocab = create_data_state_finetune(
+    use_gnn = base_model_config.get("use_gnn", False)
+    train_data_dict, valid_data_dict, vocab, batch_vocab, graph_data = create_data_state_finetune(
         train_input, 
         num_bins, 
-        vocab_restore_path, 
-        data_restore_path, 
+        vocab_restore_dir, 
+        data_restore_path,
+        use_gnn,
         accelerator, 
         batch_obskey=batch_obskey,
         continuous_obskey=continuous_obskey,
@@ -292,6 +294,7 @@ if __name__ == "__main__":
             best_val_loss=best_val_loss,
             loss_fn=loss_fn,
             is_classification=is_classification,
+            graph_data=graph_data if use_gnn else None,
         )
 
         # Log metrics to wandb
@@ -346,6 +349,7 @@ if __name__ == "__main__":
             best_val_loss=best_val_loss,
             loss_fn=loss_fn,
             is_classification=is_classification,
+            graph_data=graph_data if use_gnn else None,
         )
 
         # Log metrics to wandb
@@ -366,12 +370,12 @@ if __name__ == "__main__":
     logger.info("Training complete with best validation loss: {:.4f}".format(best_val_loss))    
     
     if is_classification:
-        evaluate_classification(new_model, valid_loader, batch_vocab, vocab.pad_index, os.path.join(args.best_dir, "valid_results"), accelerator)
+        evaluate_classification(new_model, valid_loader, batch_vocab, vocab.pad_index, os.path.join(args.best_dir, "valid_results"), accelerator, graph_data)
         accelerator.wait_for_everyone()
-        evaluate_classification(new_model, train_loader, batch_vocab, vocab.pad_index, os.path.join(args.best_dir, "train_results"), accelerator)
+        evaluate_classification(new_model, train_loader, batch_vocab, vocab.pad_index, os.path.join(args.best_dir, "train_results"), accelerator, graph_data)
     else:
-        evaluate_regression(new_model, valid_loader, vocab.pad_index, train_mean, train_std, os.path.join(args.best_dir, "valid_results"), accelerator)
+        evaluate_regression(new_model, valid_loader, vocab.pad_index, train_mean, train_std, os.path.join(args.best_dir, "valid_results"), accelerator, graph_data)
         accelerator.wait_for_everyone()
-        evaluate_regression(new_model, train_loader, vocab.pad_index, train_mean, train_std, os.path.join(args.best_dir, "train_results"), accelerator)
+        evaluate_regression(new_model, train_loader, vocab.pad_index, train_mean, train_std, os.path.join(args.best_dir, "train_results"), accelerator, graph_data)
         
     accelerator.end_training()
