@@ -1,15 +1,20 @@
 import numpy as np
 from typing import Dict, Optional, Union, List
 from pandas import DataFrame as df
+import pandas as pd
+import anndata as ad
+from skbio.stats.composition import clr, closure, multi_replace
+from trainers import logger
 
 class Preprocessor:
     """
-    currently just bins. could do other preprocessing steps in the future. 
+    currently just bins, and filters by prev and abundance. could do other preprocessing steps in the future. 
     """
 
     def __init__(
         self,
         binning: Optional[int] = None,
+        keep_top_k: Optional[int] = 512,
     ):
         r"""
         Set up the preprocessor, use the args to config the workflow steps.
@@ -19,6 +24,7 @@ class Preprocessor:
             Whether to bin the data into discrete values of number of bins provided.
         """
         self.binning = binning
+        self.keep_top_k = keep_top_k
 
     def process_from_np(self, unprocessed_data: np.ndarray, taxa_ids) -> Dict:
         """
@@ -40,10 +46,20 @@ class Preprocessor:
         if not isinstance(unprocessed_data, np.ndarray):
             raise ValueError("The unprocessed data must be a numpy array.")
         
+        # filtering, keep top k
+        if self.keep_top_k is not None:
+            top_k_indices = np.argsort(unprocessed_data, axis=1)[:, -self.keep_top_k:]
+            mask = np.zeros_like(unprocessed_data, dtype=bool)
+            np.put_along_axis(mask, top_k_indices, True, axis=1)
+            removed_entries = np.sum((~mask) & (unprocessed_data > 0))
+            logger.info(f"Number of entries removed in total: {removed_entries} for {unprocessed_data.shape[0]} samples.")
+            unprocessed_data = np.where(mask, unprocessed_data, 0)
+        
+        # binning
         if not self.binning:
             raise ValueError("Binning is not enabled, should this be the case?")
-            
-        n_bins = self.binning  # NOTE: the first bin is always a spectial for zero
+        
+        n_bins = self.binning  # NOTE: the first bin is always a special for zero
         binned_rows = []
         bin_edges = []
 
@@ -74,6 +90,58 @@ class Preprocessor:
             bin_edges.append(np.concatenate([[0], bins]))
                 
         return np.stack(binned_rows), np.stack(bin_edges)
+
+
+def compute_prevalence_abundance(
+    data, 
+    var_names=None
+):
+    """
+    Compute prevalence (fraction of samples > 0) and abundance (mean value)
+    for features in either an AnnData object or a NumPy array.
+
+    Parameters
+    ----------
+    data : AnnData | np.ndarray
+        Input data. If AnnData, uses data.X. If ndarray, uses it directly.
+        Shape should be (n_samples, n_features).
+    var_names : list[str] | None, optional
+        Feature names. Required if data is a NumPy array.
+
+    Returns
+    -------
+    prevalence : pd.Series
+        Fraction of samples with nonzero values for each feature.
+    abundance : pd.Series
+        Mean abundance of each feature across samples.
+    """
+    if isinstance(data, ad.AnnData):
+        X = data.X
+        if hasattr(X, "toarray"):
+            X = X.toarray()
+        var_names = data.var_names
+    elif isinstance(data, np.ndarray):
+        X = data
+        if var_names is None:
+            raise ValueError("var_names must be provided when data is a NumPy array.")
+    else:
+        raise TypeError("Input must be an AnnData object or a NumPy array.")
+
+    prevalence = np.mean(X > 0, axis=0)
+    abundance = np.mean(X, axis=0)
+
+    return (
+        pd.Series(prevalence, index=var_names),
+        pd.Series(abundance, index=var_names),
+    )
+
+def preprocess_clr_matrix(X):
+    if hasattr(X, "toarray"):
+        X = X.toarray()
+    X_replaced = multi_replace(X)
+    X_closed = closure(X_replaced)
+    return clr(X_closed)
+
 
 
 def _digitize(x: np.ndarray, bins: np.ndarray, side="both") -> np.ndarray:

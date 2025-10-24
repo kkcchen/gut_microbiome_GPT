@@ -1,29 +1,7 @@
-import os
 import argparse
-import numpy as np
 import anndata as ad
-import pandas as pd
-from skbio.stats.composition import clr, closure, multi_replace
 
-def compute_prevalence_abundance_adata(adata: ad.AnnData):
-    X = adata.X
-    if hasattr(X, "toarray"):
-        X = X.toarray()
-
-    prevalence = np.mean(X > 0, axis=0)
-    abundance = np.mean(X, axis=0)
-
-    return (
-        pd.Series(prevalence, index=adata.var_names),
-        pd.Series(abundance, index=adata.var_names),
-    )
-
-def preprocess_clr_matrix(X):
-    if hasattr(X, "toarray"):
-        X = X.toarray()
-    X_replaced = multi_replace(X)
-    X_closed = closure(X_replaced)
-    return clr(X_closed)
+from data_utils.preprocessor import preprocess_clr_matrix, compute_prevalence_abundance
 
 def main():
     parser = argparse.ArgumentParser(description="Filter and CLR-transform a taxa abundance matrix using scikit-bio.")
@@ -44,7 +22,7 @@ def main():
     adata_combined = ad.concat([adata_train, adata_test], axis=0)
     adata_combined.var["taxa"] = adata_combined.var_names
     # Compute prevalence and abundance
-    prevalence, abundance = compute_prevalence_abundance_adata(adata_combined)
+    prevalence, abundance = compute_prevalence_abundance(adata_combined)
 
     # Filter taxa
     keep_mask = (prevalence >= args.prevalence_threshold) & (abundance >= args.abundance_threshold)

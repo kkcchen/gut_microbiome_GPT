@@ -342,7 +342,7 @@ def create_data_state_finetune(anndata_path, num_bins, vocab_restore_dir, data_r
             preprocessor = Preprocessor(
                 binning=num_bins,
             )
-            hmc_npy = np.array(adata.layers["top_512"].todense(), dtype=np.float32)
+            hmc_npy = np.array(adata.X, dtype=np.float32)
             
             adata.var["taxa_id"] = adata.var_names.map(vocab.stoi)
             taxa_ids = np.array(adata.var["taxa_id"])

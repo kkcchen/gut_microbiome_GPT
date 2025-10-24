@@ -250,7 +250,7 @@ def read_taxonomic_table(file_path, nrows = None):
     return adata
 
 
-def compute_prevalence_abundance_adata(adata: ad.AnnData):
+def compute_prevalence_abundance(adata: ad.AnnData):
     X = adata.X
     if hasattr(X, "toarray"):
         X = X.toarray()
@@ -303,7 +303,7 @@ def main():
     print(f"Reading taxonomic table from {taxonomic_table_path} with nrows={nrows} and split_ratio={split_ratio}")
     adata = read_taxonomic_table(taxonomic_table_path, nrows=nrows)
     
-    prevalence, abundance = compute_prevalence_abundance_adata(adata)
+    prevalence, abundance = compute_prevalence_abundance(adata)
     keep_mask = (prevalence >= args.prevalence_threshold) & (abundance >= args.abundance_threshold)
     kept_taxa = keep_mask[keep_mask].index.tolist()
     if len(kept_taxa) == 0:

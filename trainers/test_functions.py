@@ -64,7 +64,7 @@ def create_testdata_state(adata, num_bins, vocab, batch_obskey, continuous_obske
         binning=num_bins,
     )
     
-    hmc_npy = np.array(adata.layers["top_512"].todense(), dtype=np.float32)
+    hmc_npy = np.array(adata.X, dtype=np.float32)
     taxa_ids = np.array(adata.var["taxa_id"])
     
     stacked_rows, _ = preprocessor.process_from_np(hmc_npy, taxa_ids)

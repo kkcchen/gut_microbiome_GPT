@@ -529,7 +529,7 @@ def create_or_restore_data_state(anndata_path, num_bins, restore_dir, accelerato
             preprocessor = Preprocessor(
                 binning=num_bins,
             )
-            hmc_npy = np.array(adata.layers["top_512"].todense(), dtype=np.float32)
+            hmc_npy = np.array(adata.X, dtype=np.float32)
             taxa_ids = np.array(adata.var["taxa_id"])
             stacked_rows, _ = preprocessor.process_from_np(hmc_npy, taxa_ids)
             # create tokenizer
