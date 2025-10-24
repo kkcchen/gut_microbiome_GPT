@@ -4,10 +4,8 @@ import numpy as np
 from torch import nn, Tensor
 from typing import Optional
 
-from torch_geometric.nn import GCNConv
+from torch_geometric.nn import GCN, GAT
 from torch_geometric.data import Data
-
-from data_utils.graph_helpers import build_tg_data_from_taxon_df
 
 #TODO: try starting with embeddings of taxa. evo2? word2vec?
 class TaxaEncoder(nn.Module):
@@ -54,6 +52,7 @@ class TaxaGraphEncoder(nn.Module):
         num_special_tokens: int,
         num_taxa: int,
         embedding_dim: int,
+        graph_type: str = "gcn",
         padding_idx: Optional[int] = None,
     ):
         super().__init__()
@@ -61,17 +60,18 @@ class TaxaGraphEncoder(nn.Module):
         self.num_taxa = num_taxa
         
         # 1. deal with taxa embeddings
-        self.conv1 = GCNConv(embedding_dim, embedding_dim)
-        self.conv2 = GCNConv(embedding_dim, embedding_dim)
+        self.graph_type = graph_type
+        if graph_type == "gcn":
+            self.conv_model = GCN(embedding_dim, embedding_dim, num_layers=2, norm="layer")
+        elif graph_type == "gat":
+            self.conv_model = GAT(embedding_dim, embedding_dim, num_layers=2, heads=4, norm="layer")
         
         # 2. special token embeddings
         assert padding_idx >= self.num_taxa, "Padding idx should be in special tokens range"
         self.special_embedding = nn.Embedding(
             num_special_tokens, embedding_dim, padding_idx=padding_idx-self.num_taxa
         )
-            
-        self.enc_norm = nn.LayerNorm(embedding_dim)
-
+               
     def forward(self, x: torch.Tensor, graph_data: Data) -> torch.Tensor:
         """
         x: Tensor of shape (batch_size, seq_len)
@@ -88,10 +88,9 @@ class TaxaGraphEncoder(nn.Module):
 
         # ---- 1. Run (or reuse) GCN on the graph ----
         if (not hasattr(self, "cached_node_embs")) or self.training:
-            node_embs = self.conv1(self.node_embs.weight, edge_list)
-            node_embs = torch.relu(node_embs)
-            node_embs = self.conv2(node_embs, edge_list)
-            node_embs = self.enc_norm(node_embs)  # (num_nodes, emb_dim)
+            edge_attr = graph_data.edge_attr
+            edge_weight = 2 / (2 ** edge_attr) # greater distance should mean less weight
+            node_embs = self.conv_model(self.node_embs.weight, edge_list, edge_weight=edge_weight)
             self.cached_node_embs = node_embs.detach() if not self.training else node_embs
         else:
             node_embs = self.cached_node_embs

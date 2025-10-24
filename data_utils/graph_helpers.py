@@ -29,29 +29,16 @@ def is_invalid_name(name):
     return False
 
 
-# def get_valid_name(name_array):
-#     valid_chain = []
-#     end_invalid = False
-#     for name in name_array:
-#         if pd.isna(name):
-#             continue
-#         name = str(name).strip()
-#         if is_invalid_name(name):
-#             continue
-#         valid_chain.append(name)
-    
-#     if valid_chain:
-#         last_name = name_array[-1]
-#         if is_invalid_name(last_name):
-#             end_invalid = True
-    
-#     return valid_chain, end_invalid
 def get_valid_name(name_array):
     valid_chain = []
+    distances = []
     end_invalid = False
-
+    
+    current_distance = 1
+    name_array = np.array(name_array)
     for i, name in enumerate(name_array):
         if pd.isna(name):
+            current_distance += 1
             continue
         name = str(name).strip()
         if is_invalid_name(name):
@@ -66,28 +53,33 @@ def get_valid_name(name_array):
             #         and not is_invalid_name(str(next_name).strip())
             #     ):
             #         print("Invalid name surrounded by valids:", name_array)
+            current_distance += 1
             continue
-        valid_chain.append(name)
+        else:
+            valid_chain.append(name)
+            distances.append(current_distance)
+            current_distance = 1
 
     if valid_chain:
         last_name = name_array[-1]
         if is_invalid_name(last_name):
             end_invalid = True
 
-    return valid_chain, end_invalid
+    return valid_chain, distances[1:], end_invalid
 
 
 # --- build initial parent->children mapping from taxon dataframe ---
 def build_parent_children(taxon_df):
     parent_children = defaultdict(set)
     child_parents = defaultdict(set)
+    parent_child_distances = defaultdict(set)
     ranks = taxon_df.columns.tolist()
     duplicate_nodenames = {}
     do_not_collapse = set()
     isolated_nodes = set()
 
     for _, row in taxon_df.iterrows():
-        valid_chain, end_invalid = get_valid_name(row[ranks].tolist())
+        valid_chain, distances, end_invalid = get_valid_name(row[ranks].tolist())
         if end_invalid:
             do_not_collapse.add(valid_chain[-1]) # if ends with invalid, do not collapse the last valid node
         
@@ -105,20 +97,22 @@ def build_parent_children(taxon_df):
                     child_parents[sub_name].add(parent)
                     parent_children[parent].add(sub_name)
                     duplicate_nodenames[(parent, child)] = sub_name
+                    parent_child_distances[(parent, sub_name)] = distances[i]
                 else:
                     parent_children[parent].add(child)
                     child_parents[child].add(parent)
+                    parent_child_distances[(parent, child)] = distances[i]
 
 
 
     # Sort keys for readability
     parent_children = {k: parent_children[k] for k in sorted(parent_children)}
     child_parents = {k: child_parents[k] for k in sorted(child_parents)}
-    return dict(parent_children), dict(child_parents), duplicate_nodenames, do_not_collapse, isolated_nodes
+    return dict(parent_children), dict(child_parents), dict(parent_child_distances), duplicate_nodenames, do_not_collapse, isolated_nodes
 
 # --- collapse single-child nodes as described:
 # if a node P has exactly one child C, remove C and connect P -> grandchildren_of_C
-def collapse_single_child_nodes(parent_children, child_parents, roots, do_not_collapse):
+def collapse_single_child_nodes(parent_children, child_parents, parent_child_distances, roots, do_not_collapse):
     queue = deque(roots)
     while queue:
         parent = queue.popleft()
@@ -150,17 +144,30 @@ def collapse_single_child_nodes(parent_children, child_parents, roots, do_not_co
                 for gc in parent_children[child]:
                     child_parents[gc].add(child_newname)
                     child_parents[gc].discard(child)
+                    
+                    # also reconnect distance references
+                    parent_child_distances[(child_newname, gc)] = parent_child_distances[(child, gc)]
+                    del parent_child_distances[(child, gc)]
                 del parent_children[child]
+                
+                
             
             if child in do_not_collapse:
                 do_not_collapse.add(child_newname)
                 do_not_collapse.discard(child)
             
+            # update distances
+            gp_p_distance = parent_child_distances[(grandparent, parent)]
+            p_c_distance = parent_child_distances[(parent, child)]
+            parent_child_distances[(grandparent, child_newname)] = gp_p_distance + p_c_distance
+            del parent_child_distances[(grandparent, parent)]
+            del parent_child_distances[(parent, child)]
+            
             queue.append(child_newname)
         else:
             queue.extend(parent_children[parent])
 
-    return parent_children, child_parents
+    return parent_children, child_parents, parent_child_distances
 
 
 def get_leaf_embedding_index(path_parts, data):
@@ -258,8 +265,7 @@ def build_tg_data_from_taxon_df(taxon_df, vocab_list, undirected: bool = True):
     """
     
     
-    parent_children, child_parents, sub_names, do_not_collapse, isolated_nodes = build_parent_children(taxon_df)
-    # print(sub_names)
+    parent_children, child_parents, parent_child_distances, sub_names, do_not_collapse, isolated_nodes = build_parent_children(taxon_df)
     # Validate tree structure: child_parents values should all have length one
     for child, parents in child_parents.items():
         if len(parents) > 1:
@@ -268,7 +274,7 @@ def build_tg_data_from_taxon_df(taxon_df, vocab_list, undirected: bool = True):
     # collapse single-child nodes
     roots = [n for n in parent_children.keys() if n not in child_parents]
     print(f"Identified {roots} root nodes (no parents).")
-    parent_children, child_parents = collapse_single_child_nodes(parent_children, child_parents, roots, do_not_collapse)
+    parent_children, child_parents, parent_child_distances = collapse_single_child_nodes(parent_children, child_parents, parent_child_distances, roots, do_not_collapse)
 
     # add root node to connect "roots" if multiple
     if len(roots) > 1:
@@ -278,6 +284,8 @@ def build_tg_data_from_taxon_df(taxon_df, vocab_list, undirected: bool = True):
         parent_children[root_name] = roots
         for r in roots:
             child_parents[r] = {root_name}
+            # add distances
+            parent_child_distances[(root_name, r)] = 1
     else:
         root_name = roots[0]
         
@@ -287,20 +295,25 @@ def build_tg_data_from_taxon_df(taxon_df, vocab_list, undirected: bool = True):
     nodes = sorted(nodes)  # deterministic ordering
     name_to_idx = {n: i for i, n in enumerate(nodes)}
 
+    print(len(parent_child_distances))
+
     src = []
     dst = []
-    for p, chs in parent_children.items():
+    edge_dists = []
+    for (p, c), dist in parent_child_distances.items():
         p_idx = name_to_idx[p]
-        for c in chs:
-            c_idx = name_to_idx[c]
-            src.append(p_idx)
-            dst.append(c_idx)
-
+        c_idx = name_to_idx[c]
+        src.append(p_idx)
+        dst.append(c_idx)
+        edge_dists.append(dist)
+    
+    edge_dists = torch.tensor(edge_dists, dtype=torch.float).unsqueeze(1)
+        
     edge_index = torch.tensor([src, dst], dtype=torch.long)
     if undirected:
-        edge_index = to_undirected(edge_index)
+        edge_index, edge_dists = to_undirected(edge_index, edge_dists)
     
-    data = Data(edge_index=edge_index)
+    data = Data(edge_index=edge_index, edge_attr=edge_dists)
     
     # attach names (useful for debugging / mapping back)
     data.names = nodes
@@ -310,6 +323,8 @@ def build_tg_data_from_taxon_df(taxon_df, vocab_list, undirected: bool = True):
     data.child_parents = child_parents
     data.duplicate_nodenames = sub_names
     data.root_index = name_to_idx[root_name]
+    
+    data.parent_child_distances = parent_child_distances
     
     data.vocabindex_to_nodeindex = torch.zeros(len(vocab_list), dtype=torch.long)
     for vocab_index, fullname in enumerate(vocab_list):
