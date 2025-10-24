@@ -13,7 +13,7 @@
             "args": [
             "-m", "scripts.trainer",
             "--model-config-path", "experiment_saves/pretrain/model_checkpoints/model_config.json",
-            "--ann-table-path", "datasets/up_to_date_sep10/pretrain.h5ad",
+            "--ann-table-path", "datasets/remove_redundant_oct24/pretrain.h5ad",
             "--best-dir", "experiment_saves/pretrain/model_checkpoints/best_model",
             "--intermediate-dir", "experiment_saves/pretrain/model_checkpoints/intermediate_checkpoints",
             "--checkpoint-dir", "experiment_saves/pretrain/model_checkpoints/current_checkpoints",
@@ -50,7 +50,7 @@
           "--safetensors-path", "experiment_saves/pretrain/model_checkpoints/best_model/model.safetensors",
           "--output-path", "experiment_saves/pretrain/outputs/encoded_samples_test.h5ad",
           "--vocab-dir", "experiment_saves/pretrain/model_checkpoints/data_checkpoint",
-          "--adata-path", "datasets/up_to_date_sep10/finetune_test.h5ad",
+          "--adata-path", "datasets/remove_redundant_oct24/finetune_test.h5ad",
           "--model-config-path", "experiment_saves/pretrain/model_checkpoints/model_config.json",
           "--nrows", "1000"
           ]
@@ -113,7 +113,7 @@
 
             "--base-model-config-path", "experiment_saves/pretrain/model_checkpoints/model_config.json",
             "--base-model-path", "experiment_saves/pretrain/model_checkpoints/best_model/model.safetensors",
-            "--train-input", "datasets/up_to_date_sep10/finetune_test.h5ad",
+            "--train-input", "datasets/remove_redundant_oct24/finetune_test.h5ad",
             "--best-dir", "experiment_saves/finetune_debug/loc_finetune/best_model",
             "--data-restore-path", "experiment_saves/finetune_debug/loc_finetune/data_checkpoint/augmented_data_finetune.h5ad",
             "--vocab-restore-dir", "experiment_saves/pretrain/model_checkpoints/data_checkpoint",
@@ -153,7 +153,7 @@
           "--model-config-path", "experiment_saves/finetune_debug/loc_finetune/finetune_model_config.json",      
           "--vocab-dir", "experiment_saves/pretrain/model_checkpoints/data_checkpoint",
 
-          "--anndata-path", "datasets/up_to_date_sep10/finetune_test.h5ad",
+          "--anndata-path", "datasets/remove_redundant_oct24/finetune_test.h5ad",
 
           "--nrows", "20",
           "--output-dir", "experiment_saves/finetune_debug/loc_finetune",
