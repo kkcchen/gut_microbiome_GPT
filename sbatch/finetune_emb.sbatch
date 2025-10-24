@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=finetune_trainablebase
+#SBATCH --job-name=train_base
 #SBATCH -A aip-rahulgk
 #SBATCH --mem=128G
 #SBATCH --cpus-per-task=8
 #SBATCH --time=1:00:00
-#SBATCH --output=logs/finetune_trainablebase/%j.out
-#SBATCH --error=logs/finetune_trainablebase/%j.err
+#SBATCH --output=logs/train_base/%j.out
+#SBATCH --error=logs/train_base/%j.err
 #SBATCH --gres=gpu:4
 
 set -e  # <--- Exit immediately on error
@@ -17,15 +17,15 @@ source ~/hmbenv/bin/activate
 python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not available. Exiting.'" || exit 1
 
 # === Set paths ===
-BASEMODEL_PATH=experiment_saves/taxa-mask-30-locexc-batch
-DATASET_PATH=/project/aip-rahulgk/gutmodel/up_to_date_sep10
+BASEMODEL_PATH=experiment_saves/big-model
+DATASET_PATH=/project/aip-rahulgk/gutmodel/remove_redundant_oct24
 
 PORT=$((29500 + $SLURM_JOB_ID % 1000))
 
 
 # === Run the encoding script ===
-# for TARGET in sex location age bmi mice_diet supplement human_diet
-for TARGET in location
+for TARGET in sex location age bmi mice_diet supplement human_diet
+# for TARGET in location
 do
     echo "======================================"
     echo "Running finetune for task: $TARGET"
@@ -51,40 +51,40 @@ do
     fi
 
     # Experiment path
-    RUN_NAME="trainable_${TARGET}2"
-    EXPERIMENT_PATH=$BASEMODEL_PATH/finetune_trainablebase/$RUN_NAME
+    RUN_NAME="frozen_${TARGET}"
+    EXPERIMENT_PATH=$BASEMODEL_PATH/frozen_base/$RUN_NAME
     NOTES="Finetune for $TARGET ($TASK_TYPE)."
 
-    echo "training on finetune data..."
-    accelerate launch --main_process_port $PORT -m scripts.trainer_finetune \
-        --base-model-config-path $BASEMODEL_PATH/model_checkpoints/model_config.json \
-        --base-model-path $BASEMODEL_PATH/model_checkpoints/best_model/model.safetensors \
-        --vocab-restore-path $BASEMODEL_PATH/model_checkpoints/data_checkpoint/augmented_data.h5ad \
-        \
-        --train-input $DATASET_PATH/finetune_train.h5ad \
-        \
-        --best-dir $EXPERIMENT_PATH/best_model \
-        --data-restore-path $EXPERIMENT_PATH/augmented_data_finetune.h5ad \
-        \
-        --model-config-path $EXPERIMENT_PATH/finetune_model_config.json \
-        \
-        --frozen-max-epochs 0 \
-        --unfrozen-max-epochs 10 \
-        \
-        --batch-size 64 \
-        --init-lr 0.0001 \
-        \
-        --notes "$NOTES" \
-        --wandb-enabled \
-        --wandb-entity haoze-deng-university-of-toronto \
-        --wandb-project microbiome-finetune-batch \
-        --wandb-run-name $RUN_NAME \
-        --seed 44 \
-        \
-        --task-type $TASK_TYPE \
-        --downstream-task $TARGET \
-        $IGNORED_LABEL \
-        --start-over
+    # echo "training on finetune data..."
+    # accelerate launch --main_process_port $PORT -m scripts.trainer_finetune \
+    #     --base-model-config-path $BASEMODEL_PATH/model_checkpoints/model_config.json \
+    #     --base-model-path $BASEMODEL_PATH/model_checkpoints/best_model/model.safetensors \
+    #     --vocab-restore-path $BASEMODEL_PATH/model_checkpoints/data_checkpoint/augmented_data.h5ad \
+    #     \
+    #     --train-input $DATASET_PATH/finetune_train.h5ad \
+    #     \
+    #     --best-dir $EXPERIMENT_PATH/best_model \
+    #     --data-restore-path $EXPERIMENT_PATH/augmented_data_finetune.h5ad \
+    #     \
+    #     --model-config-path $EXPERIMENT_PATH/finetune_model_config.json \
+    #     \
+    #     --frozen-max-epochs 0 \
+    #     --unfrozen-max-epochs 10 \
+    #     \
+    #     --batch-size 64 \
+    #     --init-lr 0.0001 \
+    #     \
+    #     --notes "$NOTES" \
+    #     --wandb-enabled \
+    #     --wandb-entity haoze-deng-university-of-toronto \
+    #     --wandb-project microbiome-finetune-batch \
+    #     --wandb-run-name $RUN_NAME \
+    #     --seed 44 \
+    #     \
+    #     --task-type $TASK_TYPE \
+    #     --downstream-task $TARGET \
+    #     $IGNORED_LABEL \
+    #     --start-over
 
 
     accelerate launch --main_process_port $PORT -m scripts.tester_finetune \

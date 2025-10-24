@@ -15,7 +15,7 @@ source ~/hmbenv/bin/activate
 python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not available. Exiting.'" || exit 1
 
 # put your command here
-DATA_DIR="/project/aip-rahulgk/gutmodel/up_to_date_sep10"
+DATA_DIR="/project/aip-rahulgk/gutmodel/remove_redundant_oct24"
 RUN_NAME="big-model"
 NOTES="oct 4 bigger model"
 

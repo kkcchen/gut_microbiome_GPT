@@ -14,7 +14,7 @@ source ~/hmbenv/bin/activate
 cd /project/aip-rahulgk/tiantian/gut_microbiome_GPT
 
 # put your command here
-DATA_DIR=/project/aip-rahulgk/gutmodel/up_to_date_sep10
+DATA_DIR=/project/aip-rahulgk/gutmodel/remove_redundant_oct24
 RUN_NAME=evo2-init-frozen
 NOTES="Pretraining pipeline with evo2 embeddings as embedding initialization, frozen during training, 30% masking"
 

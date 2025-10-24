@@ -10,8 +10,8 @@
 # Activate your virtual environment
 source ~/hmbenv/bin/activate
 cd /project/aip-rahulgk/tiantian/gut_microbiome_GPT
-EXPERIMENT_PATH=experiment_saves/downstream_all_sep10
-DS_DATA_PATH=/project/aip-rahulgk/gutmodel/up_to_date_sep10
+EXPERIMENT_PATH=experiment_saves/downstream_all_oct24
+DS_DATA_PATH=/project/aip-rahulgk/gutmodel/remove_redundant_oct24
 TRAIN_PATH=$DS_DATA_PATH/finetune_train.h5ad
 TEST_PATH=$DS_DATA_PATH/finetune_test.h5ad
 CONFIG_PATH=configs/downstream_all.json

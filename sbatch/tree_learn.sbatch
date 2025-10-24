@@ -16,8 +16,8 @@ FINETUNE=1
 
 if [ "$FROM_RAW" -eq 1 ]; then
     echo "Using raw embeddings..."
-    EXPERIMENT_PATH=experiment_saves/raw_abundances_sep10
-    EMB_SAVE_PATH=/project/aip-rahulgk/gutmodel/up_to_date_sep10
+    EXPERIMENT_PATH=experiment_saves/raw_abundances_oct24
+    EMB_SAVE_PATH=/project/aip-rahulgk/gutmodel/remove_redundant_oct24
 
     TRAIN_EMBED_PATH=$EMB_SAVE_PATH/finetune_train.h5ad
     TEST_EMBED_PATH=$EMB_SAVE_PATH/finetune_test.h5ad
@@ -28,7 +28,7 @@ if [ "$FROM_RAW" -eq 1 ]; then
 else
     echo "Using pre-encoded embeddings..."
     EXPERIMENT_PATH=experiment_saves/taxa-mask-30-locexc-batch
-    EMB_SAVE_PATH=$EXPERIMENT_PATH/up_to_date_sep10
+    EMB_SAVE_PATH=$EXPERIMENT_PATH/remove_redundant_oct24
 
     TRAIN_EMBED_PATH=$EMB_SAVE_PATH/encoded_train.h5ad
     TEST_EMBED_PATH=$EMB_SAVE_PATH/encoded_test.h5ad
