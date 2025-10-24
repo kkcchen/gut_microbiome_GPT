@@ -2,7 +2,7 @@ datasets
 __pycache__/
 */__pycache__/
 experiment_saves
-notebooks/**
+notebooks/dataset_characterization
 wandb
 logs/
 datasets_full
