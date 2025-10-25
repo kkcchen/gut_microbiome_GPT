@@ -52,7 +52,7 @@ class Preprocessor:
             mask = np.zeros_like(unprocessed_data, dtype=bool)
             np.put_along_axis(mask, top_k_indices, True, axis=1)
             removed_entries = np.sum((~mask) & (unprocessed_data > 0))
-            logger.info(f"Number of entries removed in total: {removed_entries} for {unprocessed_data.shape[0]} samples.")
+            logger.info(f"Number of taxa removed in total: {removed_entries} for {unprocessed_data.shape[0]} samples.")
             unprocessed_data = np.where(mask, unprocessed_data, 0)
         
         # binning

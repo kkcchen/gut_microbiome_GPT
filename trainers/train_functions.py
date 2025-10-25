@@ -480,16 +480,16 @@ def commit_state(extra_state, epoch, best_val_loss, patience_counter, checkpoint
 
 
 def create_or_restore_data_state(anndata_path, num_bins, restore_dir, accelerator: Accelerator, use_gnn=False, batch_obskey=None, nrows=None):
-    print(f"Creating vocab and data from scratch using {anndata_path}")
-    batchvocab_path = os.path.join(restore_dir, f"batchvocab_{batch_obskey}.json")
-    vocab_path = os.path.join(restore_dir, "vocab_file.json")
     if accelerator.is_main_process:
+        batchvocab_path = os.path.join(restore_dir, f"batchvocab_{batch_obskey}.json")
+        vocab_path = os.path.join(restore_dir, "vocab_file.json")
         os.makedirs(restore_dir, exist_ok=True)
         
         batch_vocab = None
         
         if os.path.exists(vocab_path) and os.path.exists(batchvocab_path):
             # load the vocab from the file
+            print(f"Restoring vocab and data from {restore_dir}")
             vocab = MicrobiomeVocab.restore_vocab(vocab_path)
             logger.info(f"Vocab restored from {restore_dir}")
             
@@ -508,6 +508,7 @@ def create_or_restore_data_state(anndata_path, num_bins, restore_dir, accelerato
             assert "split" in adata.obs and "binned_rows" in adata.layers, "The AnnData object must have 'split' in obs."
             logger.info("Data state can be restored from {}".format(restore_dir))
         else:
+            print(f"Creating vocab and data from scratch using {anndata_path}")
             adata = ad.read_h5ad(anndata_path)
             if nrows:
                 adata = adata[:nrows, :].copy()

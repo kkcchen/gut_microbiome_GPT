@@ -52,7 +52,7 @@ class TaxaGraphEncoder(nn.Module):
         num_special_tokens: int,
         num_taxa: int,
         embedding_dim: int,
-        graph_type: str = "gcn",
+        graph_type: str = "gat",
         padding_idx: Optional[int] = None,
     ):
         super().__init__()

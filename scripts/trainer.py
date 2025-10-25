@@ -159,10 +159,10 @@ if __name__ == "__main__":
 
     # Create or restore training state
     model_config = {
-        "d_model": 256,
-        "nhead": 8,
-        "d_hid": 512,
-        "nlayers": 4,
+        "d_model": 128,
+        "nhead": 4,
+        "d_hid": 256,
+        "nlayers": 3,
         "use_batch_labels": use_batch_labels,
         "dropout": 0.1,
         "n_input_bins": num_bins,
@@ -206,6 +206,7 @@ if __name__ == "__main__":
     train_loader, valid_loader, model, optimizer, scheduler = accelerator.prepare(
         train_loader, valid_loader, model, optimizer, scheduler
     )
+    graph_data = graph_data.to(accelerator.device) if args.use_gnn else None
     
     checkpoint_at = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 14}
 
