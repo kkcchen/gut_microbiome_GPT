@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --job-name=gutmodel-evo2init-trainable
+#SBATCH --job-name=gutmodel-evo2init-trainable-normalized
 #SBATCH -A aip-rahulgk
-#SBATCH --output=logs/evo2-init-trainable/%j.out
-#SBATCH --error=logs/evo2-init-trainable/%j.err
+#SBATCH --output=logs/evo2-init-trainable-normalized/%j.out
+#SBATCH --error=logs/evo2-init-trainable-normalized/%j.err
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=64G
 #SBATCH --gres=gpu:l40s:1
@@ -14,8 +14,8 @@ source ~/hmbenv/bin/activate
 cd /project/aip-rahulgk/tiantian/gut_microbiome_GPT
 
 # put your command here
-DATA_DIR=/project/aip-rahulgk/gutmodel/remove_redundant_oct24
-RUN_NAME=evo2-init-trainable
+DATA_DIR=/project/aip-rahulgk/gutmodel/up_to_date_sep10
+RUN_NAME=evo2-init-trainable-normalized
 NOTES="Pretraining pipeline with evo2 embeddings as embedding initialization, trainable during training, 30% masking"
 
 EXPERIMENT_PATH=experiment_saves/$RUN_NAME

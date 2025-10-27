@@ -15,6 +15,10 @@
       "xgboost": {
         "search_type": "random",
         "task_type": "classification"
+      },
+      "tabpfn": {
+        "search_type": "random",
+        "task_type": "classification"
       }
     }
   },
@@ -33,6 +37,10 @@
         "task_type": "regression"
       },
       "xgboost": {
+        "search_type": "random",
+        "task_type": "regression"
+      },
+      "tabpfn": {
         "search_type": "random",
         "task_type": "regression"
       }
@@ -55,6 +63,10 @@
       "xgboost": {
         "search_type": "random",
         "task_type": "regression"
+      },
+      "tabpfn": {
+        "search_type": "random",
+        "task_type": "regression"
       }
     }
   },
@@ -73,6 +85,10 @@
         "task_type": "classification"
       },
       "xgboost": {
+        "search_type": "random",
+        "task_type": "classification"
+      },
+      "tabpfn": {
         "search_type": "random",
         "task_type": "classification"
       }
@@ -95,6 +111,10 @@
       "xgboost": {
         "search_type": "random",
         "task_type": "classification"
+      },
+      "tabpfn": {
+        "search_type": "random",
+        "task_type": "classification"
       }
     }
   },
@@ -115,6 +135,10 @@
       "xgboost": {
         "search_type": "random",
         "task_type": "classification"
+      },
+      "tabpfn": {
+        "search_type": "random",
+        "task_type": "classification"
       }
     }
   },
@@ -133,6 +157,10 @@
         "task_type": "classification"
       },
       "xgboost": {
+        "search_type": "random",
+        "task_type": "classification"
+      },
+      "tabpfn": {
         "search_type": "random",
         "task_type": "classification"
       }

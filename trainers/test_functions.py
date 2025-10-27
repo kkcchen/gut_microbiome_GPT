@@ -55,7 +55,7 @@ def restore_vocab_test(anndata_path, vocab_restore_dir, use_gnn, downstream_task
     return vocab, batch_vocab, adata, graph_data
 
 
-def create_testdata_state(adata, num_bins, vocab, batch_obskey, continuous_obskey, nrows=None):
+def create_testdata_state(adata, num_bins, vocab, batch_obskey, continuous_obskey, nrows=None, bin_strategy="binning"):
     # create the data dict
     if nrows:
         adata = adata[:nrows, :].copy()
@@ -67,7 +67,12 @@ def create_testdata_state(adata, num_bins, vocab, batch_obskey, continuous_obske
     hmc_npy = np.array(adata.X, dtype=np.float32)
     taxa_ids = np.array(adata.var["taxa_id"])
     
-    stacked_rows, _ = preprocessor.process_from_np(hmc_npy, taxa_ids)
+    if bin_strategy == "binning":
+        stacked_rows, _ = preprocessor.bin_from_np(hmc_npy, taxa_ids)
+    elif bin_strategy == "clr":
+        stacked_rows = preprocessor.clr_from_np(hmc_npy, taxa_ids)
+    else:
+        raise ValueError(f"Unknown bin_strategy: {bin_strategy}")
 
     # create tokenizer
     adata.layers["binned_rows"] = stacked_rows
@@ -123,7 +128,7 @@ def get_class_probs(model, dataloader, vocab_pad_index, accelerator, graph_data)
 def add_roc_curve(binary_targets, scores, label, ax):
     RocCurveDisplay.from_predictions(
         y_true=binary_targets,
-        y_score=scores,
+        y_pred=scores,
         name=f"{label} ({binary_targets.sum()} samples)",
         plot_chance_level=False,  # Plot only once outside the loop
         ax=ax

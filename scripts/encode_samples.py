@@ -28,6 +28,7 @@ def main():
     parser.add_argument("--adata-path", type=str, required=True, help="Path to the training data h5ad file")
     parser.add_argument("--is-finetune", action="store_true", help="Path to the training data numpy file")
     parser.add_argument("--nrows", type=int, default=None, help="Number of rows to use from the anndata file (for debugging)")
+    parser.add_argument("--data-bin-strategy", type=str, default="binning", choices=["binning", "clr"], help="Data preprocessing strategy: 'binning' or 'clr'")
     parser.add_argument("--emb-colname", type=str, default="embedding", help="Column name for the embeddings in the output anndata file")
     args = parser.parse_args()
     
@@ -36,6 +37,7 @@ def main():
     vocab_dir = args.vocab_dir
     adata_path = args.adata_path
     model_config_path = args.model_config_path
+    data_bin_strategy = args.data_bin_strategy
     
     nrows = args.nrows
     
@@ -70,7 +72,8 @@ def main():
         vocab=vocab,
         batch_obskey=None,  # No batch key needed for encoding
         continuous_obskey=None,  # No continuous labels needed for encoding
-        nrows=nrows  # Set to None to use all rows
+        nrows=nrows,  # Set to None to use all rows
+        bin_strategy=data_bin_strategy
     )
     
     dataloader = prepare_dataloader(
