@@ -16,8 +16,8 @@ python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not availabl
 
 # put your command here
 DATA_DIR="/project/aip-rahulgk/gutmodel/remove_redundant_oct24"
-RUN_NAME="gat-1"
-NOTES="10/24 experiment with gnn encoder, taxa decoder, and mvc task. gnn decoder is gat instead of gcn."
+RUN_NAME="gcn-2"
+NOTES="10/29 experiment with gcn encoder, taxa decoder, and mvc task. GNN with 3 layers."
 
 EXPERIMENT_PATH=experiment_saves/$RUN_NAME
 

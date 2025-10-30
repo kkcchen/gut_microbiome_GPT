@@ -179,6 +179,8 @@ if __name__ == "__main__":
         "freeze_vocab": freeze_vocab,
         "use_gnn": args.use_gnn,
         "num_gnn_nodes": graph_data.num_nodes if args.use_gnn else None,
+        "gnn_type": "gcn" if args.use_gnn else None,
+        "gnn_num_layers": 3 if args.use_gnn else None,
     }
     
     import json

@@ -52,6 +52,7 @@ class TaxaGraphEncoder(nn.Module):
         num_special_tokens: int,
         num_taxa: int,
         embedding_dim: int,
+        num_layers: int = 2,
         graph_type: str = "gat",
         padding_idx: Optional[int] = None,
     ):
@@ -62,9 +63,9 @@ class TaxaGraphEncoder(nn.Module):
         # 1. deal with taxa embeddings
         self.graph_type = graph_type
         if graph_type == "gcn":
-            self.conv_model = GCN(embedding_dim, embedding_dim, num_layers=2, norm="layer")
+            self.conv_model = GCN(embedding_dim, embedding_dim, num_layers=num_layers, norm="layer")
         elif graph_type == "gat":
-            self.conv_model = GAT(embedding_dim, embedding_dim, num_layers=2, heads=4, norm="layer")
+            self.conv_model = GAT(embedding_dim, embedding_dim, num_layers=num_layers, heads=4, norm="layer")
         
         # 2. special token embeddings
         assert padding_idx >= self.num_taxa, "Padding idx should be in special tokens range"
@@ -86,7 +87,7 @@ class TaxaGraphEncoder(nn.Module):
         edge_list = graph_data.edge_index  # (2, num_edges)
         vocabindex_to_nodeindex = graph_data.vocabindex_to_nodeindex
 
-        # ---- 1. Run (or reuse) GCN on the graph ----
+        # ---- 1. Run (or reuse) GNN on the graph ----
         if (not hasattr(self, "cached_node_embs")) or self.training:
             edge_attr = graph_data.edge_attr
             edge_weight = 2 / (2 ** edge_attr) # greater distance should mean less weight

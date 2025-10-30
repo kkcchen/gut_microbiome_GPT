@@ -59,6 +59,8 @@ class TransformerModel(nn.Module):
         freeze_vocab: bool = False,
         use_gnn: bool = False,
         num_gnn_nodes: Optional[int] = None,
+        gnn_type: str = "gat",
+        gnn_num_layers: int = 2,
     ):
         super().__init__()
         self.model_type = "Transformer"
@@ -90,7 +92,9 @@ class TransformerModel(nn.Module):
             self.encoder = TaxaGraphEncoder(num_gnn_nodes, 
                                             vocab_num_special_tokens, 
                                             vocab_len - vocab_num_special_tokens, 
-                                            d_model, 
+                                            d_model,
+                                            num_layers=gnn_num_layers,
+                                            graph_type=gnn_type,
                                             padding_idx=vocab_pad_index)
         else:
             self.encoder = TaxaEncoder(vocab_len, d_model, init_vocab_path, freeze_vocab, padding_idx=vocab_pad_index)
