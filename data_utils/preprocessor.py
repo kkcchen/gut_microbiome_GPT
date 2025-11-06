@@ -26,9 +26,9 @@ class Preprocessor:
         self.binning = binning
         self.keep_top_k = keep_top_k
 
-    def process_from_np(self, unprocessed_data: np.ndarray, taxa_ids) -> Dict:
+    def bin_from_np(self, unprocessed_data: np.ndarray, taxa_ids) -> Dict:
         """
-        Process the unprocessed data from a numpy array.
+        Process the unprocessed data from a numpy array. Apply binning.
 
         Args:
         unprocessed_data (:class:`np.ndarray`):
@@ -93,7 +93,79 @@ class Preprocessor:
                 
         return np.stack(binned_rows), np.stack(bin_edges)
 
+    def clr_from_np(self, unprocessed_data: np.ndarray, taxa_ids) -> Dict:
+        """
+        Process the unprocessed data from a numpy array. Apply CLR transform only
 
+        Args:
+        unprocessed_data (:class:`np.ndarray`):
+            The unprocessed data. size (num_samples, num_taxa)
+
+
+        Returns:
+        :class:`np.ndarray`:
+            The preprocessed data.
+        :class:`np.ndarray`:
+            The bin edges of the data.
+        """
+        assert len(taxa_ids) == unprocessed_data.shape[1], "The number of taxa IDs must match the number of columns in the data."
+        
+        print("Not doing binning, only applying CLR transform to data!")
+        clr_data = []
+
+        # Iterate over each row 
+        for row in unprocessed_data:
+            if row.max() == 0:
+                raise ValueError(
+                    "The data has all zero values, please check the data."
+                )
+            
+            # Get non-zero indices and values
+            non_zero_mask = row > 0
+            non_zero_values = row[non_zero_mask]
+            
+            # Apply CLR to non-zero values
+            log_non_zero = np.log(non_zero_values)
+            geometric_mean_log = np.mean(log_non_zero)
+            clr_non_zero = log_non_zero - geometric_mean_log
+
+            # the above produces negative values, as an experiment shift rows so no negative
+            epsilon = 1e-6
+            row_min, row_max = clr_non_zero.min(), clr_non_zero.max()
+            if row_max > row_min:
+                clr_non_zero_scaled = ((clr_non_zero - row_min) / (row_max - row_min)) * (1 - epsilon) + epsilon
+            else:
+                clr_non_zero_scaled = np.full_like(clr_non_zero, fill_value=epsilon)
+            
+            # Create output array with zeros preserved
+            clr_row = np.zeros_like(row, dtype=np.float64)
+            clr_row[non_zero_mask] = clr_non_zero_scaled
+            
+            clr_data.append(clr_row)
+        
+        clr_array = np.stack(clr_data)
+                
+        return clr_array
+
+
+    def clr_transform(self, unprocessed_data: np.ndarray, taxa_ids) -> np.ndarray:
+        """
+        Perform centered log-ratio transformation on the data.
+
+        Args:
+        data (:class:`np.ndarray`):
+            The data to be transformed. size (num_samples, num_taxa)
+        """
+        if not isinstance(unprocessed_data, np.ndarray):
+            raise ValueError("The data must be a numpy array.")
+        
+        if np.any(unprocessed_data < 0):
+            raise ValueError("The data must be non-negative.")
+        
+        gm = np.exp(np.mean(np.log(unprocessed_data), axis=1))
+        clr_data = np.log(unprocessed_data / gm[:, None])
+        return clr_data
+    
 def compute_prevalence_abundance(
     data, 
     var_names=None

@@ -10,7 +10,7 @@ def masked_mse_loss(
     """
     mask = mask.float()
     loss = F.mse_loss(input * mask, target * mask, reduction="sum")
-    return loss / mask.sum()
+    return loss / (mask.sum() + 1e-4)
 
 
 def env_contrastive_loss(
@@ -49,5 +49,5 @@ def masked_relative_error(
     Compute the masked relative error between input and target.
     """
     assert mask.any()
-    loss = torch.abs(input[mask] - target[mask]) / (target[mask] + 1e-6)
+    loss = torch.abs(input[mask] - target[mask]) / (target[mask] + 1e-4)
     return loss.mean()

@@ -204,22 +204,22 @@ def train_linear(X_train, y_train, search_type, sample_weights=None, regression=
     if regression:
         ln_model = Pipeline([
             ('scaler', StandardScaler()),
-            ('lasso', Lasso(random_state=42))
+            ('classifier', Lasso(random_state=42))
         ])
         param_distributions = {
-            'lasso__max_iter': [500, 1000, 2000, 5000],
-            'lasso__alpha': np.logspace(-4, 2, 10)
+            'classifier__max_iter': [500, 1000, 2000, 5000],
+            'classifier__alpha': np.logspace(-4, 2, 10)
         }
         search_scoring = 'neg_mean_squared_error'
     else:
         n_classes = len(np.unique(y_train))
         ln_model = Pipeline([
             ('scaler', StandardScaler()),
-            ('logistic', LogisticRegression(penalty='l1', solver='liblinear', random_state=42))
+            ('classifier', LogisticRegression(penalty='l1', solver='saga', random_state=42))
         ])
         param_distributions = {
-            'logistic__max_iter': [500, 1000, 2000, 5000],
-            'logistic__C': 1.0 / np.logspace(-4, 2, 10)  # C is inverse of alpha in LogisticRegression
+            'classifier__max_iter': [500, 1000, 2000, 5000],
+            'classifier__C': 1.0 / np.logspace(-4, 2, 10)  # C is inverse of alpha in LogisticRegression
         }
         search_scoring = 'roc_auc' if n_classes == 2 else 'f1_weighted'
 
@@ -242,23 +242,23 @@ def train_linear(X_train, y_train, search_type, sample_weights=None, regression=
             n_jobs=-1,
             n_iter=5,
             random_state=42,
-            verbose=1
+            verbose=2
         )
     elif search_type == "none": # for debugging
         if regression:
-            params = {"lasso__alpha": 1}
+            params = {"classifier__alpha": 1}
         else:
-            params = {"logistic__C": 1}
+            params = {"classifier__C": 1}
         print("\t Not doing any search, using fixed parameters:", params)
         ln_model.set_params(**params)
-        ln_model.fit(X_train, y_train, sample_weight=sample_weights)
+        ln_model.fit(X_train, y_train, classifier__sample_weight=sample_weights)
         return params, ln_model
     else:
         raise ValueError(f"\t Unknown search_type: {search_type}")
 
     # Fit the search
     start_time = time.time()
-    search.fit(X_train, y_train, sample_weight=sample_weights)
+    search.fit(X_train, y_train, classifier__sample_weight=sample_weights)
     end_time = time.time()
     print(f"\t Time elapsed for search: {(end_time - start_time):.2f} seconds")
 

@@ -15,7 +15,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.utils.class_weight import compute_class_weight
 from trainers.test_functions import evaluate_multiclass_and_save, evaluate_regression_and_save
-
+from tabpfn import TabPFNClassifier, TabPFNRegressor
 from scripts.tree_learn import train_rf, train_xgb, train_linear, save_model, load_model, model_exists
 
 def tasks_type(string: str) -> Dict:
@@ -197,11 +197,11 @@ def run_linear(method_conf, X_train, Y_train, X_test, Y_test, output_dir, sample
         multiclass_output_dir = f"{output_dir}/multiclass"
         os.makedirs(multiclass_output_dir, exist_ok=True)
         if not model_exists("multiclass_lr", multiclass_output_dir):
-            print(f"\t [One-vs-All Logistic Regression] Starting Random Forest classifier on all regions")
+            print(f"\t [Multiclass Logistic Regression] Starting Random Forest classifier on all regions")
             best_params, best_model = train_linear(X_train, Y_train, method_conf["search_type"])
             save_model("multiclass_lr", multiclass_output_dir, best_params, best_model)
         else:
-            print(f"\t [One-vs-All Logistic Regression] Only doing eval for all regions")
+            print(f"\t [Multiclass Logistic Regression] Only doing eval for all regions")
             best_params, best_model = load_model("multiclass_lr", multiclass_output_dir)
         # Filter test samples with unseen classes BEFORE prediction
         valid_classes = set(best_model.classes_)
@@ -296,7 +296,7 @@ def run_xgboost(method_conf, X_train, Y_train, X_test, Y_test, output_dir, sampl
         os.makedirs(reg_output_dir, exist_ok=True)
         if not model_exists("regression_xgboost", reg_output_dir):
             print(f"\t [XGBoost Regression] Starting XGBoost regressor")
-            best_params, best_model = train_xgb(X_train, Y_train, method_conf["search_type"], regression=True)
+            best_params, best_model = train_xgb(X_train, Y_train, method_conf["search_type"], sample_weights, regression=True)
             save_model("regression_xgboost", reg_output_dir, best_params, best_model)
         else:
             print(f"\t [XGBoost Regression] Only doing eval for regression")
@@ -306,6 +306,30 @@ def run_xgboost(method_conf, X_train, Y_train, X_test, Y_test, output_dir, sampl
         # print(all_probs.shape, Y_test.shape)
         evaluate_regression_and_save(Y_test, all_probs, reg_output_dir)
 
+
+def run_tabpfn(method_conf, X_train, Y_train, X_test, Y_test, output_dir):
+    if method_conf["task_type"] == "classification":
+        # multiclass
+        print("Running TabPFN, classification")
+        multiclass_output_dir = f"{output_dir}/multiclass"
+        os.makedirs(multiclass_output_dir, exist_ok=True)
+        clf = TabPFNClassifier(ignore_pretraining_limits=True)
+        clf.fit(X_train, Y_train)
+        all_probs = clf.predict_proba(X_test)
+        unique_labels = np.unique(Y_train)
+        print("\t shape of probs and targets is:", all_probs.shape, Y_test.shape)
+        evaluate_multiclass_and_save(Y_test, all_probs, unique_labels, multiclass_output_dir)
+    # run regression
+    if method_conf["task_type"] == "regression":
+        print("Running TabPFN Regression")
+        reg_output_dir = f"{output_dir}/regression"
+        os.makedirs(reg_output_dir, exist_ok=True)
+        regr = TabPFNRegressor(ignore_pretraining_limits=True)
+        regr.fit(X_train, Y_train)
+        all_probs = regr.predict(X_test)
+        # print(all_probs.shape, Y_test.shape)
+        print("\t shape of probs and targets is:", all_probs.shape, Y_test.shape)
+        evaluate_regression_and_save(Y_test, all_probs, reg_output_dir)
 
 def run_task(task_name: str,
              task_config: Dict,
@@ -343,7 +367,20 @@ def run_task(task_name: str,
                 sample_weights = None
                 
             # assert method is implemented
-            if method_name not in ["random_forest", "linear", "xgboost"]:
+            if method_conf["task_type"] == "classification":
+                classes = np.unique(Y_train)
+                class_weights = compute_class_weight(
+                    class_weight="balanced",
+                    classes=classes,
+                    y=Y_train
+                )
+                class_weights_dict = dict(zip(classes, class_weights))
+                print("Class weights:", list(zip(classes, class_weights)))
+                sample_weights = np.array([class_weights_dict[label] for label in Y_train])
+            else:
+                sample_weights = None
+
+            if method_name not in ["random_forest", "linear", "xgboost", "tabpfn"]:
                 print(f"Task '{task_name}' method '{method_name}' is not implemented.")
                 continue
             if method_name == "random_forest":
@@ -361,6 +398,12 @@ def run_task(task_name: str,
                 os.makedirs(xgboost_output_path, exist_ok=True)
                 print(f"Running XGBoost models for task {task_name}\n")
                 run_xgboost(method_conf, X_train, Y_train, X_test, Y_test, xgboost_output_path, sample_weights=sample_weights)
+            elif method_name == "tabpfn":
+                tabpfn_output_path = f"{embed_output_path}/tabpfn"
+                os.makedirs(tabpfn_output_path, exist_ok=True)
+                print(f"Running TabPFN models for task {task_name}\n")
+                run_tabpfn(method_conf, X_train, Y_train, X_test, Y_test, tabpfn_output_path)
+                
 
 def main():
     parser = argparse.ArgumentParser(description="Script for running all downstream tasks")

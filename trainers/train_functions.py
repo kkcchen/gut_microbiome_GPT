@@ -147,31 +147,7 @@ def pretrain(
                         positions_to_match,
                     )
                     loss = loss + loss_mvc
-                    accelerator.log({"train/mse_env": loss_mvc.item()}, step=global_iter)
-                # else: # if not using generative training
-                #     output_dict = model(
-                #         input_gene_ids,
-                #         input_values,
-                #         src_key_padding_mask=src_key_padding_mask,
-                #         CLS=USE_CLS,
-                #         CCE=USE_CCE,  # TODO: move these flags to model's attributes
-                #         MVC=MVC,
-                #         generative_training=False,
-                #     )
-                #     output_values = output_dict["mlm_output"]
-
-                #     positions_to_match = input_values.eq(
-                #         args.mask_value
-                #     )  # the postions to predict
-                #     loss = loss_mse = criterion(
-                #         output_values, target_values, positions_to_match
-                #     )
-                #     writer.add_scalar("train/mse", loss_mse, global_iter)
-                #     if USE_CLS:
-                #         target_labels = data_dict["celltypes"]
-                #         loss_cls = criterion_cls(output_dict["cls_output"], target_labels)
-                #         loss = loss + loss_cls
-                #         writer.add_scalar("train/cls", loss_cls, global_iter)
+                    accelerator.log({"train/mvc": loss_mvc.item()}, step=global_iter)
                 if use_tcs:
                     flattened_preds = output_dict["taxa_preds"].view(-1, output_dict["taxa_preds"].shape[-1])
                     flattened_target = taxa_target.view(-1)
@@ -245,20 +221,9 @@ def pretrain(
                 #     loss = loss + loss_gen
                 #     accelerator.log({"train/loss_gen": loss_gen.item()}, step=global_iter)
 
-            # TODO: try this choice of using a separate backprop
-            # # this part is for the choice of using a separate backprop
-            # model.zero_grad()
-            # scaler.scale(loss_gen).backward()
-            # scaler.unscale_(optimizer)
-            # torch.nn.utils.clip_grad_norm_(
-            #     model.parameters(),
-            #     1.0,
-            #     error_if_nonfinite=False if scaler.is_enabled() else True,
-            # )
-            # scaler.step(optimizer)
-            # scaler.update()
-
             accelerator.backward(loss)
+            # print(model.encoder.embedding.weight.grad[:3, :3]) if model.encoder.embedding.weight.grad is not None else print("No grad")
+            # print(model.encoder.embedding.weight.grad[-3:, :3]) if model.encoder.embedding.weight.grad is not None else print("No grad")
             if accelerator.sync_gradients:
                 accelerator.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
@@ -479,7 +444,13 @@ def commit_state(extra_state, epoch, best_val_loss, patience_counter, checkpoint
     logger.info("Training state committed to {} at time {}".format(actual_checkpoint_dir, time.ctime(time.time())))
 
 
-def create_or_restore_data_state(anndata_path, num_bins, restore_dir, accelerator: Accelerator, use_gnn=False, batch_obskey=None, nrows=None):
+def create_or_restore_data_state(anndata_path, 
+                                 num_bins, 
+                                 restore_dir, 
+                                 accelerator: Accelerator, 
+                                 use_gnn=False, batch_obskey=None, 
+                                 nrows=None,
+                                 bin_strategy="binning"):
     if accelerator.is_main_process:
         batchvocab_path = os.path.join(restore_dir, f"batchvocab_{batch_obskey}.json")
         vocab_path = os.path.join(restore_dir, "vocab_file.json")
@@ -532,7 +503,12 @@ def create_or_restore_data_state(anndata_path, num_bins, restore_dir, accelerato
             )
             hmc_npy = np.array(adata.X, dtype=np.float32)
             taxa_ids = np.array(adata.var["taxa_id"])
-            stacked_rows, _ = preprocessor.process_from_np(hmc_npy, taxa_ids)
+            if bin_strategy == "binning":
+                stacked_rows, _ = preprocessor.bin_from_np(hmc_npy, taxa_ids)
+            elif bin_strategy == "clr":
+                stacked_rows = preprocessor.clr_from_np(hmc_npy, taxa_ids)
+            else:
+                raise ValueError(f"Unknown bin_strategy: {bin_strategy}")
             # create tokenizer
             adata.layers["binned_rows"] = stacked_rows
             

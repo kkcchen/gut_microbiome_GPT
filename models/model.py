@@ -57,6 +57,7 @@ class TransformerModel(nn.Module):
         vocab_num_special_tokens: int = 3,
         init_vocab_path: str = None,
         freeze_vocab: bool = False,
+        freeze_value_encoder: bool = False,
         use_gnn: bool = False,
         num_gnn_nodes: Optional[int] = None,
         gnn_type: str = "gat",
@@ -76,6 +77,7 @@ class TransformerModel(nn.Module):
         self.nhead = nhead
         self.do_attn_mask = do_attn_mask
         self.do_taxa_decoder = do_taxa_decoder
+        self.vocab_mask_value = vocab_mask_value
         if self.input_emb_style not in ["category", "continuous", "scaling"]:
             raise ValueError(
                 f"input_emb_style should be one of category, continuous, scaling, "
@@ -101,13 +103,15 @@ class TransformerModel(nn.Module):
 
         # Value Encoder, NOTE: the scaling style is also handled in _encode method
         if input_emb_style == "continuous":
-            self.value_encoder = ContinuousValueEncoder(d_model, vocab_mask_value, dropout)
+            self.value_encoder = ContinuousValueEncoder(d_model, vocab_mask_value, dropout, freeze=freeze_value_encoder)
         elif input_emb_style == "category":
             assert n_input_bins > 0
             self.value_encoder = CategoryValueEncoder(
-                n_input_bins, d_model, vocab_mask_value, padding_idx=vocab_pad_value
+                n_input_bins, d_model, vocab_mask_value, padding_idx=vocab_pad_value, freeze=freeze_value_encoder
             )
         else: # input_emb_style == "scaling"
+            print("Using scaling style for input embedding, just identity for now")
+            print(f"vocab_mask_value: {vocab_mask_value}")
             self.value_encoder = nn.Identity()  # nn.Softmax(dim=1)
             # TODO: consider row-wise normalization or softmax
             # TODO: Correct handle the mask_value when using scaling
@@ -148,8 +152,8 @@ class TransformerModel(nn.Module):
                 explicit_zero_prob=explicit_zero_prob,
                 use_batch_labels=use_batch_labels,
             )
-
-        # self.init_weights()
+        if init_vocab_path is None:
+            self.init_weights(freeze_vocab)
 
     def encode(
         self,
@@ -181,10 +185,12 @@ class TransformerModel(nn.Module):
         return output, cur_taxa_token_embs # (batch, seq_len, embsize), (batch, seq_len, embsize)
     
     # # this only initializes the taxa embedding layer
-    # def init_weights(self) -> None:
+    # def init_weights(self, freeze) -> None:
     #     initrange = 0.1
     #     # TODO: check if this initialization is helpful and shall we apply to all?
     #     self.encoder.embedding.weight.data.uniform_(-initrange, initrange)
+        if freeze:
+            self.encoder.embedding.weight.requires_grad = False
 
     # for the <cls> embedding this will be the first token in the sequence
     def get_cell_emb_from_layer(
@@ -255,15 +261,62 @@ class TransformerModel(nn.Module):
         graph_data: Optional[Data] = None,
     ) -> Tuple[Tensor, Tensor]:
         # self._check_batch_labels(batch_labels)
-
+        # print(f"taxa shape: {taxa.shape}, values shape: {values.shape}")
         if self.use_gnn:
             token_embs = self.encoder(taxa, graph_data)
         else:
             token_embs = self.encoder(taxa)  # (batch, seq_len, embsize)
         values = self.value_encoder(values)  # (batch, seq_len, embsize)
-        total_embs = token_embs + values
+        # print(f"token_embs shape: {token_embs.shape}, values shape: {values.shape}")
+        if self.input_emb_style == "scaling":
+            # handle -1 due to masked taxas
+            value_mask_indices = (values == self.vocab_mask_value)
+            values_safe = values.clone()
+            values_safe[value_mask_indices] = 0.0  # set masked positions to 0 for safe log
+            scale_factors = torch.log1p(values_safe).unsqueeze(-1) + 1  # (batch, seq_len, 1)
+            # normalize
+            assert not torch.isnan(scale_factors).any(), "NaN in scale_factors"
+            # print(f"scale_factors stats before centering: min {scale_factors.min().item()}, max {scale_factors.max().item()}, mean {scale_factors.mean().item()}")
+            # print(f"token_embs stats: min {token_embs.min().item()}, max {token_embs.max().item()}, mean {token_embs.mean().item()}")
+            total_embs = token_embs * scale_factors
+            # print(f"total_embs stats after scaling: min {total_embs.min().item()}, max {total_embs.max().item()}, mean {total_embs.mean().item()}")
+        else:
+            total_embs = token_embs + values
 
-        assert self.input_emb_style != "scaling"
+        # assert self.input_emb_style != "scaling"
+        # if gen_taxa is not None:
+        #     gen_token_embs = self.encoder(gen_taxa)  # (batch, gen_len, embsize)
+        #     cur_taxa_token_embs = torch.cat(
+        #         [pcpt_token_embs, gen_token_embs], dim=1
+        #     )
+        #     # this is a flag to let the model know that this is a generative training
+        #     gen_flags = self.flag_encoder(
+        #         torch.tensor(1).to(pcpt_values.device)
+        #     ).expand(gen_taxa.shape[0], gen_taxa.shape[1], -1)
+
+        #     gen_total_embs = gen_token_embs + gen_flags
+        # else:
+        #     raise NotImplementedError(
+        #         "gen_taxa should not be none..."
+        #     )
+            # cur_taxa_token_embs = pcpt_token_embs
+            # gen_total_embs = None
+
+        # if self.domain_spec_batchnorm:
+        #     batch_label = int(batch_labels[0].item())
+        #     pcpt_total_embs = self.dsbn(
+        #         pcpt_total_embs.permute(0, 2, 1), batch_label
+        #     ).permute(0, 2, 1)
+        #     if gen_taxa is not None:
+        #         gen_total_embs = self.dsbn(
+        #             gen_total_embs.permute(0, 2, 1), batch_label
+        #         ).permute(0, 2, 1)
+        # else:
+        #     pcpt_total_embs = self.bn(pcpt_total_embs.permute(0, 2, 1)).permute(0, 2, 1)
+        #     if gen_taxa is not None:
+        #         gen_total_embs = self.bn(gen_total_embs.permute(0, 2, 1)).permute(
+        #             0, 2, 1
+        #         )
 
         if input_cell_emb is not None:
             # this is for the second step of pretraining, where we replace the cls token with the cell embedding
@@ -334,7 +387,8 @@ class TransformerModel(nn.Module):
             input_cell_emb=input_cell_emb,
             graph_data=graph_data,
         )
-
+        # print(f"transformer_output shape: {transformer_output.shape}")
+        assert not torch.isnan(transformer_output).any(), "NaN in transformer output"
         output = {}
         decoder_output = self.abundance_decoder(
             transformer_output
