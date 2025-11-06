@@ -14,13 +14,13 @@ import seaborn as sns
 
 from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_score, confusion_matrix, f1_score
 
-def restore_vocab_test(anndata_path, vocab_restore_dir, use_gnn, downstream_task, batch_obskey=None, nrows=None):
+def restore_vocab_test(anndata_path, vocab_restore_dir, use_gnn, downstream_task, batch_obskey=None, nrows=None, accelerator=None):
     vocab_path = os.path.join(vocab_restore_dir, "vocab_file.json")
-    batchvocab_path = os.path.join(vocab_restore_dir, f"batchvocab_{downstream_task}.json") if batch_obskey else None
     if os.path.exists(vocab_restore_dir):
         # load the vocab from the file
         vocab = MicrobiomeVocab.restore_vocab(vocab_path) 
         if batch_obskey:
+            batchvocab_path = os.path.join(vocab_restore_dir, f"batchvocab_{downstream_task}.json") if batch_obskey else None
             batch_vocab = BatchVocab.restore_batchvocab(batchvocab_path)
         else:
             batch_vocab = None
@@ -44,6 +44,7 @@ def restore_vocab_test(anndata_path, vocab_restore_dir, use_gnn, downstream_task
         adata = adata[:nrows, :].copy()
     if use_gnn:
         graph_data = torch.load(os.path.join(vocab_restore_dir, "graph_data.pt"), weights_only=False)
+        graph_data = graph_data.to(accelerator.device)
     else:
         graph_data = None
         

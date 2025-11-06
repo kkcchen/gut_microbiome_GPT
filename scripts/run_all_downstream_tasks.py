@@ -89,34 +89,35 @@ def tasks_type(string: str) -> Dict:
     return data
 
 
-def run_random_forest(method_conf: Dict, X_train, Y_train, X_test, Y_test, output_dir, sample_weights=None):
+def run_random_forest(method_conf: Dict, X_train, Y_train, X_test, Y_test, output_dir, sample_weights=None, run_ova=False):
     # run one vs all + multiclass
     if method_conf["task_type"] == "classification":
-        # one vs all
-        print("Running Random Forest Classification, one vs all")
-        unique_labels = np.unique(Y_train)
-        mask_valid = Y_test.isin(unique_labels)
-        if not mask_valid.all():
-            raise Exception("this dataset contains unseen labels in test")
-        ova_probs = np.empty((len(Y_test), len(unique_labels)))
-        ova_output_dir = f"{output_dir}/ova"
-        os.makedirs(ova_output_dir, exist_ok=True)
+        if run_ova:
+            # one vs all
+            print("Running Random Forest Classification, one vs all")
+            unique_labels = np.unique(Y_train)
+            mask_valid = Y_test.isin(unique_labels)
+            if not mask_valid.all():
+                raise Exception("this dataset contains unseen labels in test")
+            ova_probs = np.empty((len(Y_test), len(unique_labels)))
+            ova_output_dir = f"{output_dir}/ova"
+            os.makedirs(ova_output_dir, exist_ok=True)
 
-        for i, label_name in enumerate(unique_labels):
-            if not model_exists(label_name, ova_output_dir):
-                print(f"\t [One-vs-All Random Forest] Starting Random Forest classifier on label {label_name}")
-                y_train_binary = (Y_train == label_name).astype(int)
-                best_params, best_model = train_rf(X_train, y_train_binary, method_conf["search_type"], sample_weights)
-                save_model(label_name, ova_output_dir, best_params, best_model)
-            else:
-                print(f"\t [One-vs-All Random Forest] Only doing eval for {label_name}")
-                best_params, best_model = load_model(label_name, ova_output_dir)
+            for i, label_name in enumerate(unique_labels):
+                if not model_exists(label_name, ova_output_dir):
+                    print(f"\t [One-vs-All Random Forest] Starting Random Forest classifier on label {label_name}")
+                    y_train_binary = (Y_train == label_name).astype(int)
+                    best_params, best_model = train_rf(X_train, y_train_binary, method_conf["search_type"], sample_weights)
+                    save_model(label_name, ova_output_dir, best_params, best_model)
+                else:
+                    print(f"\t [One-vs-All Random Forest] Only doing eval for {label_name}")
+                    best_params, best_model = load_model(label_name, ova_output_dir)
 
-            # Predict the labels for the test set using the best model
-            y_probs = best_model.predict_proba(X_test)
-            assert np.allclose(y_probs.sum(axis=1), 1.0, atol=1e-6), "\t[One-vs-All Random Forest] Not all rows sum to 1"
-            ova_probs[:, i] = y_probs[:, 1]  # Store probabilities for the positive class
-        evaluate_multiclass_and_save(Y_test, ova_probs, unique_labels, ova_output_dir)
+                # Predict the labels for the test set using the best model
+                y_probs = best_model.predict_proba(X_test)
+                assert np.allclose(y_probs.sum(axis=1), 1.0, atol=1e-6), "\t[One-vs-All Random Forest] Not all rows sum to 1"
+                ova_probs[:, i] = y_probs[:, 1]  # Store probabilities for the positive class
+            evaluate_multiclass_and_save(Y_test, ova_probs, unique_labels, ova_output_dir)
         # multiclass
         print("Running Random Forest Classification, multiclass")
         multiclass_output_dir = f"{output_dir}/multiclass"
@@ -161,35 +162,36 @@ def run_random_forest(method_conf: Dict, X_train, Y_train, X_test, Y_test, outpu
         evaluate_regression_and_save(Y_test, all_probs, reg_output_dir)
 
 
-def run_linear(method_conf, X_train, Y_train, X_test, Y_test, output_dir, sample_weights=None):
+def run_linear(method_conf, X_train, Y_train, X_test, Y_test, output_dir, sample_weights=None, run_ova=False):
     # run one vs all + multiclass
     if method_conf["task_type"] == "classification":
-        # one vs all
-        print("Running Logistic Regression, one vs all")
-        unique_labels = np.unique(Y_train)
-        mask_valid = Y_test.isin(unique_labels)
-        if not mask_valid.all():
-            raise Exception("this dataset contains unseen labels in test")
-        ova_probs = np.empty((len(Y_test), len(unique_labels)))
-        ova_output_dir = f"{output_dir}/ova"
-        os.makedirs(ova_output_dir, exist_ok=True)
+        if run_ova:
+            # one vs all
+            print("Running Logistic Regression, one vs all")
+            unique_labels = np.unique(Y_train)
+            mask_valid = Y_test.isin(unique_labels)
+            if not mask_valid.all():
+                raise Exception("this dataset contains unseen labels in test")
+            ova_probs = np.empty((len(Y_test), len(unique_labels)))
+            ova_output_dir = f"{output_dir}/ova"
+            os.makedirs(ova_output_dir, exist_ok=True)
 
-        for i, label_name in enumerate(unique_labels):
-            if not model_exists(label_name, ova_output_dir):
-                print(f"\t [One-vs-All Logistic Regression] Starting logistic classifier on label {label_name}")
-                y_train_binary = (Y_train == label_name).astype(int)
-                best_params, best_model = train_linear(X_train, y_train_binary, method_conf["search_type"])
-                save_model(label_name, ova_output_dir, best_params, best_model)
-            else:
-                print(f"\t [One-vs-All Logistic Regression] Only doing eval for {label_name}")
-                best_params, best_model = load_model(label_name, ova_output_dir)
+            for i, label_name in enumerate(unique_labels):
+                if not model_exists(label_name, ova_output_dir):
+                    print(f"\t [One-vs-All Logistic Regression] Starting logistic classifier on label {label_name}")
+                    y_train_binary = (Y_train == label_name).astype(int)
+                    best_params, best_model = train_linear(X_train, y_train_binary, method_conf["search_type"])
+                    save_model(label_name, ova_output_dir, best_params, best_model)
+                else:
+                    print(f"\t [One-vs-All Logistic Regression] Only doing eval for {label_name}")
+                    best_params, best_model = load_model(label_name, ova_output_dir)
 
-            # Predict the labels for the test set using the best model
-            y_probs = best_model.predict_proba(X_test)
-            assert np.allclose(y_probs.sum(axis=1), 1.0,
-                               atol=1e-6), "\t[One-vs-All Logistic Regression] Not all rows sum to 1"
-            ova_probs[:, i] = y_probs[:, 1]  # Store probabilities for the positive class
-        evaluate_multiclass_and_save(Y_test, ova_probs, unique_labels, ova_output_dir)
+                # Predict the labels for the test set using the best model
+                y_probs = best_model.predict_proba(X_test)
+                assert np.allclose(y_probs.sum(axis=1), 1.0,
+                                atol=1e-6), "\t[One-vs-All Logistic Regression] Not all rows sum to 1"
+                ova_probs[:, i] = y_probs[:, 1]  # Store probabilities for the positive class
+            evaluate_multiclass_and_save(Y_test, ova_probs, unique_labels, ova_output_dir)
         # multiclass
         print("Running Logistic Regression, multiclass")
         multiclass_output_dir = f"{output_dir}/multiclass"
@@ -237,35 +239,36 @@ def run_linear(method_conf, X_train, Y_train, X_test, Y_test, output_dir, sample
         evaluate_regression_and_save(Y_test, all_probs, reg_output_dir)
 
 
-def run_xgboost(method_conf, X_train, Y_train, X_test, Y_test, output_dir, sample_weights=None):
+def run_xgboost(method_conf, X_train, Y_train, X_test, Y_test, output_dir, sample_weights=None, run_ova=False):
     # run one vs all + multiclass
     if method_conf["task_type"] == "classification":
-        # one vs all
-        print("Running XGBoost, one vs all")
-        unique_labels = np.unique(Y_train)
-        mask_valid = Y_test.isin(unique_labels)
-        if not mask_valid.all():
-            raise Exception("this dataset contains unseen labels in test")
-        ova_probs = np.empty((len(Y_test), len(unique_labels)))
-        ova_output_dir = f"{output_dir}/ova"
-        os.makedirs(ova_output_dir, exist_ok=True)
+        if run_ova:
+            # one vs all
+            print("Running XGBoost, one vs all")
+            unique_labels = np.unique(Y_train)
+            mask_valid = Y_test.isin(unique_labels)
+            if not mask_valid.all():
+                raise Exception("this dataset contains unseen labels in test")
+            ova_probs = np.empty((len(Y_test), len(unique_labels)))
+            ova_output_dir = f"{output_dir}/ova"
+            os.makedirs(ova_output_dir, exist_ok=True)
 
-        for i, label_name in enumerate(unique_labels):
-            if not model_exists(label_name, ova_output_dir):
-                print(f"\t [One-vs-All XGBoost] Starting xgboost classifier on label {label_name}")
-                y_train_binary = (Y_train == label_name).astype(int)
-                best_params, best_model = train_xgb(X_train, y_train_binary, method_conf["search_type"])
-                save_model(label_name, ova_output_dir, best_params, best_model)
-            else:
-                print(f"\t [One-vs-All XGBoost] Only doing eval for {label_name}")
-                best_params, best_model = load_model(label_name, ova_output_dir)
+            for i, label_name in enumerate(unique_labels):
+                if not model_exists(label_name, ova_output_dir):
+                    print(f"\t [One-vs-All XGBoost] Starting xgboost classifier on label {label_name}")
+                    y_train_binary = (Y_train == label_name).astype(int)
+                    best_params, best_model = train_xgb(X_train, y_train_binary, method_conf["search_type"])
+                    save_model(label_name, ova_output_dir, best_params, best_model)
+                else:
+                    print(f"\t [One-vs-All XGBoost] Only doing eval for {label_name}")
+                    best_params, best_model = load_model(label_name, ova_output_dir)
 
-            # Predict the labels for the test set using the best model
-            y_probs = best_model.predict_proba(X_test)
-            assert np.allclose(y_probs.sum(axis=1), 1.0,
-                               atol=1e-6), "\t[One-vs-All XGBoost] Not all rows sum to 1"
-            ova_probs[:, i] = y_probs[:, 1]  # Store probabilities for the positive class
-        evaluate_multiclass_and_save(Y_test, ova_probs, unique_labels, ova_output_dir)
+                # Predict the labels for the test set using the best model
+                y_probs = best_model.predict_proba(X_test)
+                assert np.allclose(y_probs.sum(axis=1), 1.0,
+                                atol=1e-6), "\t[One-vs-All XGBoost] Not all rows sum to 1"
+                ova_probs[:, i] = y_probs[:, 1]  # Store probabilities for the positive class
+            evaluate_multiclass_and_save(Y_test, ova_probs, unique_labels, ova_output_dir)
         # multiclass
         print("Running XGBoost, multiclass")
         multiclass_output_dir = f"{output_dir}/multiclass"
@@ -275,7 +278,7 @@ def run_xgboost(method_conf, X_train, Y_train, X_test, Y_test, output_dir, sampl
         Y_test_encoded = le.transform(Y_test)
         if not model_exists("multiclass_xgboost", multiclass_output_dir):
             print(f"\t [One-vs-All XGBoost] Starting XGBoost classifier on all regions")
-            best_params, best_model = train_xgb(X_train, Y_train_encoded, sample_weights, method_conf["search_type"])
+            best_params, best_model = train_xgb(X_train, Y_train_encoded, method_conf["search_type"], sample_weights)
             save_model("multiclass_xgboost", multiclass_output_dir, best_params, best_model)
         else:
             print(f"\t [One-vs-All XGBoost] Only doing eval for all regions")
@@ -323,22 +326,22 @@ def run_task(task_name: str,
         X_test = adata_test_task.obsm[embed_name]
         Y_test = adata_test_task.obs[task_config["label_type"]]
         embed_output_path = f"{output_path}/{embed_name}"
-        
-        if method_conf["task_type"] == "classification":
-            classes = np.unique(Y_train)
-            class_weights = compute_class_weight(
-                class_weight="balanced",
-                classes=classes,
-                y=Y_train
-            )
-            class_weights_dict = dict(zip(classes, class_weights))
-            print("Class weights:", list(zip(classes, class_weights)))
-            sample_weights = np.array([class_weights_dict[label] for label in Y_train])
-        else:
-            sample_weights = None
             
         os.makedirs(embed_output_path, exist_ok=True)
         for method_name, method_conf in methods.items():
+            if method_conf["task_type"] == "classification":
+                classes = np.unique(Y_train)
+                class_weights = compute_class_weight(
+                    class_weight="balanced",
+                    classes=classes,
+                    y=Y_train
+                )
+                class_weights_dict = dict(zip(classes, class_weights))
+                print("Class weights:", list(zip(classes, class_weights)))
+                sample_weights = np.array([class_weights_dict[label] for label in Y_train])
+            else:
+                sample_weights = None
+                
             # assert method is implemented
             if method_name not in ["random_forest", "linear", "xgboost"]:
                 print(f"Task '{task_name}' method '{method_name}' is not implemented.")

@@ -138,7 +138,7 @@ def pretrain(
                     abundance_preds, values_target, positions_to_match
                 )
                 loss = loss_mse
-                accelerator.log({"train/loss_pcpt": loss_mse.item()}, step=global_iter)
+                accelerator.log({"train/mse": loss_mse.item()}, step=global_iter)
 
                 if use_mvc:
                     loss_mvc = masked_mse_loss(
@@ -147,7 +147,7 @@ def pretrain(
                         positions_to_match,
                     )
                     loss = loss + loss_mvc
-                    accelerator.log({"train/mvc": loss_mvc.item()}, step=global_iter)
+                    accelerator.log({"train/mse_env": loss_mvc.item()}, step=global_iter)
                 # else: # if not using generative training
                 #     output_dict = model(
                 #         input_gene_ids,
@@ -186,7 +186,7 @@ def pretrain(
                         ignore_index=vocab.pad_index,
                     )
                     loss = loss + loss_tcs
-                    accelerator.log({"train/tcs": loss_tcs.item()}, step=global_iter)
+                    accelerator.log({"train/taxa_preds": loss_tcs.item()}, step=global_iter)
                 if use_contrastive:
                     output_dict_aux = model(
                         taxa_aux,
@@ -209,7 +209,7 @@ def pretrain(
                         env1, env2, 0.5
                     )
                     loss = loss + loss_cce
-                    accelerator.log({"train/cce": loss_cce.item()}, step=global_iter)
+                    accelerator.log({"train/contrastive": loss_cce.item()}, step=global_iter)
                     
                     abundance_preds_aux = output_dict_aux["preds"]
                     # output_values = (output_values + abundance_preds_aux) / 2
@@ -218,7 +218,7 @@ def pretrain(
                         abundance_preds_aux, values_target_aux, positions_to_match_aux
                     )
                     loss += loss_mse_aux
-                    accelerator.log({"train/loss_pcpt_aux": loss_mse_aux.item()}, step=global_iter)
+                    accelerator.log({"train/mse_aux": loss_mse_aux.item()}, step=global_iter)
                 #     if MVC:
                 #         loss_mvc = criterion(
                 #             output_dict["mvc_output"], target_values, positions_to_match
@@ -269,7 +269,7 @@ def pretrain(
             mre = masked_relative_error(
                 output_values, values_target, positions_to_match
             )
-            accelerator.log({"train/mre": mre.item()}, step=global_iter)
+            accelerator.log({"train/relative": mre.item()}, step=global_iter)
 
         total_loss += loss.item()
         total_mse += loss_mse.item()
@@ -542,6 +542,7 @@ def create_or_restore_data_state(anndata_path, num_bins, restore_dir, accelerato
             is_train[train_indices] = True            
             adata.obs["split"] = np.where(is_train, "train", "val")
         
+        graph_data = graph_data.to(accelerator.device) if use_gnn else None
         tokenizer = Tokenizer(vocab)
         data_dict = tokenizer.tokenize_and_pad_batch(adata, batch_obskey=batch_obskey)
         train_data_dict = {}

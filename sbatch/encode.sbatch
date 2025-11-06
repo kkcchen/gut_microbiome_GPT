@@ -15,10 +15,10 @@ source ~/hmbenv/bin/activate
 python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not available. Exiting.'" || exit 1
 
 # === Set paths ===
-EXPERIMENT_PATH=experiment_saves/taxa-mask-30-locexc-batch
+EXPERIMENT_PATH=experiment_saves/gat-1
 
 SAFETENSORS_PATH=$EXPERIMENT_PATH/model_checkpoints/best_model/model.safetensors
-VOCAB_PATH=$EXPERIMENT_PATH/model_checkpoints/data_checkpoint/augmented_data.h5ad
+VOCAB_DIR=$EXPERIMENT_PATH/model_checkpoints/data_checkpoint
 MODEL_CONFIG_PATH=$EXPERIMENT_PATH/model_checkpoints/model_config.json
 
 TRAIN_OUTPUT_PATH=$EXPERIMENT_PATH/remove_redundant_oct24/encoded_train.h5ad
@@ -32,7 +32,7 @@ echo "Running encoding for finetune train set..."
 accelerate launch -m scripts.encode_samples \
   --safetensors-path $SAFETENSORS_PATH \
   --output-path $TRAIN_OUTPUT_PATH \
-  --vocab-path $VOCAB_PATH \
+  --vocab-dir $VOCAB_DIR \
   --model-config-path $MODEL_CONFIG_PATH \
   --adata-path $TRAIN_ANN_PATH \
 
@@ -41,7 +41,7 @@ echo "Running encoding for finetune test set..."
 accelerate launch -m scripts.encode_samples \
   --safetensors-path $SAFETENSORS_PATH \
   --output-path $TEST_OUTPUT_PATH \
-  --vocab-path $VOCAB_PATH \
+  --vocab-dir $VOCAB_DIR \
   --model-config-path $MODEL_CONFIG_PATH \
   --adata-path $TEST_ANN_PATH \
 

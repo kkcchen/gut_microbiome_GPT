@@ -117,7 +117,6 @@ def train_xgb(X_train, y_train, search_type, sample_weights=None, regression=Fal
             random_state=42,
             n_jobs=-1,
             tree_method="hist",    # efficient on large datasets
-            use_label_encoder=False,
             eval_metric="auc" if n_classes == 2 else "mlogloss"
         )
         search_scoring = 'roc_auc' if n_classes == 2 else 'f1_weighted'

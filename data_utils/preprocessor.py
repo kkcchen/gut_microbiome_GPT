@@ -56,8 +56,10 @@ class Preprocessor:
             unprocessed_data = np.where(mask, unprocessed_data, 0)
         
         # binning
-        if not self.binning:
-            raise ValueError("Binning is not enabled, should this be the case?")
+        if not self.binning or self.binning == 0:
+            X_replaced = multi_replace(unprocessed_data)
+            X_closed = closure(X_replaced)
+            return clr(X_closed), None
         
         n_bins = self.binning  # NOTE: the first bin is always a special for zero
         binned_rows = []

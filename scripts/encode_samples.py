@@ -61,7 +61,7 @@ def main():
     num_bins = model.n_input_bins
     
     # restore vocab
-    vocab, _, adata, graph_data = restore_vocab_test(adata_path, vocab_dir, use_gnn, batch_obskey=None, nrows=nrows)
+    vocab, _, adata, graph_data = restore_vocab_test(adata_path, vocab_dir, use_gnn, downstream_task=None, batch_obskey=None, nrows=nrows, accelerator=accelerator)
 
     # === Load test dataloader ===
     data_dict = create_testdata_state(

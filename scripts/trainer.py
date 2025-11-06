@@ -169,6 +169,7 @@ if __name__ == "__main__":
         "do_mvc": do_mvc,
         "do_taxa_decoder": do_taxa_decoder,
         "do_attn_mask": False,
+        "input_emb_style": "avg-pool",
         "vocab_len": len(vocab),
         "vocab_num_special_tokens": vocab.num_special_tokens,
         "vocab_pad_index": vocab.pad_index,
@@ -208,7 +209,6 @@ if __name__ == "__main__":
     train_loader, valid_loader, model, optimizer, scheduler = accelerator.prepare(
         train_loader, valid_loader, model, optimizer, scheduler
     )
-    graph_data = graph_data.to(accelerator.device) if args.use_gnn else None
     
     checkpoint_at = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 14}
 
