@@ -56,7 +56,7 @@ def restore_vocab_test(anndata_path, vocab_restore_dir, use_gnn, downstream_task
     return vocab, batch_vocab, adata, graph_data
 
 
-def create_testdata_state(adata, num_bins, vocab, batch_obskey, continuous_obskey, nrows=None, bin_strategy="binning"):
+def create_testdata_state(adata, num_bins, vocab, batch_obskey, continuous_obskey, nrows=None, bin_strategy="binning", remove_nas=True):
     # create the data dict
     if nrows:
         adata = adata[:nrows, :].copy()
@@ -67,11 +67,14 @@ def create_testdata_state(adata, num_bins, vocab, batch_obskey, continuous_obske
     
     hmc_npy = np.array(adata.X, dtype=np.float32)
     taxa_ids = np.array(adata.var["taxa_id"])
-    
+    if remove_nas:
+        hmc_npy = preprocessor.remove_nas_from_np(hmc_npy, adata)
     if bin_strategy == "binning":
         stacked_rows, _ = preprocessor.bin_from_np(hmc_npy, taxa_ids)
     elif bin_strategy == "clr":
         stacked_rows = preprocessor.clr_from_np(hmc_npy, taxa_ids)
+    elif bin_strategy == "clr_plus":
+        stacked_rows = preprocessor.clrplus_from_np(hmc_npy, taxa_ids)
     else:
         raise ValueError(f"Unknown bin_strategy: {bin_strategy}")
 

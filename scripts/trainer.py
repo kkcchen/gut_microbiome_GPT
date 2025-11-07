@@ -55,8 +55,9 @@ if __name__ == "__main__":
     parser.add_argument("--train-mask-ratio", type=float, default=0.15, help="train mask ratio")
     parser.add_argument("--freeze-vocab", action="store_true", help="Freeze the embedding layer of the vocab, if initialized from a pre-trained embedding")
     parser.add_argument("--freeze-value-encoder", action="store_true", help="Freeze the value encoder layer")
-    parser.add_argument("--data-bin-strategy", type=str, default="binning", choices=["binning", "clr"], help="Data preprocessing strategy: 'binning' or 'clr'")
+    parser.add_argument("--data-bin-strategy", type=str, default="binning", choices=["binning", "clr", "clr_plus"], help="Data preprocessing strategy: 'binning' or 'clr'")
     parser.add_argument("--use-gnn", action="store_true", help="Use GNN embeddings as input features")
+    parser.add_argument("--gnn-type", default=None, choices=[None, "gat", "gcn"], help="gnn type")
 
 
     # for debugging
@@ -99,6 +100,9 @@ if __name__ == "__main__":
     
     use_batch_labels = args.use_batch_labels
     nrows = args.nrows
+    
+    if args.use_gnn:
+        assert args.gnn_type is not None, "Please specify --gnn-type when --use-gnn is set"
     # Set random seed for reproducibility
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -174,7 +178,6 @@ if __name__ == "__main__":
         "do_mvc": do_mvc,
         "do_taxa_decoder": do_taxa_decoder,
         "do_attn_mask": False,
-        "input_emb_style": "avg-pool",
         "vocab_len": len(vocab),
         "vocab_num_special_tokens": vocab.num_special_tokens,
         "vocab_pad_index": vocab.pad_index,
@@ -184,12 +187,13 @@ if __name__ == "__main__":
         "init_vocab_path": vocab_path,
         "freeze_vocab": freeze_vocab,
         "freeze_value_encoder": freeze_value_encoder,
-        # "input_emb_style": "scaling",
-        "input_emb_style": "continuous",
+        "input_emb_style": "scaling",
+        # "input_emb_style": "avg-pool",
         "use_gnn": args.use_gnn,
         "num_gnn_nodes": graph_data.num_nodes if args.use_gnn else None,
-        "gnn_type": "gcn" if args.use_gnn else None,
+        "gnn_type": args.gnn_type,
         "gnn_num_layers": 3 if args.use_gnn else None,
+        "bin_strategy": bin_strategy,
     }
     print(model_config)
     import json

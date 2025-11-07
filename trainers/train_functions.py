@@ -450,7 +450,8 @@ def create_or_restore_data_state(anndata_path,
                                  accelerator: Accelerator, 
                                  use_gnn=False, batch_obskey=None, 
                                  nrows=None,
-                                 bin_strategy="binning"):
+                                 bin_strategy="binning",
+                                 remove_nas=True):
     if accelerator.is_main_process:
         batchvocab_path = os.path.join(restore_dir, f"batchvocab_{batch_obskey}.json")
         vocab_path = os.path.join(restore_dir, "vocab_file.json")
@@ -503,10 +504,16 @@ def create_or_restore_data_state(anndata_path,
             )
             hmc_npy = np.array(adata.X, dtype=np.float32)
             taxa_ids = np.array(adata.var["taxa_id"])
+            
+            if remove_nas:
+                hmc_npy = preprocessor.remove_nas_from_np(hmc_npy, adata)
+                
             if bin_strategy == "binning":
                 stacked_rows, _ = preprocessor.bin_from_np(hmc_npy, taxa_ids)
             elif bin_strategy == "clr":
                 stacked_rows = preprocessor.clr_from_np(hmc_npy, taxa_ids)
+            elif bin_strategy == "clr_plus":
+                stacked_rows = preprocessor.clrplus_from_np(hmc_npy, taxa_ids)
             else:
                 raise ValueError(f"Unknown bin_strategy: {bin_strategy}")
             # create tokenizer

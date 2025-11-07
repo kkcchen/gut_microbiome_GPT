@@ -47,6 +47,7 @@ class TransformerModel(nn.Module):
         use_batch_labels: bool = False,
         num_batch_labels: Optional[int] = None,
         dropout: float = 0.5,
+        bin_strategy: str = "binning",
         input_emb_style: str = "continuous",
         cell_emb_style: str = "cls",
         explicit_zero_prob: bool = False,
@@ -78,11 +79,7 @@ class TransformerModel(nn.Module):
         self.do_attn_mask = do_attn_mask
         self.do_taxa_decoder = do_taxa_decoder
         self.vocab_mask_value = vocab_mask_value
-        if self.input_emb_style not in ["category", "continuous", "scaling"]:
-            raise ValueError(
-                f"input_emb_style should be one of category, continuous, scaling, "
-                f"got {input_emb_style}"
-            )
+        self.bin_strategy = bin_strategy
         if cell_emb_style not in ["cls", "avg-pool", "w-pool"]:
             raise ValueError(f"Unknown cell_emb_style: {cell_emb_style}")
 
@@ -109,13 +106,15 @@ class TransformerModel(nn.Module):
             self.value_encoder = CategoryValueEncoder(
                 n_input_bins, d_model, vocab_mask_value, padding_idx=vocab_pad_value, freeze=freeze_value_encoder
             )
-        else: # input_emb_style == "scaling"
-            print("Using scaling style for input embedding, just identity for now")
-            print(f"vocab_mask_value: {vocab_mask_value}")
+        elif input_emb_style == "scaling": # input_emb_style == "scaling"
             self.value_encoder = nn.Identity()  # nn.Softmax(dim=1)
             # TODO: consider row-wise normalization or softmax
             # TODO: Correct handle the mask_value when using scaling
-
+        else:
+            raise ValueError(
+                f"input_emb_style should be one of category, continuous, scaling, "
+                f"got {input_emb_style}"
+            )
         # Batch Encoder
         if use_batch_labels:
             assert num_batch_labels is not None, "num_batch_labels must be provided when use_batch_labels is True"
@@ -172,11 +171,13 @@ class TransformerModel(nn.Module):
             src = self.encoder(src)  # (batch, seq_len, embsize)
         cur_taxa_token_embs = src
 
-        values = self.value_encoder(values)  # (batch, seq_len, embsize)
         if self.input_emb_style == "scaling":
+            assert values.dim() == 2, "values should be 2D when input_emb_style is scaling"
+            assert np.all(values > 0), "values should be positive when input_emb_style is scaling"
             values = values.unsqueeze(2)
             total_embs = src * values
         else:
+            values = self.value_encoder(values)  # (batch, seq_len, embsize)
             total_embs = src + values
 
         output = self.transformer_encoder(
@@ -255,7 +256,7 @@ class TransformerModel(nn.Module):
         taxa: Tensor,
         values: Tensor,
         key_padding_mask: Tensor,
-        known_positions: Optional[Tensor] = None, # (batch, seq_len)
+        known_positions: Tensor, # (batch, seq_len)
         # batch_labels: Optional[Tensor] = None,  # (batch,)
         input_cell_emb: Optional[Tensor] = None,  # (batch, embsize)
         graph_data: Optional[Data] = None,
@@ -269,17 +270,24 @@ class TransformerModel(nn.Module):
         values = self.value_encoder(values)  # (batch, seq_len, embsize)
         # print(f"token_embs shape: {token_embs.shape}, values shape: {values.shape}")
         if self.input_emb_style == "scaling":
-            # handle -1 due to masked taxas
-            value_mask_indices = (values == self.vocab_mask_value)
-            values_safe = values.clone()
-            values_safe[value_mask_indices] = 0.0  # set masked positions to 0 for safe log
-            scale_factors = torch.log1p(values_safe).unsqueeze(-1) + 1  # (batch, seq_len, 1)
-            # normalize
-            assert not torch.isnan(scale_factors).any(), "NaN in scale_factors"
-            # print(f"scale_factors stats before centering: min {scale_factors.min().item()}, max {scale_factors.max().item()}, mean {scale_factors.mean().item()}")
-            # print(f"token_embs stats: min {token_embs.min().item()}, max {token_embs.max().item()}, mean {token_embs.mean().item()}")
-            total_embs = token_embs * scale_factors
-            # print(f"total_embs stats after scaling: min {total_embs.min().item()}, max {total_embs.max().item()}, mean {total_embs.mean().item()}")
+            # # handle -1 due to masked taxas
+            # value_mask_indices = (values == self.vocab_mask_value)
+            # values_safe = values.clone()
+            # values_safe[value_mask_indices] = 0.0  # set masked positions to 0 for safe log
+            # scale_factors = torch.log1p(values_safe).unsqueeze(-1) + 1  # (batch, seq_len, 1)
+            # # normalize
+            # assert not torch.isnan(scale_factors).any(), "NaN in scale_factors"
+            # # print(f"scale_factors stats before centering: min {scale_factors.min().item()}, max {scale_factors.max().item()}, mean {scale_factors.mean().item()}")
+            # # print(f"token_embs stats: min {token_embs.min().item()}, max {token_embs.max().item()}, mean {token_embs.mean().item()}")
+            # total_embs = token_embs * scale_factors
+            # # print(f"total_embs stats after scaling: min {total_embs.min().item()}, max {total_embs.max().item()}, mean {total_embs.mean().item()}")
+            
+            # values is (batch, seq_len)
+            assert values.dim() == 2, "values should be 2D when input_emb_style is scaling"
+            values = values.unsqueeze(2)  # (batch, seq_len, 1)
+            mask = known_positions.unsqueeze(2)  # (batch, seq_len, 1)
+            total_embs = token_embs.clone()  # preserve original
+            total_embs[mask] *= values[mask]  # scale only known positions
         else:
             total_embs = token_embs + values
 
