@@ -46,18 +46,18 @@
       }
     }
   },
-  "mice_diet": {
-    "label_type": "categorical_label",
-    "ignored_labels": [],
-    "embed_name": ["embedding"],
-    "target_colname": "downstream_task",
-    "methods": {
-      "xgboost": {
-        "search_type": "random",
-        "task_type": "classification"
-      }
-    }
-  },
+  // "mice_diet": {
+  //   "label_type": "categorical_label",
+  //   "ignored_labels": [],
+  //   "embed_name": ["embedding"],
+  //   "target_colname": "downstream_task",
+  //   "methods": {
+  //     "xgboost": {
+  //       "search_type": "random",
+  //       "task_type": "classification"
+  //     }
+  //   }
+  // },
   "supplement": {
     "label_type": "categorical_label",
     "ignored_labels": [],

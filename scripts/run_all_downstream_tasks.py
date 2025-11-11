@@ -15,7 +15,12 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.utils.class_weight import compute_class_weight
 from trainers.test_functions import evaluate_multiclass_and_save, evaluate_regression_and_save
-from tabpfn import TabPFNClassifier, TabPFNRegressor
+try:
+    from tabpfn import TabPFNClassifier, TabPFNRegressor
+    _TABPFN_AVAILABLE = True
+except ImportError:
+    _TABPFN_AVAILABLE = False
+
 from scripts.tree_learn import train_rf, train_xgb, train_linear, save_model, load_model, model_exists
 
 def tasks_type(string: str) -> Dict:
@@ -399,6 +404,8 @@ def run_task(task_name: str,
                 print(f"Running XGBoost models for task {task_name}\n")
                 run_xgboost(method_conf, X_train, Y_train, X_test, Y_test, xgboost_output_path, sample_weights=sample_weights)
             elif method_name == "tabpfn":
+                if not _TABPFN_AVAILABLE:
+                    raise ImportError("TabPFN is not installed.")
                 tabpfn_output_path = f"{embed_output_path}/tabpfn"
                 os.makedirs(tabpfn_output_path, exist_ok=True)
                 print(f"Running TabPFN models for task {task_name}\n")

@@ -8,7 +8,7 @@ from safetensors.torch import load_file
 from data_utils.dataloader import prepare_dataloader
 
 from accelerate import Accelerator
-
+from trainers import logger
 from trainers.test_functions import (
     restore_vocab_test,
     create_testdata_state,
@@ -28,7 +28,6 @@ def main():
     parser.add_argument("--adata-path", type=str, required=True, help="Path to the training data h5ad file")
     parser.add_argument("--is-finetune", action="store_true", help="Path to the training data numpy file")
     parser.add_argument("--nrows", type=int, default=None, help="Number of rows to use from the anndata file (for debugging)")
-    parser.add_argument("--data-bin-strategy", type=str, default="binning", choices=["binning", "clr"], help="Data preprocessing strategy: 'binning' or 'clr'")
     parser.add_argument("--emb-colname", type=str, default="embedding", help="Column name for the embeddings in the output anndata file")
     args = parser.parse_args()
     
@@ -37,7 +36,6 @@ def main():
     vocab_dir = args.vocab_dir
     adata_path = args.adata_path
     model_config_path = args.model_config_path
-    data_bin_strategy = args.data_bin_strategy
     
     nrows = args.nrows
     
@@ -66,8 +64,8 @@ def main():
     vocab, _, adata, graph_data = restore_vocab_test(adata_path, vocab_dir, use_gnn, downstream_task=None, batch_obskey=None, nrows=nrows, accelerator=accelerator)
 
     # === Load test dataloader ===
-    assert model.bin_strategy == data_bin_strategy, f"Model binning strategy {model.bin_strategy} does not match specified data binning strategy {data_bin_strategy}"
-    data_dict = create_testdata_state(
+    data_bin_strategy = model.bin_strategy  # Ensure consistency between model and data binning strategy
+    data_dict, adata = create_testdata_state(
         adata=adata,
         num_bins=num_bins,
         vocab=vocab,
@@ -76,6 +74,8 @@ def main():
         nrows=nrows,  # Set to None to use all rows
         bin_strategy=data_bin_strategy
     )
+    
+    logger.info(f"num obs in adata after filtering: {adata.n_obs}")
     
     dataloader = prepare_dataloader(
         data_dict,

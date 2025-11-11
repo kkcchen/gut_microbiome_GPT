@@ -16,8 +16,8 @@ python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not availabl
 
 # put your command here
 DATA_DIR="/project/aip-rahulgk/gutmodel/remove_redundant_oct24"
-RUN_NAME="gcn-2"
-NOTES="10/29 experiment with gcn encoder, taxa decoder, and mvc task. GNN with 3 layers."
+RUN_NAME="clr-scale-moredata"
+NOTES="11/6 experiment with clr plus and scaling."
 
 EXPERIMENT_PATH=experiment_saves/$RUN_NAME
 
@@ -54,8 +54,10 @@ accelerate launch --main_process_port 0 -m scripts.trainer \
     --seed 42 \
     --notes "$NOTES" \
     --train-mask-ratio 0.4 \
-    --do-taxa-decoder \
     --do-mvc \
     --use-gnn \
+    --gnn-type "gat" \
+    --data-bin-strategy "clr_plus" \
+    --do-taxa-decoder \
     # --use-batch-labels \
     # --do-contrastive &

@@ -66,7 +66,7 @@ def main():
     else:
         adata = adata[~adata.obs[continuous_obskey].isin(args.ignored_labels)]
         
-    data_dict = create_testdata_state(
+    data_dict, adata = create_testdata_state(
         adata=adata,
         num_bins=num_bins,
         vocab=vocab,

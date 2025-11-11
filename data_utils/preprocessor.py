@@ -68,13 +68,10 @@ class Preprocessor:
         bin_edges = []
 
         # Iterate over each row 
-        for row in unprocessed_data:
+        allzero_rows = []
+        for i, row in enumerate(unprocessed_data):
             if row.max() == 0:
-                raise ValueError(
-                    "The data has all zero values, please check the data."
-                )
-                binned_rows.append(np.zeros_like(row, dtype=np.int64))
-                bin_edges.append(np.array([0] * n_bins))
+                allzero_rows.append(i)
                 continue
 
             non_zero_ids = row.nonzero()
@@ -92,8 +89,9 @@ class Preprocessor:
             binned_row[non_zero_ids] = non_zero_digits
             binned_rows.append(binned_row)
             bin_edges.append(np.concatenate([[0], bins]))
+        logger.info(f"Number of all-zero rows skipped in binning transform: {len(allzero_rows)}")
                 
-        return np.stack(binned_rows), np.stack(bin_edges)
+        return np.stack(binned_rows), np.stack(bin_edges), allzero_rows
 
     def clr_from_np(self, unprocessed_data: np.ndarray, taxa_ids) -> Dict:
         """
@@ -115,12 +113,12 @@ class Preprocessor:
         print("Not doing binning, only applying CLR transform to data!")
         clr_data = []
 
-        # Iterate over each row 
-        for row in unprocessed_data:
+        # Iterate over each row
+        allzero_rows = []
+        for i, row in enumerate(unprocessed_data):
             if row.max() == 0:
-                raise ValueError(
-                    "The data has all zero values, please check the data."
-                )
+                allzero_rows.append(i)
+                continue
             
             # Get non-zero indices and values
             non_zero_mask = row > 0
@@ -146,8 +144,9 @@ class Preprocessor:
             clr_data.append(clr_row)
         
         clr_array = np.stack(clr_data)
+        logger.info(f"Number of all-zero rows skipped in CLR transform: {len(allzero_rows)}")
                 
-        return clr_array
+        return clr_array, allzero_rows
     
     def clrplus_from_np(self, unprocessed_data: np.ndarray, taxa_ids) -> Dict:
         """
@@ -166,15 +165,15 @@ class Preprocessor:
         """
         assert len(taxa_ids) == unprocessed_data.shape[1], "The number of taxa IDs must match the number of columns in the data."
         
-        print("Not doing binning, only applying CLR plus transform to data!")
+        logger.info("Not doing binning, only applying CLR plus transform to data!")
         clr_data = []
 
         # Iterate over each row 
-        for row in unprocessed_data:
+        allzero_rows = []
+        for i, row in enumerate(unprocessed_data):
             if row.max() == 0:
-                raise ValueError(
-                    "The data has all zero values, please check the data."
-                )
+                allzero_rows.append(i)
+                continue
             
             # Get non-zero indices and values
             non_zero_mask = row > 0
@@ -199,8 +198,9 @@ class Preprocessor:
             clr_data.append(clr_row)
         
         clr_array = np.stack(clr_data)
+        logger.info(f"Number of all-zero rows skipped in CLR plus transform: {len(allzero_rows)}")
                 
-        return clr_array
+        return clr_array, allzero_rows
 
 
     def clr_transform(self, unprocessed_data: np.ndarray, taxa_ids) -> np.ndarray:

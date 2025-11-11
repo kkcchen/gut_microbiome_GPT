@@ -513,19 +513,23 @@ def create_or_restore_data_state(anndata_path,
             elif bin_strategy == "clr":
                 stacked_rows = preprocessor.clr_from_np(hmc_npy, taxa_ids)
             elif bin_strategy == "clr_plus":
-                stacked_rows = preprocessor.clrplus_from_np(hmc_npy, taxa_ids)
+                stacked_rows, allzero_rows = preprocessor.clrplus_from_np(hmc_npy, taxa_ids)
+                mask = np.ones(adata.n_obs, dtype=bool)
+                mask[allzero_rows] = False  # mark rows to remove
+
+                adata = adata[mask].copy()
+                logger.info(f"adata has length {adata.n_obs} after removing all-zero rows.")
             else:
                 raise ValueError(f"Unknown bin_strategy: {bin_strategy}")
             # create tokenizer
             adata.layers["binned_rows"] = stacked_rows
             
             # Randomly select exactly n_train indices without replacement
-            train_indices = np.random.choice(adata.n_obs, size=int(adata.n_obs * 0.8), replace=False)
+            train_indices = np.random.choice(adata.n_obs, size=int(adata.n_obs * 0.95), replace=False)
             is_train = np.zeros(adata.n_obs, dtype=bool)
             is_train[train_indices] = True            
             adata.obs["split"] = np.where(is_train, "train", "val")
         
-        graph_data = graph_data.to(accelerator.device) if use_gnn else None
         tokenizer = Tokenizer(vocab)
         data_dict = tokenizer.tokenize_and_pad_batch(adata, batch_obskey=batch_obskey)
         train_data_dict = {}
@@ -552,6 +556,8 @@ def create_or_restore_data_state(anndata_path,
     # broadcast to all other ranks
     accelerator.wait_for_everyone()
     broadcast_object_list(data_list)
+    if use_gnn:
+        data_list[4] = data_list[4].to(accelerator.device)
     
     return tuple(data_list)
 

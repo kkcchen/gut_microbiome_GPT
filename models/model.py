@@ -151,8 +151,8 @@ class TransformerModel(nn.Module):
                 explicit_zero_prob=explicit_zero_prob,
                 use_batch_labels=use_batch_labels,
             )
-        if init_vocab_path is None:
-            self.init_weights(freeze_vocab)
+        # if init_vocab_path is None:
+        #     self.init_weights(freeze_vocab)
 
     def encode(
         self,
@@ -173,9 +173,11 @@ class TransformerModel(nn.Module):
 
         if self.input_emb_style == "scaling":
             assert values.dim() == 2, "values should be 2D when input_emb_style is scaling"
-            assert np.all(values > 0), "values should be positive when input_emb_style is scaling"
-            values = values.unsqueeze(2)
-            total_embs = src * values
+            assert torch.all(values >= 0), "values should be positive when input_emb_style is scaling"
+            values = values.unsqueeze(2)  # (batch, seq_len, 1)
+            known_positions = values > 0
+            total_embs = src.clone()  # preserve original
+            total_embs = torch.where(known_positions, total_embs * values, total_embs) # scale only known positions
         else:
             values = self.value_encoder(values)  # (batch, seq_len, embsize)
             total_embs = src + values
@@ -287,7 +289,7 @@ class TransformerModel(nn.Module):
             values = values.unsqueeze(2)  # (batch, seq_len, 1)
             mask = known_positions.unsqueeze(2)  # (batch, seq_len, 1)
             total_embs = token_embs.clone()  # preserve original
-            total_embs[mask] *= values[mask]  # scale only known positions
+            total_embs = torch.where(mask, total_embs * values, total_embs) # scale only known positions
         else:
             total_embs = token_embs + values
 

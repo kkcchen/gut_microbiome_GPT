@@ -15,14 +15,15 @@ source ~/hmbenv/bin/activate
 python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not available. Exiting.'" || exit 1
 
 # === Set paths ===
-EXPERIMENT_PATH=experiment_saves/gat-1
+EXPERIMENT_PATH=experiment_saves/clr-scale
 
-SAFETENSORS_PATH=$EXPERIMENT_PATH/model_checkpoints/best_model/model.safetensors
+# SAFETENSORS_PATH=$EXPERIMENT_PATH/model_checkpoints/best_model/model.safetensors
+SAFETENSORS_PATH=$EXPERIMENT_PATH/model_checkpoints/intermediate_checkpoints/epoch_0/model.safetensors
 VOCAB_DIR=$EXPERIMENT_PATH/model_checkpoints/data_checkpoint
 MODEL_CONFIG_PATH=$EXPERIMENT_PATH/model_checkpoints/model_config.json
 
-TRAIN_OUTPUT_PATH=$EXPERIMENT_PATH/remove_redundant_oct24/encoded_train.h5ad
-TEST_OUTPUT_PATH=$EXPERIMENT_PATH/remove_redundant_oct24/encoded_test.h5ad
+TRAIN_OUTPUT_PATH=experiment_saves/clr-scale-randinit/remove_redundant_oct24/encoded_train.h5ad
+TEST_OUTPUT_PATH=experiment_saves/clr-scale-randinit/remove_redundant_oct24/encoded_test.h5ad
 
 TRAIN_ANN_PATH=/project/aip-rahulgk/gutmodel/remove_redundant_oct24/finetune_train.h5ad
 TEST_ANN_PATH=/project/aip-rahulgk/gutmodel/remove_redundant_oct24/finetune_test.h5ad

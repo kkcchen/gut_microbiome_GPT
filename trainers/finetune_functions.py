@@ -357,7 +357,11 @@ def create_data_state_finetune(anndata_path, num_bins, vocab_restore_dir, data_r
             elif bin_strategy == "clr":
                 stacked_rows = preprocessor.clr_from_np(hmc_npy, taxa_ids)
             elif bin_strategy == "clr_plus":
-                stacked_rows = preprocessor.clrplus_from_np(hmc_npy, taxa_ids)
+                stacked_rows, allzero_rows = preprocessor.clrplus_from_np(hmc_npy, taxa_ids)
+                mask = np.ones(adata.n_obs, dtype=bool)
+                mask[allzero_rows] = False  # mark rows to remove
+
+                adata = adata[mask].copy()
             # create tokenizer
             adata.layers["binned_rows"] = stacked_rows
             tokenizer = Tokenizer(vocab)

@@ -74,7 +74,11 @@ def create_testdata_state(adata, num_bins, vocab, batch_obskey, continuous_obske
     elif bin_strategy == "clr":
         stacked_rows = preprocessor.clr_from_np(hmc_npy, taxa_ids)
     elif bin_strategy == "clr_plus":
-        stacked_rows = preprocessor.clrplus_from_np(hmc_npy, taxa_ids)
+        stacked_rows, allzero_rows = preprocessor.clrplus_from_np(hmc_npy, taxa_ids)
+        mask = np.ones(adata.n_obs, dtype=bool)
+        mask[allzero_rows] = False  # mark rows to remove
+
+        adata = adata[mask].copy()
     else:
         raise ValueError(f"Unknown bin_strategy: {bin_strategy}")
 
@@ -84,7 +88,7 @@ def create_testdata_state(adata, num_bins, vocab, batch_obskey, continuous_obske
     tokenizer = Tokenizer(vocab)
     data_dict = tokenizer.tokenize_and_pad_batch(adata, batch_obskey=batch_obskey, continuous_obskey=continuous_obskey)
     
-    return data_dict
+    return data_dict, adata
 
 
 def get_class_probs(model, dataloader, vocab_pad_index, accelerator, graph_data):

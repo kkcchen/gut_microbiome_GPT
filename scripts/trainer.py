@@ -188,14 +188,14 @@ if __name__ == "__main__":
         "freeze_vocab": freeze_vocab,
         "freeze_value_encoder": freeze_value_encoder,
         "input_emb_style": "scaling",
-        # "input_emb_style": "avg-pool",
+        # "input_emb_style": "continuous",
         "use_gnn": args.use_gnn,
         "num_gnn_nodes": graph_data.num_nodes if args.use_gnn else None,
         "gnn_type": args.gnn_type,
         "gnn_num_layers": 3 if args.use_gnn else None,
         "bin_strategy": bin_strategy,
     }
-    print(model_config)
+    logger.info(model_config)
     import json
     if accelerator.is_main_process:
         os.makedirs(os.path.dirname(model_config_path), exist_ok=True)
