@@ -103,10 +103,15 @@ class TransformerModel(nn.Module):
             self.value_encoder = CategoryValueEncoder(
                 n_input_bins, d_model, vocab_mask_value, padding_idx=vocab_pad_value
             )
-        else: # input_emb_style == "scaling"
+        elif input_emb_style == "scaling": # input_emb_style == "scaling"
             self.value_encoder = nn.Identity()  # nn.Softmax(dim=1)
             # TODO: consider row-wise normalization or softmax
             # TODO: Correct handle the mask_value when using scaling
+        else:
+            raise ValueError(
+                f"input_emb_style should be one of category, continuous, scaling, "
+                f"got {input_emb_style}"
+            )
 
         # Batch Encoder
         if use_batch_labels:
@@ -257,9 +262,12 @@ class TransformerModel(nn.Module):
         else:
             token_embs = self.encoder(taxa)  # (batch, seq_len, embsize)
         values = self.value_encoder(values)  # (batch, seq_len, embsize)
-        total_embs = token_embs + values
 
-        assert self.input_emb_style != "scaling"
+        if self.input_emb_style == "scaling":
+            values = values.unsqueeze(2)
+            total_embs = token_embs * values
+        else:
+            total_embs = token_embs + values
 
         if input_cell_emb is not None:
             # this is for the second step of pretraining, where we replace the cls token with the cell embedding
@@ -362,7 +370,7 @@ class TransformerModel(nn.Module):
         #         "CLS is not implemented yet. Please set CLS=False to avoid this error."
         #     )
         #     output["cls_output"] = self.cls_decoder(cell_emb)  # (batch, n_cls)
-        if MVC: # GEPC
+        if MVC: # from cell embedding
             if not self.do_mvc:
                 raise ValueError("MVC is not enabled for this model, so do not call MVC in the forward pass!")
             mvc_output = self.mvc_decoder(
@@ -382,7 +390,7 @@ class TransformerModel(nn.Module):
                         "Explicit zero prob is not implemented for MVC decoder"
                     )
                 output["mvc_zero_probs"] = mvc_output["zero_probs"]
-        if TCS:
+        if TCS: # taxa decoder
             if not self.do_taxa_decoder:
                 raise ValueError("TCS is not enabled for this model, so do not call TCS in the forward pass!")
             taxa_output = self.taxa_decoder(
