@@ -171,12 +171,12 @@ class DataCollator:
 
         # Clone inputs to avoid in-place modification
         corrupted_values = values.clone()
-        corrupted_ids = ids.clone() if not mask_ids else ids.clone()
+        corrupted_ids = ids.clone()
         target_values = torch.where(
             ids != self.vocab.pad_index,
             torch.tensor(float(self.vocab.mask_value), device=ids.device),
             torch.tensor(float(self.vocab.pad_value), device=ids.device),
-        )
+        ) # later, known_positions = values_target.eq(vocab.mask_value)
         target_ids = torch.full(
             ids.shape,
             self.vocab.pad_index,
@@ -194,31 +194,39 @@ class DataCollator:
             if total_valid == 0:
                 continue
 
-            num_to_mask = max(1, int(total_valid * 0.15))
+            num_to_mask = max(2, int(total_valid * self.gen_percent))
             perm = torch.randperm(total_valid, device=device)
             mask_indices = valid_indices[perm[:num_to_mask]]
-
-            # Ensure at least one value is changed
-            assert len(mask_indices) > 0, "At least one value must be changed."
 
             probs = torch.rand(len(mask_indices), device=device)
 
             if mask_ids:
-                # 40% replace with [MASK] value for value
-                mask_mask = probs < 0.4
-                # 5% replace with random value
-                rand_mask = (probs >= 0.4) & (probs < 0.45)
-                # 40% replace id with [MASK] id
-                id_mask_mask = (probs >= 0.45) & (probs < 0.85)
-                # 5% replace id with random id
-                id_rand_mask = (probs >= 0.85) & (probs < 0.9)
-                # 10% unchanged (do nothing)
-                unchanged_mask = (probs >= 0.9)
+                # probs: tensor of shape (N,)
+                N = probs.shape[0]
+                half = N // 2
+
+                # Split into halves
+                probs_val = probs[:half]
+                probs_id = probs[half:]
+                
+                val_mask_indices = mask_indices[:half]
+                id_mask_indices = mask_indices[half:]
+
+                ### ---- Value-based masking ----
+                mask_mask = probs_val < 0.8                        # 80% replace with [MASK] value
+                rand_mask = (probs_val >= 0.8) & (probs_val < 0.9) # 10% replace with random value
+                unchanged_mask = probs_val >= 0.9                  # 10% unchanged
+
+                ### ---- ID-based masking ----
+                id_mask_mask = probs_id < 0.8                      # 80% replace id with [MASK] id
+                id_rand_mask = (probs_id >= 0.8) & (probs_id < 0.9)# 10% replace id with random id
+                id_unchanged_mask = probs_id >= 0.9                # 10% unchanged
+            
                 
                 # save original ids for target
-                assert mask_indices[id_mask_mask | id_rand_mask | unchanged_mask].numel() > 0, "At least one id must be changed."
-                target_ids[i, mask_indices[id_mask_mask | id_rand_mask | unchanged_mask]] = ids[i, mask_indices[id_mask_mask | id_rand_mask | unchanged_mask]]
+                target_ids[i, id_mask_indices[id_mask_mask | id_rand_mask | id_unchanged_mask]] = ids[i, id_mask_indices[id_mask_mask | id_rand_mask | id_unchanged_mask]]
             else:
+                val_mask_indices = mask_indices
                 # 80% replace with [MASK] value
                 mask_mask = probs < 0.8
                 # 10% replace with random value
@@ -227,11 +235,10 @@ class DataCollator:
                 unchanged_mask = (probs >= 0.9)
             
             # save original values for target
-            assert mask_indices[mask_mask | rand_mask | unchanged_mask].numel() > 0, "At least one value must be changed."
-            target_values[i, mask_indices[mask_mask | rand_mask | unchanged_mask]] = values[i, mask_indices[mask_mask | rand_mask | unchanged_mask]]
+            target_values[i, val_mask_indices[mask_mask | rand_mask | unchanged_mask]] = values[i, val_mask_indices[mask_mask | rand_mask | unchanged_mask]]
 
             if mask_mask.any():
-                corrupted_values[i, mask_indices[mask_mask]] = self.vocab.mask_value
+                corrupted_values[i, val_mask_indices[mask_mask]] = self.vocab.mask_value
 
             if rand_mask.any():
                 random_values = torch.randint(
@@ -241,11 +248,11 @@ class DataCollator:
                     dtype=values.dtype,
                     device=device
                 )
-                corrupted_values[i, mask_indices[rand_mask]] = random_values
+                corrupted_values[i, val_mask_indices[rand_mask]] = random_values
 
             if mask_ids:
                 if id_mask_mask.any():
-                    corrupted_ids[i, mask_indices[id_mask_mask]] = self.vocab.mask_index
+                    corrupted_ids[i, id_mask_indices[id_mask_mask]] = self.vocab.mask_index
 
                 if id_rand_mask.any():
                     all_indices = torch.arange(len(self.vocab), device=device)
@@ -259,7 +266,7 @@ class DataCollator:
                         dtype=torch.long,
                         device=device
                     )]
-                    corrupted_ids[i, mask_indices[id_rand_mask]] = random_ids
+                    corrupted_ids[i, id_mask_indices[id_rand_mask]] = random_ids
 
         return {
             "ids": corrupted_ids,

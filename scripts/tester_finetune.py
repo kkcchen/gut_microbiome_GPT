@@ -57,7 +57,7 @@ def main():
         train_std = model_config["train_std"]
         
     # load data and prepare dataloader
-    vocab, batch_vocab, adata, graph_data = restore_vocab_test(args.anndata_path, args.vocab_dir, downstream_task=args.downstream_task, batch_obskey=batch_obskey, use_gnn=use_gnn, nrows=args.nrows)
+    vocab, batch_vocab, adata, graph_data = restore_vocab_test(args.anndata_path, args.vocab_dir, downstream_task=args.downstream_task, batch_obskey=batch_obskey, use_gnn=use_gnn, nrows=args.nrows, accelerator=accelerator)
     num_bins = model.base_model.n_input_bins
     
     adata = adata[adata.obs['downstream_task'] == args.downstream_task]
@@ -66,7 +66,7 @@ def main():
     else:
         adata = adata[~adata.obs[continuous_obskey].isin(args.ignored_labels)]
         
-    data_dict = create_testdata_state(
+    data_dict, adata = create_testdata_state(
         adata=adata,
         num_bins=num_bins,
         vocab=vocab,

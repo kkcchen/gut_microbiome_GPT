@@ -14,13 +14,13 @@ import seaborn as sns
 
 from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_score, confusion_matrix, f1_score
 
-def restore_vocab_test(anndata_path, vocab_restore_dir, use_gnn, downstream_task, batch_obskey=None, nrows=None):
+def restore_vocab_test(anndata_path, vocab_restore_dir, use_gnn, downstream_task, batch_obskey=None, nrows=None, accelerator=None):
     vocab_path = os.path.join(vocab_restore_dir, "vocab_file.json")
-    batchvocab_path = os.path.join(vocab_restore_dir, f"batchvocab_{downstream_task}.json") if batch_obskey else None
     if os.path.exists(vocab_restore_dir):
         # load the vocab from the file
         vocab = MicrobiomeVocab.restore_vocab(vocab_path) 
         if batch_obskey:
+            batchvocab_path = os.path.join(vocab_restore_dir, f"batchvocab_{downstream_task}.json") if batch_obskey else None
             batch_vocab = BatchVocab.restore_batchvocab(batchvocab_path)
         else:
             batch_vocab = None
@@ -44,6 +44,7 @@ def restore_vocab_test(anndata_path, vocab_restore_dir, use_gnn, downstream_task
         adata = adata[:nrows, :].copy()
     if use_gnn:
         graph_data = torch.load(os.path.join(vocab_restore_dir, "graph_data.pt"), weights_only=False)
+        graph_data = graph_data.to(accelerator.device)
     else:
         graph_data = None
         
@@ -55,7 +56,7 @@ def restore_vocab_test(anndata_path, vocab_restore_dir, use_gnn, downstream_task
     return vocab, batch_vocab, adata, graph_data
 
 
-def create_testdata_state(adata, num_bins, vocab, batch_obskey, continuous_obskey, nrows=None):
+def create_testdata_state(adata, num_bins, vocab, batch_obskey, continuous_obskey, nrows=None, bin_strategy="binning", remove_nas=True):
     # create the data dict
     if nrows:
         adata = adata[:nrows, :].copy()
@@ -66,8 +67,20 @@ def create_testdata_state(adata, num_bins, vocab, batch_obskey, continuous_obske
     
     hmc_npy = np.array(adata.X, dtype=np.float32)
     taxa_ids = np.array(adata.var["taxa_id"])
-    
-    stacked_rows, _ = preprocessor.process_from_np(hmc_npy, taxa_ids)
+    if remove_nas:
+        hmc_npy = preprocessor.remove_nas_from_np(hmc_npy, adata)
+    if bin_strategy == "binning":
+        stacked_rows, _ = preprocessor.bin_from_np(hmc_npy, taxa_ids)
+    elif bin_strategy == "clr":
+        stacked_rows = preprocessor.clr_from_np(hmc_npy, taxa_ids)
+    elif bin_strategy == "clr_plus":
+        stacked_rows, allzero_rows = preprocessor.clrplus_from_np(hmc_npy, taxa_ids)
+        mask = np.ones(adata.n_obs, dtype=bool)
+        mask[allzero_rows] = False  # mark rows to remove
+
+        adata = adata[mask].copy()
+    else:
+        raise ValueError(f"Unknown bin_strategy: {bin_strategy}")
 
     # create tokenizer
     adata.layers["binned_rows"] = stacked_rows
@@ -75,7 +88,7 @@ def create_testdata_state(adata, num_bins, vocab, batch_obskey, continuous_obske
     tokenizer = Tokenizer(vocab)
     data_dict = tokenizer.tokenize_and_pad_batch(adata, batch_obskey=batch_obskey, continuous_obskey=continuous_obskey)
     
-    return data_dict
+    return data_dict, adata
 
 
 def get_class_probs(model, dataloader, vocab_pad_index, accelerator, graph_data):
@@ -123,7 +136,7 @@ def get_class_probs(model, dataloader, vocab_pad_index, accelerator, graph_data)
 def add_roc_curve(binary_targets, scores, label, ax):
     RocCurveDisplay.from_predictions(
         y_true=binary_targets,
-        y_score=scores,
+        y_pred=scores,
         name=f"{label} ({binary_targets.sum()} samples)",
         plot_chance_level=False,  # Plot only once outside the loop
         ax=ax

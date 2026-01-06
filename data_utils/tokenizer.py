@@ -4,6 +4,7 @@ import torch
 
 from data_utils.vocab import MicrobiomeVocab, BatchVocab
 import anndata as ad
+from trainers import logger
 
 class Tokenizer:
     def __init__(self, vocab: MicrobiomeVocab):
@@ -34,6 +35,8 @@ class Tokenizer:
                 taxa_ids = sample.var["taxa_id"]
             else:
                 idx = np.nonzero(sample.layers["binned_rows"])
+                if len(idx[0]) == 0:
+                    raise ValueError("Sample has a non-zero counts.")
                 values = sample.layers["binned_rows"][idx]
                 taxa_ids = sample.var["taxa_id"].iloc[idx[1]]
 
@@ -47,7 +50,7 @@ class Tokenizer:
 
             tokenized_data.append((taxa_ids, values))
 
-
+        logger.info(f"Tokenized sample with {len(tokenized_data)} samples.")
         return tokenized_data
 
         # if prepend_cls:

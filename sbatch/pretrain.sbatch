@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=train_hmc
+#SBATCH --job-name=pretrain
 #SBATCH -A aip-rahulgk
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=8
-#SBATCH --time=12:00:00
-#SBATCH --output=logs/train_hmc/%j.out
-#SBATCH --error=logs/train_hmc/%j.err
+#SBATCH --time=6:00:00
+#SBATCH --output=logs/pretrain/%j.out
+#SBATCH --error=logs/pretrain/%j.err
 #SBATCH --gres=gpu:4
 
 # prepare your environment here
@@ -16,8 +16,8 @@ python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not availabl
 
 # put your command here
 DATA_DIR="/project/aip-rahulgk/gutmodel/remove_redundant_oct24"
-RUN_NAME="big-model"
-NOTES="oct 4 bigger model"
+RUN_NAME="clr-scale-moredata"
+NOTES="11/6 experiment with clr plus and scaling."
 
 EXPERIMENT_PATH=experiment_saves/$RUN_NAME
 
@@ -41,20 +41,23 @@ accelerate launch --main_process_port 0 -m scripts.trainer \
     --intermediate-dir "$INTERMEDIATE_DIR" \
     --wandb-enabled \
     --wandb-entity "haoze-deng-university-of-toronto" \
-    --wandb-project "hmbgpt_oncluster" \
+    --wandb-project "hmbgpt_gnn" \
     --wandb-run-name "$RUN_NAME" \
     --wandb-run-notes "$NOTES" \
     --init-lr 1e-3 \
     --batch-size 64 \
     --max-epochs 16 \
     --cosine-warmup-ratio-or-step 1000 \
-    --num-bins 20 \
+    --num-bins 15 \
     --log-interval 10 \
     --enable-fp16 \
     --seed 42 \
     --notes "$NOTES" \
-    --train-mask-ratio 0.3 \
-    --do-taxa-decoder \
+    --train-mask-ratio 0.4 \
     --do-mvc \
+    --use-gnn \
+    --gnn-type "gat" \
+    --data-bin-strategy "clr_plus" \
+    --do-taxa-decoder \
     # --use-batch-labels \
     # --do-contrastive &

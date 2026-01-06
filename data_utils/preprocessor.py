@@ -6,6 +6,8 @@ import anndata as ad
 from skbio.stats.composition import clr, closure, multi_replace
 from trainers import logger
 
+from data_utils.graph_helpers import get_valid_name
+
 class Preprocessor:
     """
     currently just bins, and filters by prev and abundance. could do other preprocessing steps in the future. 
@@ -26,9 +28,9 @@ class Preprocessor:
         self.binning = binning
         self.keep_top_k = keep_top_k
 
-    def process_from_np(self, unprocessed_data: np.ndarray, taxa_ids) -> Dict:
+    def bin_from_np(self, unprocessed_data: np.ndarray, taxa_ids) -> Dict:
         """
-        Process the unprocessed data from a numpy array.
+        Process the unprocessed data from a numpy array. Apply binning.
 
         Args:
         unprocessed_data (:class:`np.ndarray`):
@@ -52,25 +54,24 @@ class Preprocessor:
             mask = np.zeros_like(unprocessed_data, dtype=bool)
             np.put_along_axis(mask, top_k_indices, True, axis=1)
             removed_entries = np.sum((~mask) & (unprocessed_data > 0))
-            logger.info(f"Number of entries removed in total: {removed_entries} for {unprocessed_data.shape[0]} samples.")
+            logger.info(f"Number of taxa removed in total: {removed_entries} for {unprocessed_data.shape[0]} samples.")
             unprocessed_data = np.where(mask, unprocessed_data, 0)
         
         # binning
-        if not self.binning:
-            raise ValueError("Binning is not enabled, should this be the case?")
+        if not self.binning or self.binning == 0:
+            X_replaced = multi_replace(unprocessed_data)
+            X_closed = closure(X_replaced)
+            return clr(X_closed), None
         
         n_bins = self.binning  # NOTE: the first bin is always a special for zero
         binned_rows = []
         bin_edges = []
 
         # Iterate over each row 
-        for row in unprocessed_data:
+        allzero_rows = []
+        for i, row in enumerate(unprocessed_data):
             if row.max() == 0:
-                raise ValueError(
-                    "The data has all zero values, please check the data."
-                )
-                binned_rows.append(np.zeros_like(row, dtype=np.int64))
-                bin_edges.append(np.array([0] * n_bins))
+                allzero_rows.append(i)
                 continue
 
             non_zero_ids = row.nonzero()
@@ -88,10 +89,152 @@ class Preprocessor:
             binned_row[non_zero_ids] = non_zero_digits
             binned_rows.append(binned_row)
             bin_edges.append(np.concatenate([[0], bins]))
+        logger.info(f"Number of all-zero rows skipped in binning transform: {len(allzero_rows)}")
                 
-        return np.stack(binned_rows), np.stack(bin_edges)
+        return np.stack(binned_rows), np.stack(bin_edges), allzero_rows
+
+    def clr_from_np(self, unprocessed_data: np.ndarray, taxa_ids) -> Dict:
+        """
+        Process the unprocessed data from a numpy array. Apply CLR transform only
+
+        Args:
+        unprocessed_data (:class:`np.ndarray`):
+            The unprocessed data. size (num_samples, num_taxa)
 
 
+        Returns:
+        :class:`np.ndarray`:
+            The preprocessed data.
+        :class:`np.ndarray`:
+            The bin edges of the data.
+        """
+        assert len(taxa_ids) == unprocessed_data.shape[1], "The number of taxa IDs must match the number of columns in the data."
+        
+        print("Not doing binning, only applying CLR transform to data!")
+        clr_data = []
+
+        # Iterate over each row
+        allzero_rows = []
+        for i, row in enumerate(unprocessed_data):
+            if row.max() == 0:
+                allzero_rows.append(i)
+                continue
+            
+            # Get non-zero indices and values
+            non_zero_mask = row > 0
+            non_zero_values = row[non_zero_mask]
+            
+            # Apply CLR to non-zero values
+            log_non_zero = np.log(non_zero_values)
+            geometric_mean_log = np.mean(log_non_zero)
+            clr_non_zero = log_non_zero - geometric_mean_log
+
+            # the above produces negative values, as an experiment shift rows so no negative
+            epsilon = 1e-6
+            row_min, row_max = clr_non_zero.min(), clr_non_zero.max()
+            if row_max > row_min:
+                clr_non_zero_scaled = ((clr_non_zero - row_min) / (row_max - row_min)) * (1 - epsilon) + epsilon
+            else:
+                clr_non_zero_scaled = np.full_like(clr_non_zero, fill_value=epsilon)
+            
+            # Create output array with zeros preserved
+            clr_row = np.zeros_like(row, dtype=np.float64)
+            clr_row[non_zero_mask] = clr_non_zero_scaled
+            
+            clr_data.append(clr_row)
+        
+        clr_array = np.stack(clr_data)
+        logger.info(f"Number of all-zero rows skipped in CLR transform: {len(allzero_rows)}")
+                
+        return clr_array, allzero_rows
+    
+    def clrplus_from_np(self, unprocessed_data: np.ndarray, taxa_ids) -> Dict:
+        """
+        Process the unprocessed data from a numpy array. Apply CLR transform only
+
+        Args:
+        unprocessed_data (:class:`np.ndarray`):
+            The unprocessed data. size (num_samples, num_taxa)
+
+
+        Returns:
+        :class:`np.ndarray`:
+            The preprocessed data.
+        :class:`np.ndarray`:
+            The bin edges of the data.
+        """
+        assert len(taxa_ids) == unprocessed_data.shape[1], "The number of taxa IDs must match the number of columns in the data."
+        
+        logger.info("Not doing binning, only applying CLR plus transform to data!")
+        clr_data = []
+
+        # Iterate over each row 
+        allzero_rows = []
+        for i, row in enumerate(unprocessed_data):
+            if row.max() == 0:
+                allzero_rows.append(i)
+                continue
+            
+            # Get non-zero indices and values
+            non_zero_mask = row > 0
+            non_zero_values = row[non_zero_mask]
+            
+            # Apply CLR to non-zero values
+            log_non_zero = np.log(non_zero_values)
+            geometric_mean_log = np.mean(log_non_zero)
+            clr_non_zero = log_non_zero - geometric_mean_log
+
+            # the above produces negative values, as an experiment shift rows so no negative
+            epsilon = 1e-6
+            if clr_non_zero.size > 0:
+                clr_non_zero_scaled = np.log1p(np.exp(clr_non_zero))
+            else:
+                clr_non_zero_scaled = np.full_like(clr_non_zero, fill_value=epsilon)
+            
+            # Create output array with zeros preserved
+            clr_row = np.zeros_like(row, dtype=np.float64)
+            clr_row[non_zero_mask] = clr_non_zero_scaled
+            
+            clr_data.append(clr_row)
+        
+        clr_array = np.stack(clr_data)
+        logger.info(f"Number of all-zero rows skipped in CLR plus transform: {len(allzero_rows)}")
+                
+        return clr_array, allzero_rows
+
+
+    def clr_transform(self, unprocessed_data: np.ndarray, taxa_ids) -> np.ndarray:
+        """
+        Perform centered log-ratio transformation on the data.
+
+        Args:
+        data (:class:`np.ndarray`):
+            The data to be transformed. size (num_samples, num_taxa)
+        """
+        if not isinstance(unprocessed_data, np.ndarray):
+            raise ValueError("The data must be a numpy array.")
+        
+        if np.any(unprocessed_data < 0):
+            raise ValueError("The data must be non-negative.")
+        
+        gm = np.exp(np.mean(np.log(unprocessed_data), axis=1))
+        clr_data = np.log(unprocessed_data / gm[:, None])
+        return clr_data
+    
+    def remove_nas_from_np(self, unprocessed_data, adata, threshold=3):
+        lens = np.array([len(get_valid_name(a[1].to_list())[0]) for a in adata.varm["taxonomy"].iterrows()])
+        assert len(lens) == unprocessed_data.shape[1], "The number of taxa must match the number of columns in the data."
+        
+        valid_taxa_mask = lens >= threshold
+        logger.info(f"Removing {np.sum(~valid_taxa_mask)} taxa with invalid names (length < {threshold}).")
+        
+        # for invalid taxa, set values to 0.
+        processed_data = unprocessed_data.copy()
+        processed_data[:, ~valid_taxa_mask] = 0
+        return processed_data
+        
+        
+    
 def compute_prevalence_abundance(
     data, 
     var_names=None

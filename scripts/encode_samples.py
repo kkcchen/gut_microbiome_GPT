@@ -8,7 +8,7 @@ from safetensors.torch import load_file
 from data_utils.dataloader import prepare_dataloader
 
 from accelerate import Accelerator
-
+from trainers import logger
 from trainers.test_functions import (
     restore_vocab_test,
     create_testdata_state,
@@ -61,17 +61,21 @@ def main():
     num_bins = model.n_input_bins
     
     # restore vocab
-    vocab, _, adata, graph_data = restore_vocab_test(adata_path, vocab_dir, use_gnn, batch_obskey=None, nrows=nrows)
+    vocab, _, adata, graph_data = restore_vocab_test(adata_path, vocab_dir, use_gnn, downstream_task=None, batch_obskey=None, nrows=nrows, accelerator=accelerator)
 
     # === Load test dataloader ===
-    data_dict = create_testdata_state(
+    data_bin_strategy = model.bin_strategy  # Ensure consistency between model and data binning strategy
+    data_dict, adata = create_testdata_state(
         adata=adata,
         num_bins=num_bins,
         vocab=vocab,
         batch_obskey=None,  # No batch key needed for encoding
         continuous_obskey=None,  # No continuous labels needed for encoding
-        nrows=nrows  # Set to None to use all rows
+        nrows=nrows,  # Set to None to use all rows
+        bin_strategy=data_bin_strategy
     )
+    
+    logger.info(f"num obs in adata after filtering: {adata.n_obs}")
     
     dataloader = prepare_dataloader(
         data_dict,

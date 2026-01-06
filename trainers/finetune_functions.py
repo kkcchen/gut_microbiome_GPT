@@ -285,7 +285,7 @@ def create_training_state_finetune(model_config, init_lr, warmup_ratio_or_step, 
     return model, optimizer, scheduler
 
 
-def create_data_state_finetune(anndata_path, num_bins, vocab_restore_dir, data_restore_path, use_gnn, accelerator: Accelerator, downstream_task, ignored_labels=[], batch_obskey=None, continuous_obskey=None, nrows=None):
+def create_data_state_finetune(anndata_path, num_bins, vocab_restore_dir, data_restore_path, use_gnn, accelerator: Accelerator, downstream_task, ignored_labels=[], batch_obskey=None, continuous_obskey=None, nrows=None, bin_strategy="binning", remove_nas=True):
     if accelerator.is_main_process:
         vocab_path = os.path.join(vocab_restore_dir, "vocab_file.json")
         batchvocab_path = os.path.join(vocab_restore_dir, f"batchvocab_{downstream_task}.json")
@@ -342,12 +342,26 @@ def create_data_state_finetune(anndata_path, num_bins, vocab_restore_dir, data_r
             preprocessor = Preprocessor(
                 binning=num_bins,
             )
+            
             hmc_npy = np.array(adata.X, dtype=np.float32)
             
             adata.var["taxa_id"] = adata.var_names.map(vocab.stoi)
             taxa_ids = np.array(adata.var["taxa_id"])
             
-            stacked_rows, _ = preprocessor.process_from_np(hmc_npy, taxa_ids)
+
+            if remove_nas:
+                hmc_npy = preprocessor.remove_nas_from_np(hmc_npy, adata)
+                
+            if bin_strategy == "binning":
+                stacked_rows, _ = preprocessor.bin_from_np(hmc_npy, taxa_ids)
+            elif bin_strategy == "clr":
+                stacked_rows = preprocessor.clr_from_np(hmc_npy, taxa_ids)
+            elif bin_strategy == "clr_plus":
+                stacked_rows, allzero_rows = preprocessor.clrplus_from_np(hmc_npy, taxa_ids)
+                mask = np.ones(adata.n_obs, dtype=bool)
+                mask[allzero_rows] = False  # mark rows to remove
+
+                adata = adata[mask].copy()
             # create tokenizer
             adata.layers["binned_rows"] = stacked_rows
             tokenizer = Tokenizer(vocab)

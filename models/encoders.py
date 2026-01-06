@@ -3,9 +3,9 @@ import torch
 import numpy as np
 from torch import nn, Tensor
 from typing import Optional
-
 from torch_geometric.nn import GCN, GAT
 from torch_geometric.data import Data
+from sklearn.preprocessing import normalize
 
 #TODO: try starting with embeddings of taxa. evo2? word2vec?
 class TaxaEncoder(nn.Module):
@@ -24,18 +24,47 @@ class TaxaEncoder(nn.Module):
             vocab = np.load(init_vocab_path)
             n, d_vocab = vocab.shape
             print(f"Loaded vocab of shape {vocab.shape}")
+            # normalize the initialized embeddings
+            vocab_normalized = normalize(vocab, norm='l2', axis=1)
             # Now create embedding matrix of shape (n, d_vocab)
             self.embedding = nn.Embedding(num_embeddings, d_vocab, padding_idx=padding_idx)
             with torch.no_grad():
-                self.embedding.weight[:n].copy_(torch.from_numpy(vocab))
-            self.embedding.weight.requires_grad = not freeze_vocab
-            self.proj = nn.Linear(d_vocab, embedding_dim)
+                self.embedding.weight[:n].copy_(torch.from_numpy(vocab_normalized))
+            # self.embedding.weight.requires_grad = not freeze_vocab
+            self.n_initialized = n
+            self.freeze_vocab = freeze_vocab
+            self.proj = nn.Sequential(
+                nn.Linear(d_vocab, embedding_dim),  # expand hidden layer width
+                nn.ReLU(),
+                nn.Linear(embedding_dim, embedding_dim)
+            )
         else:
             self.embedding = nn.Embedding(
                 num_embeddings, embedding_dim, padding_idx=padding_idx
             )
+            self.embedding.weight.requires_grad = not freeze_vocab
             self.proj = None
+            self.n_initialized = 0
+            self.freeze_vocab = False
         self.enc_norm = nn.LayerNorm(embedding_dim)
+        if self.freeze_vocab and self.n_initialized > 0:
+            self._register_freeze_hook()
+
+    def _register_freeze_hook(self):
+        """
+        Attaches a gradient hook to zero out gradients for the frozen portion.
+        This works under Accelerate and DDP transparently.
+        """
+        # if self.embedding.weight.grad is not None:
+        #     with torch.no_grad():
+        #         # Zero out gradients for the first n_initialized embeddings
+        #         self.embedding.weight.grad[:self.n_initialized] = 0
+        def _mask_grad(grad):
+            grad = grad.clone()
+            grad[:self.n_initialized] = 0
+            return grad
+        self.embedding.weight.register_hook(_mask_grad)
+        print(f"Hook registered: first {self.n_initialized} embeddings frozen")
 
     def forward(self, x: Tensor) -> Tensor:
         x = self.embedding(x)  
@@ -52,7 +81,8 @@ class TaxaGraphEncoder(nn.Module):
         num_special_tokens: int,
         num_taxa: int,
         embedding_dim: int,
-        graph_type: str = "gcn",
+        num_layers: int = 2,
+        graph_type: str = "gat",
         padding_idx: Optional[int] = None,
     ):
         super().__init__()
@@ -62,9 +92,9 @@ class TaxaGraphEncoder(nn.Module):
         # 1. deal with taxa embeddings
         self.graph_type = graph_type
         if graph_type == "gcn":
-            self.conv_model = GCN(embedding_dim, embedding_dim, num_layers=2, norm="layer")
+            self.conv_model = GCN(embedding_dim, embedding_dim, num_layers=num_layers, out_channels=embedding_dim, norm="layer")
         elif graph_type == "gat":
-            self.conv_model = GAT(embedding_dim, embedding_dim, num_layers=2, heads=4, norm="layer")
+            self.conv_model = GAT(embedding_dim, embedding_dim, num_layers=num_layers, heads=4, out_channels=embedding_dim, norm="layer")
         
         # 2. special token embeddings
         assert padding_idx >= self.num_taxa, "Padding idx should be in special tokens range"
@@ -86,7 +116,7 @@ class TaxaGraphEncoder(nn.Module):
         edge_list = graph_data.edge_index  # (2, num_edges)
         vocabindex_to_nodeindex = graph_data.vocabindex_to_nodeindex
 
-        # ---- 1. Run (or reuse) GCN on the graph ----
+        # ---- 1. Run (or reuse) GNN on the graph ----
         if (not hasattr(self, "cached_node_embs")) or self.training:
             edge_attr = graph_data.edge_attr
             edge_weight = 2 / (2 ** edge_attr) # greater distance should mean less weight
@@ -122,7 +152,7 @@ class ContinuousValueEncoder(nn.Module):
     Encode real number values to a vector using neural nets projection.
     """
 
-    def __init__(self, d_model: int, mask_value, dropout: float = 0.1, max_value: int = 512):
+    def __init__(self, d_model: int, mask_value, dropout: float = 0.1, max_value: int = 512, freeze:bool=False):
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
         self.linear1 = nn.Linear(1, d_model)
@@ -132,6 +162,14 @@ class ContinuousValueEncoder(nn.Module):
         self.max_value = max_value
         self.mask_value = mask_value
         self.mask_embedding = nn.Embedding(1, d_model)  # Embedding for mask_value
+        if freeze:
+            self._freeze_parameters()
+
+    def _freeze_parameters(self):
+        """Freeze all parameters in this module."""
+        for param in self.parameters():
+            param.requires_grad = False
+        print("ContinuousValueEncoder: all parameters frozen")
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -169,6 +207,7 @@ class CategoryValueEncoder(nn.Module):
         embedding_dim: int,
         mask_value,
         padding_idx: Optional[int] = None,
+        freeze: bool = False,
     ):
         super().__init__()
         self.embedding = nn.Embedding(
@@ -177,6 +216,14 @@ class CategoryValueEncoder(nn.Module):
         self.enc_norm = nn.LayerNorm(embedding_dim)
         self.mask_value = mask_value
         self.mask_embedding = nn.Embedding(1, embedding_dim)  # Embedding for mask_value
+        if freeze:
+            self._freeze_parameters()
+    
+    def _freeze_parameters(self):
+        """Freeze all parameters in this module."""
+        for param in self.parameters():
+            param.requires_grad = False
+        print("CategoryValueEncoder: all parameters frozen")
 
     def forward(self, x: Tensor) -> Tensor:
         x = x.long()

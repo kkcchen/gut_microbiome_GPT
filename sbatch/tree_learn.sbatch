@@ -11,8 +11,8 @@
 cd /project/aip-rahulgk/kchen13/gutmodel/gut_microbiome_GPT
 source ~/hmbenv/bin/activate
 
-FROM_RAW=1
-FINETUNE=1
+FROM_RAW=0
+FINETUNE=0
 
 if [ "$FROM_RAW" -eq 1 ]; then
     echo "Using raw embeddings..."
@@ -34,16 +34,16 @@ else
     TEST_EMBED_PATH=$EMB_SAVE_PATH/encoded_test.h5ad
 
     if [ "$FINETUNE" -eq 0 ]; then
-        OUTPUT_DIR_PARENT="$EXPERIMENT_PATH/rf_zeroshot"
+        OUTPUT_DIR_PARENT="$EXPERIMENT_PATH/xgb_zeroshot"
     else
-        OUTPUT_DIR_PARENT="$EXPERIMENT_PATH/rf_finetune"
+        OUTPUT_DIR_PARENT="$EXPERIMENT_PATH/xgb_finetune"
     fi
 fi
 
 SEARCH_TYPE="none"
 
-# for TARGET in sex location age bmi mice_diet supplement human_diet
-for TARGET in location
+for TARGET in sex location age bmi mice_diet supplement human_diet
+# for TARGET in location
 do
     if [ "$FROM_RAW" -eq 0 ]; then
         if [ "$FINETUNE" -eq 0 ]; then

@@ -166,6 +166,7 @@ if __name__ == "__main__":
         nrows=nrows,
         downstream_task=args.downstream_task,
         ignored_labels=args.ignored_labels if is_classification else [],
+        bin_strategy=base_model_config.get("bin_strategy", "binning")
     )
         
     check_vocab_basemodel_match(base_model_config, vocab)
