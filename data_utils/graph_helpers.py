@@ -12,8 +12,8 @@ import anndata as ad
 
 # --- helper tests ---
 def is_invalid_name(name):
-    INVALID_TOKENS = {"na", "n/a", "unknown", ""}  # lowercased
-    INVALID_SUBSTRINGS = ["incertae sedis", "unknown"]
+    INVALID_TOKENS = {"na", "n/a", "unknown", "nan", ""}  # lowercased
+    INVALID_SUBSTRINGS = ["incertae sedis", "unknown", "endosymbiont"]
     """Return True for names we want to remove (NA, Incertae Sedis, etc)."""
     if pd.isna(name):
         return True
@@ -68,6 +68,24 @@ def get_valid_name(name_array):
     return valid_chain, distances[1:], end_invalid
 
 
+def parent_is_duplicate(old_parent, new_parent, child):
+    if child.startswith("UCG"):
+        return False
+    else:
+        # old_parent and new_parent are likely the same
+        return True
+        
+
+def canon_taxon_name(x):
+    # treat all invalid names as missing
+    if is_invalid_name(x):
+        return pd.NA
+    # normalize whitespace + casing (optional but usually what you want)
+    s = str(x).strip()
+    # if you want case-insensitive equivalence:
+    s = s.lower()
+    return s
+
 # --- build initial parent->children mapping from taxon dataframe ---
 def build_parent_children(taxon_df):
     parent_children = defaultdict(set)
@@ -77,6 +95,11 @@ def build_parent_children(taxon_df):
     duplicate_nodenames = {}
     do_not_collapse = set()
     isolated_nodes = set()
+        
+    canon = taxon_df[taxon_df.columns].applymap(canon_taxon_name)
+
+    keep_mask = ~canon.duplicated(keep="first")
+    taxon_df = taxon_df.loc[keep_mask].copy()
 
     for _, row in taxon_df.iterrows():
         valid_chain, distances, end_invalid = get_valid_name(row[ranks].tolist())
@@ -90,14 +113,28 @@ def build_parent_children(taxon_df):
         for i in range(len(valid_chain) - 1):
             parent = valid_chain[i]
             child = valid_chain[i + 1]
+            if parent == 'Methanosarcinales':
+                print("here")
             if parent != child:
                 if child in child_parents and parent not in child_parents[child]:
-                    sub_name = f"{child}|{parent}"
-                    assert sub_name not in child_parents, f"{sub_name} was in child_parents"
-                    child_parents[sub_name].add(parent)
-                    parent_children[parent].add(sub_name)
-                    duplicate_nodenames[(parent, child)] = sub_name
-                    parent_child_distances[(parent, sub_name)] = distances[i]
+                    old_parent = next(iter(child_parents[child]))
+                    if not parent_is_duplicate(old_parent, parent, child):
+                        print(child_parents[child])
+                        sub_name = f"{parent}|{child}"
+                        # if sub_name == "Euryarchaeota|Methanobacteria":
+                        #     print(child_parents[child])
+                        #     print('Euryarchaeota|Methanobacteria')
+                            
+                        child_parents[sub_name].add(parent)
+                        assert len(child_parents[sub_name]) == 1, f"disambugation is invalid for {sub_name}, gives {child_parents[sub_name]}"
+                        parent_children[parent].add(sub_name)
+                        duplicate_nodenames[(parent, child)] = sub_name
+                        parent_child_distances[(parent, sub_name)] = distances[i]
+                    else:
+                        # parent is duplicate
+                        parent_children[parent].add(child)
+                        child_parents[child].add(parent)
+                        parent_child_distances[(parent, child)] = distances[i]
                 else:
                     parent_children[parent].add(child)
                     child_parents[child].add(parent)
@@ -108,6 +145,7 @@ def build_parent_children(taxon_df):
     # Sort keys for readability
     parent_children = {k: parent_children[k] for k in sorted(parent_children)}
     child_parents = {k: child_parents[k] for k in sorted(child_parents)}
+    
     return dict(parent_children), dict(child_parents), dict(parent_child_distances), duplicate_nodenames, do_not_collapse, isolated_nodes
 
 # --- collapse single-child nodes as described:
@@ -126,7 +164,7 @@ def collapse_single_child_nodes(parent_children, child_parents, parent_child_dis
             child = next(iter(parent_children[parent]))
             
             # get new name for child
-            child_newname = f"{parent}.{child}"
+            child_newname = f"{parent}|{child}"
             assert child_newname not in parent_children, f"Duplicate node name: {child_newname}"
 
             # connect grandparent -> child
@@ -187,48 +225,52 @@ def get_leaf_embedding_index(path_parts, data):
         if parts[0] not in data.name_to_idx:
             return None
         return data.name_to_idx[parts[0]]
+    
+    # otherwise, just use the final valid index (assuming no collapsing happened)
+    c = parts[-1]
 
-    # Traverse pairwise through the path
-    i = 0
-    used_merge_name = False
-    while i < len(parts) - 1:
-        found_edge = False
-        p = parts[i] if not used_merge_name else merged_name
-        c = parts[i + 1]
+    # # Traverse pairwise through the path
+    # i = 0
+    # used_merge_name = False
+    # while i < len(parts) - 1:
+    #     found_edge = False
+    #     p = parts[i] if not used_merge_name else merged_name
+    #     c = parts[i + 1]
         
-        # check in data.duplicate_nodenames for substitutions
-        if (p, c) in data.duplicate_nodenames:
-            c = data.duplicate_nodenames[(p, c)]
+    #     # check in data.duplicate_nodenames for substitutions
+    #     if (p, c) in data.duplicate_nodenames:
+    #         c = data.duplicate_nodenames[(p, c)]
 
-        # Case 1: exact match parent → child
-        if p in data.parent_children:
-            if c in data.parent_children[p]:
-                found_edge = True
-                used_merge_name = False
-            else:
-                # Try progressively merged names:
-                # e.g., if "Bacteria" and "Bacillota" are merged as "Bacteria.Bacillota" we should match it.
-                j = i + 2
-                merged_name = c
-                while j < len(parts):
-                    merged_candidate = ".".join(parts[i+1:j+1])
-                    if merged_candidate in data.names:
-                        merged_name = merged_candidate
-                        found_edge = True
-                        used_merge_name = True
-                        break
-                    else:
-                        j += 1
+    #     # Case 1: exact match parent → child
+    #     if p in data.parent_children:
+    #         if c in data.parent_children[p]:
+    #             found_edge = True
+    #             used_merge_name = False
+    #         else:
+    #             # Try progressively merged names:
+    #             # e.g., if "Bacteria" and "Bacillota" are merged as "Bacteria|Bacillota" we should match it.
+    #             j = i + 2
+    #             merged_name = c
+    #             while j < len(parts):
+    #                 merged_candidate = "|".join(parts[i+1:j+1])
+    #                 if merged_candidate in data.names:
+    #                     merged_name = merged_candidate
+    #                     found_edge = True
+    #                     used_merge_name = True
+    #                     break
+    #                 else:
+    #                     j += 1
 
-                # Advance to the deepest merged node we found
-                c = merged_name
-                i = j - 1  # because next loop iteration starts from here
+    #             # Advance to the deepest merged node we found
+    #             c = merged_name
+    #             i = j - 1  # because next loop iteration starts from here
             
-        if not found_edge:
-            return None
+    #     if not found_edge:
+    #         return None
 
-        i += 1
+    #     i += 1
 
+    assert data.name_to_idx[c] is not None, "should not be none"
     return data.name_to_idx[c]
 
 # --- produce torch_geometric Data ---
@@ -274,7 +316,7 @@ def build_tg_data_from_taxon_df(taxon_df, vocab_list, undirected: bool = True):
     # collapse single-child nodes
     roots = [n for n in parent_children.keys() if n not in child_parents]
     print(f"Identified {roots} root nodes (no parents).")
-    parent_children, child_parents, parent_child_distances = collapse_single_child_nodes(parent_children, child_parents, parent_child_distances, roots, do_not_collapse)
+    # parent_children, child_parents, parent_child_distances = collapse_single_child_nodes(parent_children, child_parents, parent_child_distances, roots, do_not_collapse)
 
     # add root node to connect "roots" if multiple
     if len(roots) > 1:
