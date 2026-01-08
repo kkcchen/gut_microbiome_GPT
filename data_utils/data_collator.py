@@ -1,11 +1,13 @@
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from data_utils.vocab import MicrobiomeVocab
 
 import torch
 
 class DataCollator:
-    def __init__(self, vocab: MicrobiomeVocab, sample_length: int, use_batch_labels: bool, use_continuous_labels: bool, mask_ids: bool = False, do_binning: bool = True, do_padding: bool = True, gen_percent: float = 0.15, use_class_token: bool = True, contrastive_embedding: bool = False):
+    def __init__(self, vocab: MicrobiomeVocab, sample_length: int, use_batch_labels: bool, use_continuous_labels: bool, 
+                 mask_ids: bool = False, do_binning: bool = True, do_padding: bool = True, gen_percent: float = 0.15, 
+                 use_class_token: bool = True, contrastive_embedding: bool = False, do_subsample: bool = False, do_clr: bool = False):
         """
         Initializes the data collator with specified parameters.
 
@@ -36,6 +38,9 @@ class DataCollator:
         self.use_continuous_labels = use_continuous_labels
         self.contrastive_embedding = contrastive_embedding
         self.mask_ids = mask_ids
+        
+        self.do_subsample = do_subsample
+        self.do_clr = do_clr #####
 
         if self.gen_percent > 0:
             self.generation_mode = True
@@ -66,7 +71,24 @@ class DataCollator:
             ids_batch = torch.stack([example["taxa_ids"] for example in examples])
             values_batch = torch.stack([example["values"] for example in examples])
             
-            if self.generation_mode:
+            # attempt at subsampling noising
+            if self.do_subsample:
+                
+                # Safety checks
+                if not torch.all(values_batch >= 0):
+                    raise ValueError("Negative values found in values_batch; cannot cast to counts.")
+
+                # Optional: check near-integer floats
+                if not torch.allclose(values_batch, values_batch.round(), atol=1e-6):
+                    raise ValueError("values_batch contains non-integer floats; cannot safely cast to int.")
+
+                values_batch = values_batch.round().to(torch.int64)
+                
+                view1, view2 = self.make_downsampled_views(ids_batch, values_batch)
+                out_dict = {"view1": view1, "view2": view2}
+            
+            
+            elif self.generation_mode:
                 if self.contrastive_embedding:
                     view1 = self.mlm_corrupt_values(ids_batch, values_batch, self.mask_ids)
                     view2 = self.mlm_corrupt_values(ids_batch, values_batch, self.mask_ids)
@@ -81,6 +103,12 @@ class DataCollator:
                     "ids": ids_batch,
                     "values": values_batch
                 }
+                
+            if self.do_clr:
+                B = ids_batch.shape[0]
+                for i in range(B):
+                    out_dict['values'][i] = self.clr_torch(out_dict['ids'][i], out_dict['values'][i])
+                
 
             if self.use_batch_labels:
                 out_dict["batch_labels"] = torch.tensor([example["batch_labels"] for example in examples], dtype=torch.long)
@@ -275,3 +303,97 @@ class DataCollator:
             "target_values": target_values,
         }
 
+    @torch.no_grad()
+    def subsample_counts_torch(
+        self,
+        ids_1d: torch.Tensor,
+        counts_1d: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Multinomial downsampling of sample's raw counts.
+
+        - Only subsamples valid taxa positions (non-pad, non-class).
+        - Keeps pad/class positions unchanged.
+        - If total counts <= subsample_target, returns original counts.
+        """
+        device = counts_1d.device
+
+
+        # Raw-count strictness: integer dtype + nonnegative
+        if counts_1d.dtype not in (torch.int8, torch.int16, torch.int32, torch.int64, torch.uint8):
+            raise TypeError(
+                f"Expected raw integer counts tensor, got dtype={counts_1d.dtype}. "
+                "Pass raw counts here (before any binning/normalization)."
+            )
+        if torch.any(counts_1d < 0):
+            raise ValueError("Counts must be nonnegative.")
+
+        counts = counts_1d.clone()
+
+        valid_mask = (ids_1d != self.vocab.pad_index) & (ids_1d != self.vocab.class_index)
+        if not torch.any(valid_mask):
+            print("Warning: No valid taxa positions found for subsampling.")
+            return counts
+
+        valid_counts = counts[valid_mask]
+        total = int(valid_counts.sum().item())
+        
+        if total < 1000:  # ==  0: # Already all zeros across valid positions
+            
+            return counts
+
+        subsample_target = int(torch.randint(10000, total+1,(1,),device=device).item())
+
+        probs = valid_counts.to(torch.float)
+        probs = probs / probs.sum()
+
+        sampled = torch.distributions.Multinomial(
+            total_count=subsample_target, probs=probs
+        ).sample().to(valid_counts.dtype)
+
+        out = counts
+        out[valid_mask] = sampled
+        return out
+
+    @torch.no_grad()
+    def make_downsampled_views(
+        self,
+        ids: torch.Tensor,
+        values: torch.Tensor,
+    ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
+        """
+        Two downsampled views for contrastive learning.
+        Each view is dict: {"ids": ids, "values": downsampled_counts}
+        """
+        B, _ = ids.shape
+        # v1 = torch.empty_like(values)
+        # v2 = torch.empty_like(values)   
+        v1 = torch.zeros(values.shape, device=values.device, dtype=torch.float32)
+        v2 = torch.zeros(values.shape, device=values.device, dtype=torch.float32)
+
+        for i in range(B):
+            c1 = self.subsample_counts_torch(ids[i], values[i])
+            c2 = self.subsample_counts_torch(ids[i], values[i])
+            v1[i] = self.clr_torch(ids[i], c1)
+            v2[i] = self.clr_torch(ids[i], c2)
+
+        view1 = {"ids": ids.clone(), "values": v1}
+        view2 = {"ids": ids.clone(), "values": v2}
+        return view1, view2
+
+    @torch.no_grad()    
+    def clr_torch(self, ids_1d: torch.Tensor, counts_1d: torch.Tensor, pseudocount: float = 1e-6):
+        # ids_1d: (T,), counts_1d: (T,) integer counts
+        valid = (ids_1d != self.vocab.pad_index) & (ids_1d != self.vocab.class_index)
+
+        x = counts_1d.to(torch.float32)
+        out = torch.zeros_like(x)
+
+        if valid.any():
+            xv = x[valid] + pseudocount
+            logx = torch.log(xv)
+            gm = logx.mean()
+            out[valid] = logx - gm  # CLR values (can be negative)
+
+        # keep pad/class positions at 0.0
+        return out

@@ -10,7 +10,7 @@ from data_utils.preprocessor import Preprocessor
 from data_utils.dataloader import prepare_dataloader
 
 from trainers.train_functions import (
-    pretrain, commit_state, create_or_restore_data_state, create_or_restore_training_state_wandb, epoch_end_logs
+    pretrain, commit_state, create_or_restore_data_state, create_or_restore_training_state_wandb, epoch_end_logs, subsample_contrastive_pretrain
 )
 from trainers import logger
 
@@ -52,10 +52,11 @@ if __name__ == "__main__":
     parser.add_argument("--do-mvc", action="store_true", help="do mvc task for pretraining")
     parser.add_argument("--do-taxa-decoder", action="store_true", help="do taxa task for pretraining")
     parser.add_argument("--do-contrastive", action="store_true", help="Use contrastive embedding in the model")
+    parser.add_argument("--do-subsample", action="store_true", help="Use subsample noising in the model")
     parser.add_argument("--train-mask-ratio", type=float, default=0.15, help="train mask ratio")
     parser.add_argument("--freeze-vocab", action="store_true", help="Freeze the embedding layer of the vocab, if initialized from a pre-trained embedding")
     parser.add_argument("--freeze-value-encoder", action="store_true", help="Freeze the value encoder layer")
-    parser.add_argument("--data-bin-strategy", type=str, default="binning", choices=["binning", "clr", "clr_plus"], help="Data preprocessing strategy: 'binning' or 'clr'")
+    parser.add_argument("--data-bin-strategy", type=str, default="binning", choices=["binning", "clr", "clr_plus", "none"], help="Data preprocessing strategy: 'binning' or 'clr'")
     parser.add_argument("--use-gnn", action="store_true", help="Use GNN embeddings as input features")
     parser.add_argument("--gnn-type", default=None, choices=[None, "gat", "gcn"], help="gnn type")
 
@@ -93,6 +94,7 @@ if __name__ == "__main__":
     do_mvc = args.do_mvc
     do_taxa_decoder = args.do_taxa_decoder
     do_contrastive = args.do_contrastive
+    do_subsample = args.do_subsample
     train_mask_ratio = args.train_mask_ratio
     freeze_vocab = args.freeze_vocab
     freeze_value_encoder = args.freeze_value_encoder
@@ -111,6 +113,7 @@ if __name__ == "__main__":
         "do_mvc": do_mvc,
         "do_taxa_decoder": do_taxa_decoder,
         "do_contrastive": do_contrastive,
+        "do_subsample": do_subsample,
         "num_bins": num_bins,
         "use_batch_labels": use_batch_labels,
     }
@@ -152,8 +155,10 @@ if __name__ == "__main__":
         vocab=vocab,
         batch_size=batch_size,
         gen_percent=train_mask_ratio,
+        drop_last=True, ############# added
         shuffle=True,
         contrastive_embedding=do_contrastive,
+        do_subsample=do_subsample,
     )
     valid_loader = prepare_dataloader(
         valid_data_dict,
@@ -163,7 +168,9 @@ if __name__ == "__main__":
         batch_size=batch_size,
         gen_percent=0.15,
         shuffle=False,
-        contrastive_embedding=False,
+        drop_last=False, ###### added
+        contrastive_embedding=do_contrastive,
+        do_subsample=do_subsample,
     )
 
     # Create or restore training state
@@ -187,8 +194,8 @@ if __name__ == "__main__":
         "init_vocab_path": vocab_path,
         "freeze_vocab": freeze_vocab,
         "freeze_value_encoder": freeze_value_encoder,
-        "input_emb_style": "scaling",
-        # "input_emb_style": "continuous",
+        # "input_emb_style": "scaling",
+        "input_emb_style": "continuous",
         "use_gnn": args.use_gnn,
         "num_gnn_nodes": graph_data.num_nodes if args.use_gnn else None,
         "gnn_type": args.gnn_type,
@@ -233,8 +240,29 @@ if __name__ == "__main__":
         logger.info(f"Epoch {epoch + 1}/{max_epochs}")
         epoch_start_time = time.time()
 
-        # Train the model
-        val_loss, val_mre = pretrain(
+        # Train the model #####################
+        # val_loss, val_mre = pretrain(
+        #     model=model,
+        #     train_loader=train_loader,
+        #     valid_loader=valid_loader,
+        #     epoch=epoch,
+        #     log_interval=log_interval,
+        #     vocab=vocab,
+        #     accelerator=accelerator,
+        #     optimizer=optimizer,
+        #     scheduler=scheduler,
+        #     use_batch_labels=use_batch_labels,
+        #     best_dir=best_dir,
+        #     best_val_loss=best_val_loss,
+        #     use_mvc=do_mvc,
+        #     use_tcs=do_taxa_decoder,
+        #     use_contrastive=do_contrastive,
+        #     graph_data=graph_data if args.use_gnn else None,
+        # )
+        
+        
+        
+        val_loss = subsample_contrastive_pretrain(
             model=model,
             train_loader=train_loader,
             valid_loader=valid_loader,
@@ -246,15 +274,14 @@ if __name__ == "__main__":
             scheduler=scheduler,
             use_batch_labels=use_batch_labels,
             best_dir=best_dir,
-            best_val_loss=best_val_loss,
-            use_mvc=do_mvc,
-            use_tcs=do_taxa_decoder,
             use_contrastive=do_contrastive,
             graph_data=graph_data if args.use_gnn else None,
         )
+        
+        
 
         # Log metrics to wandb
-        epoch_end_logs(epoch_start_time, epoch, val_loss=val_loss, val_mre=val_mre)
+        epoch_end_logs(epoch_start_time, epoch, val_loss=val_loss) #, val_mre=val_mre)
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss

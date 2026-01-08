@@ -56,7 +56,7 @@ def restore_vocab_test(anndata_path, vocab_restore_dir, use_gnn, downstream_task
     return vocab, batch_vocab, adata, graph_data
 
 
-def create_testdata_state(adata, num_bins, vocab, batch_obskey, continuous_obskey, nrows=None, bin_strategy="binning", remove_nas=True):
+def create_testdata_state(adata, num_bins, vocab, batch_obskey, continuous_obskey, nrows=None, bin_strategy="binning", remove_nas=False): # True ####
     # create the data dict
     if nrows:
         adata = adata[:nrows, :].copy()
@@ -79,6 +79,19 @@ def create_testdata_state(adata, num_bins, vocab, batch_obskey, continuous_obske
         mask[allzero_rows] = False  # mark rows to remove
 
         adata = adata[mask].copy()
+        
+    elif bin_strategy == "none":
+        
+        # drop rows that are all zero
+        row_sums = hmc_npy.sum(axis=1)
+        nonzero_row_mask = row_sums > 0
+        n_dropped = int((~nonzero_row_mask).sum())
+        if n_dropped > 0:
+            logger.info(f"Dropping {n_dropped} all-zero samples before tokenization (bin_strategy=none).")
+            adata = adata[nonzero_row_mask].copy()
+            hmc_npy = hmc_npy[nonzero_row_mask]
+
+        stacked_rows = hmc_npy
     else:
         raise ValueError(f"Unknown bin_strategy: {bin_strategy}")
 

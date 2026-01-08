@@ -85,6 +85,8 @@ def main():
         vocab=vocab,
         batch_size=64,  # Adjust batch size as needed
         shuffle=False,  # Do not shuffle for encoding
+        do_subsample = False,
+        do_clr = True, #### this is for the contrastive version
     )
 
     # Prepare model and dataloader with accelerate

@@ -26,7 +26,10 @@ import wandb
 from .custom_losses import (
     masked_relative_error,
     masked_mse_loss,
-    env_contrastive_loss
+    env_contrastive_loss,
+    nt_xent_loss_accelerate,
+    # nt_xent_intra_view,
+    nt_xent,
 )
 import torch.nn.functional as F
 
@@ -308,6 +311,262 @@ def pretrain(
 
     return epoch_val_loss, epoch_val_mre
 
+
+
+
+##############################
+
+def subsample_contrastive_pretrain(
+        model: TransformerModel, 
+        train_loader: DataLoader,
+        valid_loader: DataLoader,
+        epoch: int,
+        log_interval: int,
+        vocab: MicrobiomeVocab,
+        accelerator: Accelerator,
+        optimizer,
+        scheduler,
+        use_batch_labels: bool,
+        best_dir: str,
+        use_contrastive: bool,
+        # save_interval: int = -1,
+        best_val_loss: float = float("inf"),
+        graph_data: Data = None,  
+    ) -> None:
+    """
+    Train the model for one epoch.
+    """
+    model.train()
+    total_loss = 0.0
+
+
+    num_batches = len(train_loader)
+    val_losses = []
+
+    log_batch_start_time = time.time()
+
+    for batch, data_dict in enumerate(train_loader):
+        global_iter = epoch * num_batches + batch
+        logger.info(f"Subsample contrastive pretrain - epoch {epoch}, batch {batch}")
+        with accelerator.accumulate(model):
+            if not use_contrastive:
+                raise ValueError("Contrastive only")
+            
+            data_dict_main = data_dict["view1"]
+            data_dict_aux  = data_dict["view2"]
+
+            taxa = data_dict_main["ids"]
+            values = data_dict_main["values"]
+            key_padding_mask = taxa.eq(vocab.pad_index)
+
+            taxa_aux = data_dict_aux["ids"]
+            values_aux = data_dict_aux["values"]
+            key_padding_mask_aux = taxa_aux.eq(vocab.pad_index)
+
+            if use_batch_labels:
+                batch_labels = data_dict["batch_labels"]
+            else:
+                batch_labels = None
+                
+            if epoch == 0 and batch == 0:
+                logger.info(f"View1 keys: {data_dict['view1'].keys()}")
+                logger.info(f"View 1 values dtype: {data_dict['view1']['values'].dtype}")
+
+            with accelerator.autocast():
+                logger.info(f"Embedding. Taxa shape: {taxa.shape}, values shape: {values.shape}")
+                out1 = model(
+                    taxa,
+                    values,
+                    key_padding_mask,
+                    known_positions=None,   # not needed for contrastive-only
+                    MVC=False,
+                    TCS=False,
+                    batch_labels=batch_labels,
+                    graph_data=graph_data,
+                )
+                logger.info(f"Embedding aux. Taxa shape: {taxa_aux.shape}, values shape: {values_aux.shape}")
+                out2 = model(
+                    taxa_aux,
+                    values_aux,
+                    key_padding_mask_aux,
+                    known_positions=None,
+                    MVC=False,
+                    TCS=False,
+                    batch_labels=batch_labels,
+                    graph_data=graph_data,
+                )
+
+                z1 = out1["cell_emb"]   # (B, D)
+                z2 = out2["cell_emb"]   # (B, D)
+                logger.info("Computing contrastive loss")
+                loss = nt_xent(z1, z2, temperature=0.2) # nt_xent_loss_accelerate(z1, z2, accelerator, temperature=0.2)
+
+            accelerator.log({"train/contrastive": loss.item()}, step=global_iter)
+
+            logger.info("Backpropagating loss")
+            accelerator.backward(loss)
+            # print(model.encoder.embedding.weight.grad[:3, :3]) if model.encoder.embedding.weight.grad is not None else print("No grad")
+            # print(model.encoder.embedding.weight.grad[-3:, :3]) if model.encoder.embedding.weight.grad is not None else print("No grad")
+            if accelerator.sync_gradients:
+                accelerator.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
+
+    
+
+        total_loss += loss.item()
+     
+        # if args.local_rank in [0, -1] and batch % log_interval == 0 and batch > 0:
+        if batch % log_interval == 0 and batch > 0:
+            # Writer logs gradients distribution
+            # for name, param in model.named_parameters():
+            #     if param.requires_grad and param.grad is not None:
+                    # writer.add_histogram(name + "_grad", param.grad, global_iter)
+                    # writer.add_histogram(name + "_param", param, global_iter)
+
+            # Log scalar values
+            lr = scheduler.get_last_lr()[0]
+            ms_per_batch = (time.time() - log_batch_start_time) * 1000 / log_interval
+            log_batch_start_time = time.time()
+            cur_loss = total_loss / log_interval
+
+            # ppl = math.exp(cur_loss)
+            logger.info(
+                f"| epoch {epoch+1:3d} | {batch:3d}/{num_batches:3d} batches | "
+                f"lr {lr:05.8f} | ms/batch {ms_per_batch:5.2f} | "
+                f"loss {cur_loss:5.2f}"
+            )
+
+            accelerator.log({
+                "learning_rate": scheduler.get_last_lr()[0] if hasattr(scheduler, "get_last_lr") else 0.0,
+            }, step=global_iter)
+
+            total_loss = 0
+
+
+        # immediately eval and save
+        # if batch % save_interval == 0 and batch > 0:
+
+        val_loss = eval_and_save_contrastive(
+            model=model,
+            valid_loader=valid_loader,
+            best_dir=best_dir,
+            vocab=vocab,
+            best_val_loss=best_val_loss,
+            global_iter=global_iter,
+            accelerator=accelerator,
+            use_batch_labels=use_batch_labels,
+            graph_data=graph_data,
+            # save=(save_interval > 0 and batch % save_interval == 0),
+        )
+
+        best_val_loss = min(best_val_loss, val_loss)
+
+        model.train()  # important, reset to train mode
+        val_losses.append(val_loss)
+
+    epoch_val_loss = np.mean(val_losses)
+
+    return epoch_val_loss
+
+
+def eval_and_save_contrastive(
+    model: nn.Module,
+    valid_loader: DataLoader,
+    best_dir: str,
+    vocab: MicrobiomeVocab,
+    best_val_loss: float,
+    global_iter: int,
+    accelerator: Accelerator,
+    use_batch_labels: bool,
+    graph_data: Data = None,
+    # save: bool = True,
+) -> None:
+    val_loss = evaluate_contrastive(model, valid_loader, vocab, accelerator, use_batch_labels, graph_data)
+    val_loss = val_loss.item()
+
+    logger.info(f"valid contrastive loss {val_loss:5.4f}")
+    accelerator.log({
+        "val/val_contrastive_loss": val_loss,
+    }, step=global_iter)
+
+    if val_loss < best_val_loss:
+        # save the best model
+        logger.info(f"Saving the best model to {best_dir}")
+        accelerator.save_model(model, best_dir)
+
+    return val_loss
+
+def evaluate_contrastive(
+        model: nn.Module,
+        valid_loader: DataLoader,
+        vocab: MicrobiomeVocab,
+        accelerator: Accelerator,
+        use_batch_labels: bool,
+        graph_data: Data = None,
+    ) -> torch.Tensor:
+    """
+    Evaluate the model on the evaluation data.
+    """
+    model.eval()
+    total_loss = 0.0
+    with torch.no_grad():
+        for batch, data_dict in enumerate(valid_loader):
+            # if USE_GENERATIVE_TRAINING:
+            logger.info("Evaluating batch {}".format(batch))
+            data_dict_main = data_dict["view1"]
+            data_dict_aux  = data_dict["view2"]
+
+            taxa = data_dict_main["ids"]
+            values = data_dict_main["values"]
+            key_padding_mask = taxa.eq(vocab.pad_index)
+
+            taxa_aux = data_dict_aux["ids"]
+            values_aux = data_dict_aux["values"]
+            key_padding_mask_aux = taxa_aux.eq(vocab.pad_index)
+
+            if use_batch_labels:
+                batch_labels = data_dict["batch_labels"]
+            else:
+                batch_labels = None
+
+            with accelerator.autocast():
+                logger.info("Embedding for eval. Taxa shape: {}, values shape: {}".format(taxa.shape, values.shape))
+                out1 = model(
+                    taxa,
+                    values,
+                    key_padding_mask,
+                    known_positions=None,   # not needed for contrastive-only
+                    MVC=False,
+                    TCS=False,
+                    batch_labels=batch_labels,
+                    graph_data=graph_data,
+                )
+                logger.info("Embedding aux for eval. Taxa shape: {}, values shape: {}".format(taxa_aux.shape, values_aux.shape))
+                out2 = model(
+                    taxa_aux,
+                    values_aux,
+                    key_padding_mask_aux,
+                    known_positions=None,
+                    MVC=False,
+                    TCS=False,
+                    batch_labels=batch_labels,
+                    graph_data=graph_data,
+                )
+
+                z1 = out1["cell_emb"]   # (B, D)
+                z2 = out2["cell_emb"]   # (B, D)
+                logger.info("Computing eval contrastive loss")
+                loss = nt_xent(z1, z2, temperature=0.2) #  nt_xent_loss_accelerate(z1, z2, accelerator, temperature=0.2)
+            total_loss += loss.item()
+
+
+    total_loss = total_loss / len(valid_loader)
+    return torch.tensor(total_loss, dtype=torch.float)
+
+##############################
+
 def eval_and_save(
     model: nn.Module,
     valid_loader: DataLoader,
@@ -451,7 +710,7 @@ def create_or_restore_data_state(anndata_path,
                                  use_gnn=False, batch_obskey=None, 
                                  nrows=None,
                                  bin_strategy="binning",
-                                 remove_nas=True):
+                                 remove_nas=False): # True ########
     if accelerator.is_main_process:
         batchvocab_path = os.path.join(restore_dir, f"batchvocab_{batch_obskey}.json")
         vocab_path = os.path.join(restore_dir, "vocab_file.json")
@@ -502,7 +761,8 @@ def create_or_restore_data_state(anndata_path,
             preprocessor = Preprocessor(
                 binning=num_bins,
             )
-            hmc_npy = np.array(adata.X, dtype=np.float32)
+            # hmc_npy = np.array(adata.X, dtype=np.float32) ############
+            hmc_npy = np.array(adata.X, dtype=np.int64)
             taxa_ids = np.array(adata.var["taxa_id"])
             
             if remove_nas:
@@ -519,6 +779,18 @@ def create_or_restore_data_state(anndata_path,
 
                 adata = adata[mask].copy()
                 logger.info(f"adata has length {adata.n_obs} after removing all-zero rows.")
+            elif bin_strategy == "none":
+                
+                # drop rows that are all zero
+                row_sums = hmc_npy.sum(axis=1)
+                nonzero_row_mask = row_sums > 0
+                n_dropped = int((~nonzero_row_mask).sum())
+                if n_dropped > 0:
+                    logger.info(f"Dropping {n_dropped} all-zero samples before tokenization (bin_strategy=none).")
+                    adata = adata[nonzero_row_mask].copy()
+                    hmc_npy = hmc_npy[nonzero_row_mask]
+
+                stacked_rows = hmc_npy
             else:
                 raise ValueError(f"Unknown bin_strategy: {bin_strategy}")
             # create tokenizer

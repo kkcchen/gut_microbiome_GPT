@@ -36,6 +36,8 @@ def prepare_dataloader(
     drop_last: bool = False,
     num_workers: int = 0,
     contrastive_embedding: bool = False,
+    do_subsample: bool = False,
+    do_clr: bool = False,
     # per_seq_batch_sample: bool = False,
 ) -> DataLoader:
     dataset = SeqDataset(data_pt)
@@ -50,6 +52,8 @@ def prepare_dataloader(
         gen_percent=gen_percent,
         use_class_token=True,
         contrastive_embedding=contrastive_embedding,
+        do_subsample=do_subsample,
+        do_clr=do_clr,
     )
 
     # # if per_seq_batch_sample, each batch will contain samples from the same experiment. Comment out for now because idk if we need this
