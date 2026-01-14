@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 from data_utils.vocab import MicrobiomeVocab
+import time
 
 import torch
 
@@ -83,8 +84,9 @@ class DataCollator:
                     raise ValueError("values_batch contains non-integer floats; cannot safely cast to int.")
 
                 values_batch = values_batch.round().to(torch.int64)
-                
+                timer = time.time()
                 view1, view2 = self.make_downsampled_views(ids_batch, values_batch)
+                print("Subsampling time:", time.time() - timer)
                 out_dict = {"view1": view1, "view2": view2}
             
             
@@ -105,9 +107,10 @@ class DataCollator:
                 }
                 
             if self.do_clr:
-                B = ids_batch.shape[0]
-                for i in range(B):
-                    out_dict['values'][i] = self.clr_torch(out_dict['ids'][i], out_dict['values'][i])
+                out_dict['values'] = self.clr_torch(out_dict['ids'], out_dict['values'])
+                # B = ids_batch.shape[0]
+                # for i in range(B):
+                #     out_dict['values'][i] = self.clr_torch(out_dict['ids'][i], out_dict['values'][i])
                 
 
             if self.use_batch_labels:
@@ -303,8 +306,53 @@ class DataCollator:
             "target_values": target_values,
         }
 
+
     @torch.no_grad()
     def subsample_counts_torch(
+        self,
+        ids: torch.Tensor,
+        counts: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Binomial downsampling of counts across batch
+
+        - Only subsamples valid taxa positions (non-pad, non-class).
+        - Keeps pad/class positions unchanged.
+        - If total counts <= subsample_target, returns original counts.
+        """
+        device = counts.device
+
+
+        # Raw-count strictness: integer dtype + nonnegative
+        if counts.dtype not in (torch.int8, torch.int16, torch.int32, torch.int64, torch.uint8):
+            raise TypeError(
+                f"Expected raw integer counts tensor, got dtype={counts.dtype}. "
+                "Pass raw counts here (before any binning/normalization)."
+            )
+        if torch.any(counts < 0):
+            raise ValueError("Counts must be nonnegative.")
+
+        valid_mask = (ids != self.vocab.pad_index) & (ids != self.vocab.class_index)
+        if not torch.any(valid_mask):
+            print("Warning: No valid taxa positions found for subsampling.")
+            return counts
+
+        B, L = counts.shape
+
+        # valid_counts = counts[valid_mask]
+
+        p = torch.rand(B, device=device) + 1e-8
+        p = torch.clamp(p, max=1.0)
+
+        downsampled = torch.binomial(counts.float(), p[:, None]).to(counts.dtype)
+
+        out = counts.clone()
+        out[valid_mask] = downsampled[valid_mask]
+        return out
+
+
+    @torch.no_grad()
+    def subsample_counts_old(
         self,
         ids_1d: torch.Tensor,
         counts_1d: torch.Tensor,
@@ -342,7 +390,7 @@ class DataCollator:
             
             return counts
 
-        subsample_target = int(torch.randint(10000, total+1,(1,),device=device).item())
+        subsample_target = int(torch.randint(1000, total+1,(1,),device=device).item())
 
         probs = valid_counts.to(torch.float)
         probs = probs / probs.sum()
@@ -365,35 +413,59 @@ class DataCollator:
         Two downsampled views for contrastive learning.
         Each view is dict: {"ids": ids, "values": downsampled_counts}
         """
-        B, _ = ids.shape
-        # v1 = torch.empty_like(values)
-        # v2 = torch.empty_like(values)   
-        v1 = torch.zeros(values.shape, device=values.device, dtype=torch.float32)
-        v2 = torch.zeros(values.shape, device=values.device, dtype=torch.float32)
+        # B, L = values.shape
+        # # v1 = torch.empty_like(values)
+        # # v2 = torch.empty_like(values)   
+        # v1 = torch.zeros(values.shape, device=values.device, dtype=torch.float32)
+        # v2 = torch.zeros(values.shape, device=values.device, dtype=torch.float32)
 
-        for i in range(B):
-            c1 = self.subsample_counts_torch(ids[i], values[i])
-            c2 = self.subsample_counts_torch(ids[i], values[i])
-            v1[i] = self.clr_torch(ids[i], c1)
-            v2[i] = self.clr_torch(ids[i], c2)
+        # for i in range(B):
+        #     timer = time.time()
+        #     c1 = self.subsample_counts_torch(ids[i], values[i])
+        #     c2 = self.subsample_counts_torch(ids[i], values[i])
+        #     print("Subsample time per sample:", time.time() - timer)
+        #     v1[i] = self.clr_torch(ids[i], c1)
+        #     v2[i] = self.clr_torch(ids[i], c2)
 
-        view1 = {"ids": ids.clone(), "values": v1}
-        view2 = {"ids": ids.clone(), "values": v2}
-        return view1, view2
+        # view1 = {"ids": ids.clone(), "values": v1}
+        # view2 = {"ids": ids.clone(), "values": v2}
+        # return view1, view2
+        
+        
+        c1 = self.subsample_counts_torch(ids, values)
+        c2 = self.subsample_counts_torch(ids, values)
+
+        v1 = self.clr_torch(ids, c1)  # (B, L) float32
+        v2 = self.clr_torch(ids, c2)
+
+        return {"ids": ids.clone(), "values": v1}, {"ids": ids.clone(), "values": v2}
 
     @torch.no_grad()    
-    def clr_torch(self, ids_1d: torch.Tensor, counts_1d: torch.Tensor, pseudocount: float = 1e-6):
+    def clr_torch(self, ids: torch.Tensor, counts: torch.Tensor, pseudocount: float = 1e-6):
         # ids_1d: (T,), counts_1d: (T,) integer counts
-        valid = (ids_1d != self.vocab.pad_index) & (ids_1d != self.vocab.class_index)
+        valid = (ids != self.vocab.pad_index) & (ids != self.vocab.class_index)
 
-        x = counts_1d.to(torch.float32)
+        x = counts.to(torch.float32)
         out = torch.zeros_like(x)
+        
+        # Add pseudocount only where valid
+        xv = torch.where(valid, x + pseudocount, torch.ones_like(x))  
 
-        if valid.any():
-            xv = x[valid] + pseudocount
-            logx = torch.log(xv)
-            gm = logx.mean()
-            out[valid] = logx - gm  # CLR values (can be negative)
+        logx = torch.log(xv)  # (B, L)
 
-        # keep pad/class positions at 0.0
+        # Per-sample mean of log counts over valid positions (matches logx.mean() on xv[valid] in 1D)
+        denom = valid.sum(dim=1).clamp(min=1).to(logx.dtype)  # avoid /0
+
+        gm = (logx * valid).sum(dim=1) / denom  # (B,)
+
+        # Fill only valid positions; invalid remain 0 (same behavior as your function)
+        out[valid] = (logx - gm[:, None])[valid]
+
+        # if valid.any():
+        #     xv = x[valid] + pseudocount
+        #     logx = torch.log(xv)
+        #     gm = logx.mean()
+        #     out[valid] = logx - gm  # CLR values (can be negative)
+
+        # # keep pad/class positions at 0.0
         return out

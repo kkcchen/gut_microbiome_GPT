@@ -374,6 +374,8 @@ def subsample_contrastive_pretrain(
 
             with accelerator.autocast():
                 logger.info(f"Embedding. Taxa shape: {taxa.shape}, values shape: {values.shape}")
+                timer = time.time()
+                print(values.dtype, values.min().item(), values.max().item())
                 out1 = model(
                     taxa,
                     values,
@@ -384,6 +386,8 @@ def subsample_contrastive_pretrain(
                     batch_labels=batch_labels,
                     graph_data=graph_data,
                 )
+                logger.info(f"Time for embedding view 1: {time.time() - timer:5.2f} seconds")
+                timer = time.time()
                 logger.info(f"Embedding aux. Taxa shape: {taxa_aux.shape}, values shape: {values_aux.shape}")
                 out2 = model(
                     taxa_aux,
@@ -395,16 +399,20 @@ def subsample_contrastive_pretrain(
                     batch_labels=batch_labels,
                     graph_data=graph_data,
                 )
-
+                logger.info(f"Time for embedding view 2: {time.time() - timer:5.2f} seconds")
                 z1 = out1["cell_emb"]   # (B, D)
                 z2 = out2["cell_emb"]   # (B, D)
                 logger.info("Computing contrastive loss")
+                timer = time.time()
                 loss = nt_xent(z1, z2, temperature=0.2) # nt_xent_loss_accelerate(z1, z2, accelerator, temperature=0.2)
-
+                logger.info(f"Time for contrastive loss computation: {time.time() - timer:5.2f} seconds")
+                
             accelerator.log({"train/contrastive": loss.item()}, step=global_iter)
 
             logger.info("Backpropagating loss")
+            timer = time.time()
             accelerator.backward(loss)
+            logger.info(f"Time for backpropagation: {time.time() - timer:5.2f} seconds")
             # print(model.encoder.embedding.weight.grad[:3, :3]) if model.encoder.embedding.weight.grad is not None else print("No grad")
             # print(model.encoder.embedding.weight.grad[-3:, :3]) if model.encoder.embedding.weight.grad is not None else print("No grad")
             if accelerator.sync_gradients:
@@ -447,7 +455,7 @@ def subsample_contrastive_pretrain(
 
         # immediately eval and save
         # if batch % save_interval == 0 and batch > 0:
-
+        timer = time.time()
         val_loss = eval_and_save_contrastive(
             model=model,
             valid_loader=valid_loader,
@@ -460,6 +468,7 @@ def subsample_contrastive_pretrain(
             graph_data=graph_data,
             # save=(save_interval > 0 and batch % save_interval == 0),
         )
+        logger.info(f"Time for eval and save contrastive: {time.time() - timer:5.2f} seconds")
 
         best_val_loss = min(best_val_loss, val_loss)
 
@@ -493,8 +502,10 @@ def eval_and_save_contrastive(
 
     if val_loss < best_val_loss:
         # save the best model
+        timer = time.time()
         logger.info(f"Saving the best model to {best_dir}")
         accelerator.save_model(model, best_dir)
+        logger.info(f"Time for saving best model: {time.time() - timer:5.2f} seconds")
 
     return val_loss
 
@@ -533,6 +544,7 @@ def evaluate_contrastive(
 
             with accelerator.autocast():
                 logger.info("Embedding for eval. Taxa shape: {}, values shape: {}".format(taxa.shape, values.shape))
+                timer = time.time()
                 out1 = model(
                     taxa,
                     values,
@@ -543,7 +555,9 @@ def evaluate_contrastive(
                     batch_labels=batch_labels,
                     graph_data=graph_data,
                 )
+                logger.info(f"Time for embedding view 1 for eval: {time.time() - timer:5.2f} seconds")
                 logger.info("Embedding aux for eval. Taxa shape: {}, values shape: {}".format(taxa_aux.shape, values_aux.shape))
+                timer = time.time()
                 out2 = model(
                     taxa_aux,
                     values_aux,
@@ -558,6 +572,7 @@ def evaluate_contrastive(
                 z1 = out1["cell_emb"]   # (B, D)
                 z2 = out2["cell_emb"]   # (B, D)
                 logger.info("Computing eval contrastive loss")
+                logger.info(f"Time for embedding view 2 for eval: {time.time() - timer:5.2f} seconds")
                 loss = nt_xent(z1, z2, temperature=0.2) #  nt_xent_loss_accelerate(z1, z2, accelerator, temperature=0.2)
             total_loss += loss.item()
 
