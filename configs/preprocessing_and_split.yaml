@@ -1,0 +1,141 @@
+paths:
+  taxonomic_table_path: "/home/tiantian/projects/aip-rahulgk/tiantian/gut_microbiome_GPT/data/taxonomic_table.csv"
+  metadata_path: "/home/tiantian/projects/aip-rahulgk/tiantian/gut_microbiome_GPT/data/sample_metadata.tsv"
+  tags_path: "/home/tiantian/projects/aip-rahulgk/tiantian/gut_microbiome_GPT/data/tags.tsv"
+  save_path: "/home/tiantian/projects/aip-rahulgk/tiantian/gut_microbiome_GPT/outputs/hmc_final"
+
+general_config:
+  seed: 42
+  test_size: 0.2
+  withhold_studies: [PRJEB11419]
+  stratify: True
+  location_task: True
+  metadata_fields: ["region", "total_bases", "instrument"]
+
+downstream_tasks:
+  age:
+    PRJNA729511: 
+      both_train_test: False
+      is_train: True
+      tag_column: age
+    PRJNA485316: 
+      both_train_test: False
+      is_train: True
+      tag_column: host_age
+    PRJEB5729: 
+      both_train_test: False
+      is_train: False
+      tag_column: age
+    prediction_type: regression
+  sex:
+    PRJNA729511:
+      both_train_test: False
+      is_train: True
+      tag_column: sex
+    PRJNA313391:
+      both_train_test: False
+      is_train: True
+      tag_column: host_sex
+    PRJNA559143:
+      both_train_test: False
+      is_train: True
+      tag_column: gender_cat
+    PRJEB5482:
+      both_train_test: False
+      is_train: False
+      tag_column: sex
+    PRJNA516932:
+      both_train_test: False
+      is_train: False
+      tag_column: host_sex
+    prediction_type: classification
+    classification_labels: 
+      - male: ['male', '1']
+      - female: ['female', '2']
+  bmi:
+    PRJNA516932:
+      both_train_test: False
+      is_train: True
+      tag_column: host_body_mass_index
+    PRJEB5729:
+      both_train_test: False
+      is_train: True
+      tag_column: body_mass_index
+    PRJEB6702:
+      both_train_test: False
+      is_train: True
+      tag_column: body_mass_index
+    PRJNA485316:
+      both_train_test: False
+      is_train: True
+      tag_column: host_body_mass_index
+    PRJEB36585:
+      both_train_test: False
+      is_train: True
+      tag_column: host_body_mass_index
+    PRJNA559143:
+      both_train_test: False
+      is_train: False
+      tag_column: body_mass_index
+    PRJNA414683:
+      both_train_test: False
+      is_train: False
+      tag_column: host_body_mass_index
+    prediction_type: regression
+  supplement:
+    PRJNA428736:
+      both_train_test: True
+      is_train: True
+      tag_column: supplement
+    prediction_type: classification
+  helicobacter_pylori_infection:
+    PRJNA481413:
+      both_train_test: True
+      is_train: True
+      tag_column: host_Hp-status
+    prediction_type: classification
+  hbv_infection:
+    PRJNA382861:
+      both_train_test: True
+      is_train: True
+      tag_column: host_disease
+    prediction_type: classification
+  hiv_infection:
+    PRJDB10485:
+      both_train_test: True
+      is_train: True
+      tag_column: host_disease
+    prediction_type: classification
+  sunflower_seed_oil_emollient_therapy:
+    PRJNA559803:
+      both_train_test: True
+      is_train: True
+      tag_column: Treatment_Group
+    prediction_type: classification
+  chemotherapy:
+    PRJNA650259:
+      both_train_test: True
+      is_train: True
+      tag_column: chemotherapy_type
+    prediction_type: classification
+    classification_labels: 
+      - positive: ['doxorubicin+cyclophosphamide+paclitaxel', 'cisplatin + gemcitabine', 'carboplatin+gemcitabine', 'cisplatin+doxorubicin', 'oxaliplatin+irinotecan+5fu', 'cyclophosphamide+docetaxel', 'cisplatin + etoposide', 'carboplatin+etoposide', 'carboplatin+paclitaxel', 'cisplatin+pemetrexed', 'capecitabine', 'abraxane']
+      - negative: ['none']
+  type_1_diabetes:
+    PRJNA445932:
+      both_train_test: True
+      is_train: True
+      tag_column: case_control
+    prediction_type: classification
+  crohns_disease:
+    PRJNA450540:
+      both_train_test: True
+      is_train: True
+      tag_column: gastrointest_disord
+    prediction_type: classification
+  diarrhea:
+    PRJNA486009:
+      both_train_test: True
+      is_train: True
+      tag_column: gastrointest_disord
+    prediction_type: classification
