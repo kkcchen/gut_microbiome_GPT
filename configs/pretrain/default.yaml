@@ -1,0 +1,66 @@
+paths:
+  model_config_path: "./outputs/model_config.json"
+  ann_table_path: "/path/to/data/hmc_table.csv"
+  vocab_path: null
+  best_dir: "./outputs/best_model"
+  checkpoint_dir: "./outputs/checkpoints"
+  data_restore_dir: "./outputs/data_cache"
+  intermediate_dir: "./outputs/intermediate"
+
+wandb:
+  enabled: false
+  entity: null
+  project: "microbiome-foundation"
+  run_name: null
+  run_notes: null
+
+training:
+  seed: 42
+  init_lr: 1e-4
+  batch_size: 32
+  max_epochs: 15
+  cosine_warmup_ratio_or_step: 0.1
+  log_interval: 10
+  patience: null
+  grad_accumulation_steps: 1
+  enable_fp16: false
+  train_mask_ratio: 0.15
+  notes: "Experimenting with new architecture"
+
+validation:
+  batch_size: 64
+  eval_interval_epochs: 1
+
+data:
+  norm_strategy: "clr" # choices: clr, none
+  split_key: "study_id" # we probably want to split train/val by entire studies, so it resembles close to real-world/test scenario
+  val_size: 0.1
+
+
+model:
+  use_gnn: false
+  
+  tasks:
+    do_mvc: false
+    do_taxa_decoder: false
+    do_contrastive: false
+
+  # === FLEXIBLE ARCHITECTURE SECTION ===
+  # Any key added here is automatically passed to the model config dict
+  params:
+    d_model: 128
+    nhead: 8
+    d_hid: 512
+    nlayers: 3
+    dropout: 0.1
+    input_emb_style: "continuous" # choices: scaling, continuous, category
+    freeze_vocab: false
+    freeze_value_encoder: false
+    do_attn_mask: false
+    # Example: If you change architecture, just add new keys here
+    # activation: "gelu" 
+    # use_flash_attn: true
+
+debug:
+  nrows: null
+  start_over: false
