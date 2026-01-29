@@ -37,7 +37,7 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
         split_key=cfg.data.get('split_key', None),
         test_size=cfg.training.get('val_size', 0.1),
         seed=cfg.training.seed
-    ) # TODO: implement split_data
+    )
     
     # 3. Build vocabularies from training data
     logger.info("Building vocabularies...")
@@ -99,7 +99,8 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
     )
     
     # 7. Print statistics
-    print_data_statistics(train_adata, valid_adata, taxa_vocab, batch_vocab, cfg.data.max_seq_len)
+    if accelerator.is_main_process:
+        print_data_statistics(train_adata, valid_adata, taxa_vocab, batch_vocab, cfg.data.max_seq_len)
     
     return {
         'train_loader': train_loader,

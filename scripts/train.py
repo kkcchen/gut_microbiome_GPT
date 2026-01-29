@@ -11,7 +11,7 @@ from accelerate import Accelerator
 
 from utils.config_utils import load_and_validate_config, save_training_artifacts
 from utils.model_utils import build_model_config, initialize_training_components
-from utils.checkpoint_utils import setup_directories, restore_or_initialize_state
+from utils.checkpoint_utils import setup_directories
 from utils.data_pipeline import prepare_microbiome_data
 from trainers.trainer import MicrobiomeTrainer
 from trainers import logger
@@ -73,16 +73,17 @@ def main(cfg):
         save_training_artifacts(cfg, model_config)
     
     logger.info("Initializing training components...")
-    training_state = restore_or_initialize_state(
+    total_steps = len(train_loader) * cfg.training.max_epochs
+    training_state = initialize_training_components(
         cfg=cfg,
         model_config=model_config,
-        train_loader=train_loader,
+        total_steps=total_steps,
         accelerator=accelerator
     )
     
     training_state = accelerator.prepare(
-        training_state['train_loader'],
-        training_state['valid_loader'],
+        train_loader,
+        valid_loader,
         training_state['model'],
         training_state['optimizer'],
         training_state['scheduler']
@@ -94,15 +95,16 @@ def main(cfg):
     trainer = MicrobiomeTrainer(
         cfg=cfg,
         accelerator=accelerator,
-        vocab=vocab,
+        taxa_vocab=taxa_vocab,
+        batch_vocab=batch_vocab,
         graph_data=graph_data
     )
     
     logger.info("Starting training...")
     trainer.train(
         model=training_state['model'],
-        train_loader=training_state['train_loader'],
-        valid_loader=training_state['valid_loader'],
+        train_loader=train_loader,
+        valid_loader=valid_loader,
         optimizer=training_state['optimizer'],
         scheduler=training_state['scheduler'],
         start_epoch=training_state['epoch'],
