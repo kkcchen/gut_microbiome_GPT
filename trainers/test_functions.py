@@ -100,7 +100,10 @@ def create_testdata_state(adata, num_bins, vocab, batch_obskey, continuous_obske
 
     tokenizer = Tokenizer(vocab)
     data_dict = tokenizer.tokenize_and_pad_batch(adata, batch_obskey=batch_obskey, continuous_obskey=continuous_obskey)
-    
+###########
+    adata.obs["obs_idx"] = np.arange(adata.n_obs, dtype=np.int64)
+    data_dict["obs_idx"] = torch.from_numpy(adata.obs["obs_idx"].to_numpy()).long()
+###########
     return data_dict, adata
 
 
@@ -210,78 +213,132 @@ def evaluate_binary(label_name, y_probs, y_pred, y_test_binary):
     assert y_probs.ndim == 1, f"y_probs should be 1-dimensional, got {y_probs.ndim} dimensions"
     
     # Evaluate the model's accuracy on the test set
-    n_samples = np.sum(y_test_binary).item()
-    accuracy = accuracy_score(y_test_binary, y_pred)
-    auc = roc_auc_score(y_test_binary, y_probs)
-    average_precision = average_precision_score(y_test_binary, y_probs)
-    baseline_precision = np.mean(y_test_binary)
+    n_samples = int(np.sum(y_test_binary).item())
+    accuracy = float(accuracy_score(y_test_binary, y_pred))
+    auc = float(roc_auc_score(y_test_binary, y_probs))
+    average_precision = float(average_precision_score(y_test_binary, y_probs))
+    baseline_precision = float(np.mean(y_test_binary))
 
     return {
-        "Label": label_name,
+        "Label": int(label_name) if isinstance(label_name, (np.integer, int)) else str(label_name),
         "n_samples": n_samples,
         "Accuracy": accuracy,
         "AUC (ROC)": auc,
         "Average Precision": average_precision,
         "Baseline Precision": baseline_precision
     }
-
+    
 def evaluate_multiclass_and_save(y_true, y_probs, train_class_labels, output_dir):
-    # evaluate, done for all
     os.makedirs(output_dir, exist_ok=True)
-    y_true = np.array(y_true)
-    train_class_labels = np.array(train_class_labels)
-    y_pred_index = np.argmax(y_probs, axis=1)
-    y_pred = train_class_labels[y_pred_index]
-    # print("types of predictions and targets are:", y_pred.dtype, y_true.dtype)
-    total_accuracy = accuracy_score(y_true, y_pred)
-    micro_f1 = f1_score(y_true, y_pred, average='micro')
-    macro_f1 = f1_score(y_true, y_pred, average='macro')
-    conf_mat = confusion_matrix(y_true, y_pred, labels=sorted(train_class_labels))
+
+    y_true = np.asarray(y_true, dtype=int)                 # 0..K-1
+    train_class_labels = np.asarray(train_class_labels)    # strings
+    y_pred_index = np.argmax(y_probs, axis=1).astype(int)  # 0..K-1
+
+    total_accuracy = accuracy_score(y_true, y_pred_index)
+    micro_f1 = f1_score(y_true, y_pred_index, average="micro")
+    macro_f1 = f1_score(y_true, y_pred_index, average="macro")
+
+    n_classes = len(train_class_labels)
+    conf_mat = confusion_matrix(y_true, y_pred_index, labels=np.arange(n_classes))
+
     label_scores = []
     fig, ax = plt.subplots(figsize=(8, 6))
 
-    index_label_pairs = enumerate(train_class_labels)
-    index_label_pairs = sorted(index_label_pairs, key=lambda x: x[1])
-    for index, label in index_label_pairs:
-        scores = y_probs[:, index]
-        binary_predictions = (y_pred == label).astype(int)
-        binary_targets = (y_true == label).astype(int)
+    # IMPORTANT: do NOT sort; indices must match columns in y_probs
+    for class_idx, label in enumerate(train_class_labels):
+        scores = y_probs[:, class_idx]
+        binary_predictions = (y_pred_index == class_idx).astype(int)
+        binary_targets = (y_true == class_idx).astype(int)
+
         if binary_targets.sum() == 0:
             print(f"\t Skipping label {label} as it has no positive samples")
             continue
+
         label_scores.append(evaluate_binary(label, scores, binary_predictions, binary_targets))
         add_roc_curve(binary_targets, scores, label, ax)
-    
+
     save_roc_curve(ax, output_dir)
-    save_confusion_matrix(conf_mat, sorted(train_class_labels), output_dir)
-    # Save the scores to a file
+    save_confusion_matrix(conf_mat, list(train_class_labels), output_dir)
+
     conf_row_strs = [str(row) for row in conf_mat]
 
     label_scores.sort(key=lambda x: x["Label"])
-    label_scores.append({"Total Accuracy": total_accuracy,
-                        "Micro F1": micro_f1,
-                        "Macro F1": macro_f1,
-                        "Categories": list(sorted(train_class_labels)),
-                        "Confusion Matrix": conf_row_strs})
-    # Save the scores to a file
+    label_scores.append({
+        "Total Accuracy": float(total_accuracy),
+        "Micro F1": float(micro_f1),
+        "Macro F1": float(macro_f1),
+        "Categories": [str(x) for x in list(train_class_labels)],
+        "Confusion Matrix": conf_row_strs
+    })
+
     scores_file = os.path.join(output_dir, "multiclass_scores.json")
     print(f"\t Scores for all labels saved to {scores_file}")
+    
+    
     with open(scores_file, "w") as f:
         json.dump(label_scores, f, indent=4)
 
     print(f"\t Scores for all labels saved to {scores_file}")
 
+# def evaluate_multiclass_and_save(y_true, y_probs, train_class_labels, output_dir):
+#     # evaluate, done for all
+#     os.makedirs(output_dir, exist_ok=True)
+#     y_true = np.array(y_true)
+#     train_class_labels = np.array(train_class_labels)
+#     y_pred_index = np.argmax(y_probs, axis=1)
+#     y_pred = train_class_labels[y_pred_index]
+#     # print("types of predictions and targets are:", y_pred.dtype, y_true.dtype)
+#     total_accuracy = accuracy_score(y_true, y_pred_index)
+#     micro_f1 = f1_score(y_true, y_pred_index, average='micro')
+#     macro_f1 = f1_score(y_true, y_pred_index, average='macro')
+#     n_classes = len(train_class_labels) ###########
+#     conf_mat = confusion_matrix(y_true, y_pred_index, labels=np.arange(n_classes)) ##########, labels=sorted(train_class_labels))
+#     label_scores = []
+#     fig, ax = plt.subplots(figsize=(8, 6))
+
+#     index_label_pairs = enumerate(train_class_labels)
+#     index_label_pairs = sorted(index_label_pairs, key=lambda x: x[1])
+#     for index, label in index_label_pairs:
+#         scores = y_probs[:, index]
+#         binary_predictions = (y_pred == label).astype(int)
+#         binary_targets = (y_true == label).astype(int)
+#         if binary_targets.sum() == 0:
+#             print(f"\t Skipping label {label} as it has no positive samples")
+#             continue
+#         label_scores.append(evaluate_binary(label, scores, binary_predictions, binary_targets))
+#         add_roc_curve(binary_targets, scores, label, ax)
+    
+#     save_roc_curve(ax, output_dir)
+#     save_confusion_matrix(conf_mat, list(train_class_labels), output_dir) ########sorted(train_class_labels), output_dir)
+#     # Save the scores to a file
+#     conf_row_strs = [str(row) for row in conf_mat]
+
+#     label_scores.sort(key=lambda x: x["Label"])
+#     label_scores.append({"Total Accuracy": total_accuracy,
+#                         "Micro F1": micro_f1,
+#                         "Macro F1": macro_f1,
+#                         "Categories": list(sorted(train_class_labels)),
+#                         "Confusion Matrix": conf_row_strs})
+#     # Save the scores to a file
+#     scores_file = os.path.join(output_dir, "multiclass_scores.json")
+#     print(f"\t Scores for all labels saved to {scores_file}")
+#     with open(scores_file, "w") as f:
+#         json.dump(label_scores, f, indent=4)
+
+#     print(f"\t Scores for all labels saved to {scores_file}")
+
 
 def evaluate_classification(model, dataloader, batch_vocab, vocab_pad_index, output_dir, accelerator, graph_data):
     probs, targets = get_class_probs(model, dataloader, vocab_pad_index, accelerator, graph_data)
     probs = probs.cpu().numpy()
-    targets = targets.cpu().numpy()
+    targets = targets.cpu().numpy().astype(int)
     
     train_class_labels = batch_vocab.itos
     target_labels = [batch_vocab.itos[target] for target in targets]
     if accelerator.is_main_process:
         evaluate_multiclass_and_save(
-            target_labels,
+            targets, ############## target_labels,
             probs,
             train_class_labels,
             output_dir

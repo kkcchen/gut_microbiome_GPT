@@ -5,7 +5,7 @@
     "embed_name": ["embedding", "raw_embedding"],
     "target_colname": "downstream_task",
     "methods": {
-      "xgboost": {
+      "mlp": {
         "search_type": "random",
         "task_type": "regression"
       }
@@ -17,7 +17,7 @@
     "embed_name": ["embedding", "raw_embedding"],
     "target_colname": "downstream_task",
     "methods": {
-      "xgboost": {
+      "mlp": {
         "search_type": "random",
         "task_type": "regression"
       }
@@ -29,7 +29,7 @@
     "embed_name": ["embedding", "raw_embedding"],
     "target_colname": "downstream_task",
     "methods": {
-      "xgboost": {
+      "mlp": {
         "search_type": "random",
         "task_type": "classification"
       }
@@ -41,7 +41,7 @@
     "embed_name": ["embedding", "raw_embedding"],
     "target_colname": "downstream_task",
     "methods": {
-      "xgboost": {
+      "mlp": {
         "search_type": "random",
         "task_type": "classification"
       }
@@ -53,7 +53,7 @@
     "embed_name": ["embedding", "raw_embedding"],
     "target_colname": "downstream_task",
     "methods": {
-      "xgboost": {
+      "mlp": {
         "search_type": "random",
         "task_type": "classification"
       }
@@ -65,7 +65,7 @@
     "embed_name": ["embedding", "raw_embedding"],
     "target_colname": "downstream_task",
     "methods": {
-      "xgboost": {
+      "mlp": {
         "search_type": "random",
         "task_type": "classification"
       }
@@ -77,7 +77,7 @@
     "embed_name": ["embedding", "raw_embedding"],
     "target_colname": "downstream_task",
     "methods": {
-      "xgboost": {
+      "mlp": {
         "search_type": "random",
         "task_type": "classification"
       }
@@ -89,7 +89,7 @@
     "embed_name": ["embedding", "raw_embedding"],
     "target_colname": "downstream_task",
     "methods": {
-      "xgboost": {
+      "mlp": {
         "search_type": "random",
         "task_type": "classification"
       }
@@ -101,7 +101,7 @@
     "embed_name": ["embedding", "raw_embedding"],
     "target_colname": "downstream_task",
     "methods": {
-      "xgboost": {
+      "mlp": {
         "search_type": "random",
         "task_type": "classification"
       }
@@ -113,7 +113,7 @@
     "embed_name": ["embedding", "raw_embedding"],
     "target_colname": "downstream_task",
     "methods": {
-      "xgboost": {
+      "mlp": {
         "search_type": "random",
         "task_type": "classification"
       }
@@ -125,7 +125,7 @@
     "embed_name": ["embedding", "raw_embedding"],
     "target_colname": "downstream_task",
     "methods": {
-      "xgboost": {
+      "mlp": {
         "search_type": "random",
         "task_type": "classification"
       }

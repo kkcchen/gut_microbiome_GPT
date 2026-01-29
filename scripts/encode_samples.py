@@ -94,10 +94,16 @@ def main():
 
     # === Encode ===
     all_cell_embs = []
+############
+    all_obs_idx = []
+############
     with torch.no_grad():
         for data_dict in dataloader:
             taxa = data_dict["ids"]
             values = data_dict["values"]
+#############
+            obs_idx = data_dict["obs_idx"]           # NEW
+#############
             src_padding_mask = taxa.eq(vocab.pad_index)
             unwrapped_model = accelerator.unwrap_model(model)
             output, _ = unwrapped_model.encode(
@@ -107,13 +113,32 @@ def main():
                 graph_data=graph_data,  # Graph data if applicable
             )  # (batch, seq_len, embsize)
             cell_emb = unwrapped_model.get_cell_emb_from_layer(output)  # (batch, embsize)
-            gathered = accelerator.gather_for_metrics(cell_emb)  # Gather across processes
+            # gathered = accelerator.gather_for_metrics(cell_emb)  # Gather across processes
+################
+            obs_idx_g, gathered = accelerator.gather_for_metrics((obs_idx, cell_emb))
+            all_obs_idx.append(obs_idx_g.cpu())
+################
             all_cell_embs.append(gathered.cpu())
 
     # === Save result (only main process) ===
     if accelerator.is_main_process:
-        final_tensor = torch.cat(all_cell_embs, dim=0)
-        adata.obsm[args.emb_colname] = np.array(final_tensor)
+        # final_tensor = torch.cat(all_cell_embs, dim=0)
+        # adata.obsm[args.emb_colname] = np.array(final_tensor)
+########################
+        obs_idx_cat = torch.cat(all_obs_idx, dim=0).numpy()
+        emb_cat = torch.cat(all_cell_embs, dim=0).numpy()
+
+        # Sort by obs_idx to guarantee alignment
+        order = np.argsort(obs_idx_cat)
+        obs_idx_sorted = obs_idx_cat[order]
+        emb_sorted = emb_cat[order]
+
+        # PROOF CHECK: obs_idx should be exactly 0..n_obs-1
+        assert np.array_equal(obs_idx_sorted, np.arange(adata.n_obs)), \
+            "Embedding rows do not match adata row order!"
+
+        adata.obsm[args.emb_colname] = emb_sorted
+#########################
         print("after:", adata)
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         adata.write_h5ad(output_path)

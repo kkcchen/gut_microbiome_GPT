@@ -62,7 +62,10 @@ class TransformerModel(nn.Module):
         use_gnn: bool = False,
         num_gnn_nodes: Optional[int] = None,
         gnn_type: str = "gat",
-        gnn_num_layers: int = 2,
+        gnn_num_layers: int = 2, 
+        proj_dim: int = 64, 
+        proj_hidden: int = None, 
+        use_projection_head: bool = True,
     ):
         super().__init__()
         self.model_type = "Transformer"
@@ -153,6 +156,19 @@ class TransformerModel(nn.Module):
             )
         # if init_vocab_path is None:
         #     self.init_weights(freeze_vocab)
+        
+        self.use_projection_head = use_projection_head
+        proj_hidden = proj_hidden or d_model
+
+        if self.use_projection_head:
+            # SimCLR-style MLP projection head
+            self.proj_head = nn.Sequential(
+                nn.Linear(d_model, proj_hidden),
+                nn.ReLU(inplace=True),
+                nn.Linear(proj_hidden, proj_dim),
+            )
+        # Auxiliary head: predict log library size (depth) from cell embedding
+        # self.depth_head = nn.Linear(d_model, 1)
 
     def encode(
         self,
@@ -424,6 +440,10 @@ class TransformerModel(nn.Module):
 
         cell_emb = self.get_cell_emb_from_layer(transformer_output)
         output["cell_emb"] = cell_emb
+        if self.use_projection_head:
+            cell_emb_proj = self.proj_head(cell_emb)
+            output["cell_emb_proj"] = cell_emb_proj
+        # output["depth_pred"] = self.depth_head(cell_emb).squeeze(-1)  # (batch,)
 
         # if CLS: # GEP
         #     raise NotImplementedError(

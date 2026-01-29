@@ -71,7 +71,7 @@ class DataCollator:
 
             ids_batch = torch.stack([example["taxa_ids"] for example in examples])
             values_batch = torch.stack([example["values"] for example in examples])
-            
+
             # attempt at subsampling noising
             if self.do_subsample:
                 
@@ -88,7 +88,10 @@ class DataCollator:
                 view1, view2 = self.make_downsampled_views(ids_batch, values_batch)
                 print("Subsampling time:", time.time() - timer)
                 out_dict = {"view1": view1, "view2": view2}
-            
+###############################                
+                if "obs_idx" in examples[0]:
+                    out_dict["obs_idx"] = torch.stack([example["obs_idx"] for example in examples])  # shape (B,)
+
             
             elif self.generation_mode:
                 if self.contrastive_embedding:
@@ -105,13 +108,20 @@ class DataCollator:
                     "ids": ids_batch,
                     "values": values_batch
                 }
+###############################                
+                if "obs_idx" in examples[0]:
+                    out_dict["obs_idx"] = torch.stack([example["obs_idx"] for example in examples])  # shape (B,)
+
                 
             if self.do_clr:
                 out_dict['values'] = self.clr_torch(out_dict['ids'], out_dict['values'])
                 # B = ids_batch.shape[0]
                 # for i in range(B):
                 #     out_dict['values'][i] = self.clr_torch(out_dict['ids'][i], out_dict['values'][i])
-                
+###############################                
+                if "obs_idx" in examples[0]:
+                    out_dict["obs_idx"] = torch.stack([example["obs_idx"] for example in examples])  # shape (B,)
+
 
             if self.use_batch_labels:
                 out_dict["batch_labels"] = torch.tensor([example["batch_labels"] for example in examples], dtype=torch.long)
@@ -194,7 +204,16 @@ class DataCollator:
     #         "gen_ids": gen_ids,
     #         "gen_values": gen_values
     #     }
-        
+    def _log_depth(self, ids: torch.Tensor, counts: torch.Tensor) -> torch.Tensor:
+        """
+        ids: (B, L) or (L,)
+        counts: (B, L) or (L,) raw integer counts (>=0)
+
+        Returns: (B,) or () log1p(depth) computed over valid (non-pad, non-class) taxa.
+        """
+        valid = (ids != self.vocab.pad_index) & (ids != self.vocab.class_index)
+        depth = (counts.to(torch.float32) * valid.to(torch.float32)).sum(dim=-1)  # sums over L
+        return torch.log1p(depth)    
 
     def mlm_corrupt_values(self, ids: torch.Tensor, values: torch.Tensor, mask_ids=False) -> Dict:
         B, T = ids.shape
@@ -434,11 +453,15 @@ class DataCollator:
         
         c1 = self.subsample_counts_torch(ids, values)
         c2 = self.subsample_counts_torch(ids, values)
+        
+        # Auxiliary target computed from the SAME subsampled counts used for each view
+        log_depth_1 = self._log_depth(ids, c1)  # (B,)
+        log_depth_2 = self._log_depth(ids, c2)  # (B,)
 
         v1 = self.clr_torch(ids, c1)  # (B, L) float32
         v2 = self.clr_torch(ids, c2)
 
-        return {"ids": ids.clone(), "values": v1}, {"ids": ids.clone(), "values": v2}
+        return {"ids": ids.clone(), "values": v1}, {"ids": ids.clone(), "values": v2} #, "log_depth": log_depth_1}, \, "log_depth": log_depth_2}
 
     @torch.no_grad()    
     def clr_torch(self, ids: torch.Tensor, counts: torch.Tensor, pseudocount: float = 1e-6):
@@ -448,18 +471,41 @@ class DataCollator:
         x = counts.to(torch.float32)
         out = torch.zeros_like(x)
         
+        
+        # modify this to just return the logged relative abundance instead of clr
+        # xv = torch.where(valid, x + pseudocount, torch.zeros_like(x))  # (B,L)
+
+        # denom = xv.sum(dim=1, keepdim=True).clamp_min(pseudocount)     # (B,1)
+
+        # out = torch.zeros_like(xv)
+        # out_valid = torch.log(xv.clamp_min(pseudocount)) - torch.log(denom)  # (B,L) via broadcast
+        # out[valid] = out_valid[valid]
+        
         # Add pseudocount only where valid
-        xv = torch.where(valid, x + pseudocount, torch.ones_like(x))  
+#########
+        # xv = torch.where(valid, x + pseudocount, torch.ones_like(x))  
 
-        logx = torch.log(xv)  # (B, L)
+        # logx = torch.log(xv)  # (B, L)
 
-        # Per-sample mean of log counts over valid positions (matches logx.mean() on xv[valid] in 1D)
-        denom = valid.sum(dim=1).clamp(min=1).to(logx.dtype)  # avoid /0
+        # # Per-sample mean of log counts over valid positions (matches logx.mean() on xv[valid] in 1D)
+        # denom = valid.sum(dim=1).clamp(min=1).to(logx.dtype)  # avoid /0
 
-        gm = (logx * valid).sum(dim=1) / denom  # (B,)
+        # gm = (logx * valid).sum(dim=1) / denom  # (B,)
 
-        # Fill only valid positions; invalid remain 0 (same behavior as your function)
-        out[valid] = (logx - gm[:, None])[valid]
+        # # Fill only valid positions; invalid remain 
+        # out[valid] = (logx - gm[:, None])[valid]
+#########
+
+        # zero out invalid positions
+        xv = torch.where(valid, x, torch.zeros_like(x))
+        # add pseudocount ONLY to valid taxa
+        xv = xv + pseudocount * valid
+        # relative abundances
+        denom = xv.sum(dim=1, keepdim=True).clamp_min(pseudocount)
+        p = xv / denom   # (B, L), in [0,1]
+        # arcsine–sqrt
+        out[valid] = torch.asin(torch.sqrt(p[valid]))        
+
 
         # if valid.any():
         #     xv = x[valid] + pseudocount
@@ -467,5 +513,5 @@ class DataCollator:
         #     gm = logx.mean()
         #     out[valid] = logx - gm  # CLR values (can be negative)
 
-        # # keep pad/class positions at 0.0
+        # keep pad/class positions at 0.0
         return out

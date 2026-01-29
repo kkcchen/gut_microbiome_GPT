@@ -21,7 +21,7 @@ try:
 except ImportError:
     _TABPFN_AVAILABLE = False
 
-from scripts.tree_learn import train_rf, train_xgb, train_linear, save_model, load_model, model_exists
+from scripts.tree_learn import train_rf, train_xgb, train_xgb_optuna_native, train_mlp, make_mlp_predictions, load_mlp_model, save_mlp_model, mlp_model_exists, train_linear, save_model, load_model, model_exists
 
 def tasks_type(string: str) -> Dict:
     """Convert JSON path to a dict with hard format, this is the expected type of task input,
@@ -283,17 +283,18 @@ def run_xgboost(method_conf, X_train, Y_train, X_test, Y_test, output_dir, sampl
         Y_test_encoded = le.transform(Y_test)
         if not model_exists("multiclass_xgboost", multiclass_output_dir):
             print(f"\t [One-vs-All XGBoost] Starting XGBoost classifier on all regions")
-            best_params, best_model = train_xgb(X_train, Y_train_encoded, method_conf["search_type"], sample_weights)
+            # best_params, best_model = train_xgb(X_train, Y_train_encoded, method_conf["search_type"], sample_weights)
+            best_params, best_model = train_xgb_optuna_native(X_train, Y_train_encoded,  sample_weights=sample_weights, n_trials=150)
             save_model("multiclass_xgboost", multiclass_output_dir, best_params, best_model)
         else:
             print(f"\t [One-vs-All XGBoost] Only doing eval for all regions")
             best_params, best_model = load_model("multiclass_xgboost", multiclass_output_dir)
 
         all_probs = best_model.predict_proba(X_test)
-        unique_labels = le.classes_
+        unique_labels = best_model.classes_ #le.classes_
         # unique_labels = np.unique(Y_train)
         print("\t shape of probs and targets is:", all_probs.shape, Y_test_encoded.shape)
-        evaluate_multiclass_and_save(Y_test, all_probs, unique_labels, multiclass_output_dir)
+        evaluate_multiclass_and_save(Y_test_encoded, all_probs, unique_labels, multiclass_output_dir)
     # run regression
     if method_conf["task_type"] == "regression":
         print("Running XGBoost Regression")
@@ -301,7 +302,8 @@ def run_xgboost(method_conf, X_train, Y_train, X_test, Y_test, output_dir, sampl
         os.makedirs(reg_output_dir, exist_ok=True)
         if not model_exists("regression_xgboost", reg_output_dir):
             print(f"\t [XGBoost Regression] Starting XGBoost regressor")
-            best_params, best_model = train_xgb(X_train, Y_train, method_conf["search_type"], sample_weights, regression=True)
+            best_params, best_model = train_xgb_optuna_native(X_train, Y_train, regression=True, sample_weights=sample_weights, n_trials=150)
+            # best_params, best_model = train_xgb(X_train, Y_train, method_conf["search_type"], sample_weights, regression=True)
             save_model("regression_xgboost", reg_output_dir, best_params, best_model)
         else:
             print(f"\t [XGBoost Regression] Only doing eval for regression")
@@ -310,6 +312,44 @@ def run_xgboost(method_conf, X_train, Y_train, X_test, Y_test, output_dir, sampl
         all_probs = best_model.predict(X_test).squeeze()
         # print(all_probs.shape, Y_test.shape)
         evaluate_regression_and_save(Y_test, all_probs, reg_output_dir)
+        
+def run_mlp(method_conf, X_train, Y_train, X_test, Y_test, output_dir, sample_weights=None):
+    if method_conf["task_type"] == "classification":
+        # multiclass
+        print("Running MLP, multiclass")
+        multiclass_output_dir = f"{output_dir}/multiclass"
+        os.makedirs(multiclass_output_dir, exist_ok=True)
+        le = LabelEncoder()
+        Y_train_encoded = le.fit_transform(Y_train)
+        Y_test_encoded = le.transform(Y_test)
+        if not mlp_model_exists("multiclass_mlp", multiclass_output_dir):
+            print(f"\t [MULTICLASS MLP] Starting MLP classifier on all regions")
+            model = train_mlp(X_train, Y_train_encoded,  sample_weights=sample_weights)
+            save_mlp_model("multiclass_mlp", multiclass_output_dir, model)
+        else:
+            print(f"\t [MULTICLASS MLP] Only doing eval for all regions")
+            model = load_mlp_model("multiclass_mlp", multiclass_output_dir)
+
+        all_probs = make_mlp_predictions(model, X_test)
+        unique_labels = np.unique(Y_train)
+        print("\t shape of probs and targets is:", all_probs.shape, Y_test_encoded.shape)
+        evaluate_multiclass_and_save(Y_test_encoded, all_probs, unique_labels, multiclass_output_dir)
+    # run regression
+    if method_conf["task_type"] == "regression":
+        print("Running MLP Regression")
+        reg_output_dir = f"{output_dir}/regression"
+        os.makedirs(reg_output_dir, exist_ok=True)
+        if not mlp_model_exists("regression_mlp", reg_output_dir):
+            print(f"\t [MLP Regression] Starting MLP regressor")
+            model = train_mlp(X_train, Y_train, regression=True, sample_weights=sample_weights)
+            save_mlp_model("regression_mlp", reg_output_dir, model)
+        else:
+            print(f"\t [MLP Regression] Only doing eval for regression")
+            model = load_mlp_model("regression_mlp", reg_output_dir)
+
+        all_probs = make_mlp_predictions(model, X_test)
+        # print(all_probs.shape, Y_test.shape)
+        evaluate_regression_and_save(Y_test, all_probs, reg_output_dir)    
 
 
 def run_tabpfn(method_conf, X_train, Y_train, X_test, Y_test, output_dir):
@@ -410,6 +450,11 @@ def run_task(task_name: str,
                 os.makedirs(tabpfn_output_path, exist_ok=True)
                 print(f"Running TabPFN models for task {task_name}\n")
                 run_tabpfn(method_conf, X_train, Y_train, X_test, Y_test, tabpfn_output_path)
+            elif method_name == "mlp":
+                mlp_output_path = f"{embed_output_path}/mlp"
+                os.makedirs(mlp_output_path, exist_ok=True)
+                print(f"Running MLP model for task {task_name}\n")
+                run_mlp(method_conf, X_train, Y_train, X_test, Y_test, mlp_output_path, sample_weights=sample_weights)
                 
 
 def main():

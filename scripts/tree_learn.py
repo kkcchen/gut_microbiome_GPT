@@ -3,6 +3,8 @@ import time
 import os
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from xgboost import XGBClassifier, XGBRegressor
+import xgboost as xgb
+import optuna
 import json
 import joblib
 from scipy.stats import randint, uniform
@@ -142,16 +144,18 @@ def train_xgb(X_train, y_train, search_type, sample_weights=None, regression=Fal
     elif search_type == "random":
         param_distributions = {
             "learning_rate": uniform(0.01, 0.3),     # [0.01, 0.31]
-            "max_depth": randint(3, 12),
+            "max_depth": randint(3, 9),
+            "min_child_weight": randint(1, 20),
             "n_estimators": randint(100, 1000),
-            "subsample": uniform(0.5, 0.5),          # [0.5, 1.0]
-            "colsample_bytree": uniform(0.5, 0.5)    # [0.5, 1.0]
+            "subsample": uniform(0.6, 0.3),          # [0.6, 0.9]
+            "colsample_bytree": uniform(0.6, 0.3),    # [0.6, 0.9]
+            "gamma": uniform(0.0, 5.0)
         }
         
         search = RandomizedSearchCV(
             estimator=xgb_model,
             param_distributions=param_distributions,
-            n_iter=20,
+            n_iter=70,
             scoring=search_scoring,
             cv=3,
             n_jobs=-1,
@@ -191,6 +195,219 @@ def train_xgb(X_train, y_train, search_type, sample_weights=None, regression=Fal
     print(f"Time elapsed for search: {(end_time - start_time):.2f} seconds")
 
     return search.best_params_, search.best_estimator_
+
+
+def train_xgb_optuna_native(
+    X_train,
+    y_train,
+    search_type="optuna",          # keep a similar signature; "none" still supported
+    sample_weights=None,
+    regression: bool = False,
+    n_trials: int = 50,
+    cv: int = 3,
+    seed: int = 42,
+    num_boost_round: int = 5000,    # upper bound; early stopping picks best
+    early_stopping_rounds: int = 50,
+    timeout: int | None = None,     # seconds; optional
+    verbose: bool = True,
+):
+    """
+    Native XGBoost + Optuna hyperparameter tuning.
+
+    Returns:
+        best_params_user (dict): params excluding the always-on base params
+        final_model (xgboost.Booster): trained booster
+        best_num_boost_round (int): chosen number of boosting rounds from CV
+        best_cv_score (float): best CV metric (auc higher is better; rmse/mlogloss lower is better)
+        study (optuna.study.Study): for inspection / plots
+    """
+    X_train = np.asarray(X_train)
+    y_train = np.asarray(y_train)
+
+    if verbose:
+        print("X_train shape:", X_train.shape)
+        print("y_train shape:", y_train.shape)
+
+    # ----------------------------
+    # Task setup: objective/metric
+    # ----------------------------
+    if regression:
+        objective = "reg:squarederror"
+        eval_metric = "rmse"
+        maximize = False
+        stratified = False
+        extra = {}
+        sklearn_model_cls = XGBRegressor
+    else:
+        classes = np.unique(y_train)
+        n_classes = len(classes)
+        stratified = True  
+        sklearn_model_cls = XGBClassifier
+
+        if n_classes == 2:
+            objective = "binary:logistic"
+            eval_metric = "auc"
+            maximize = True
+            extra = {}
+        else:
+            objective = "multi:softprob"
+            # Native CV supports "mlogloss" and "merror" well.
+            eval_metric = "mlogloss"
+            maximize = False
+            extra = {"num_class": int(n_classes)}
+
+    # Always-on params (not tuned)
+    base_params = {
+        "objective": objective,
+        "eval_metric": eval_metric,
+        "tree_method": "hist",
+        "seed": seed,
+        "nthread": -1,
+        **extra,
+    }
+
+    # DMatrix supports weights natively
+    dtrain = xgb.DMatrix(X_train, label=y_train, weight=sample_weights)
+
+    # --------------------------------
+    # "none" mode: train with fixed params
+    # --------------------------------
+    if search_type == "none":
+        user_params = {
+            "learning_rate": 0.1,
+            "max_depth": 3,
+            "subsample": 0.6,
+            "colsample_bytree": 0.6,
+            "gamma": 1.0,
+            "min_child_weight": 5,
+            "reg_lambda": 1.0,
+            "reg_alpha": 0.0,
+        }
+        params = {**base_params, **user_params}
+
+        start = time.time()
+        cv_res = xgb.cv(
+            params=params,
+            dtrain=dtrain,
+            nfold=cv,
+            num_boost_round=num_boost_round,
+            early_stopping_rounds=early_stopping_rounds,
+            stratified=stratified,
+            seed=seed,
+            verbose_eval=verbose,
+        )
+        best_num_boost_round = len(cv_res)
+        metric_col = f"test-{eval_metric}-mean"
+        best_cv_score = float(cv_res[metric_col].iloc[-1])
+
+        final_model = xgb.train(
+            params=params,
+            dtrain=dtrain,
+            num_boost_round=best_num_boost_round,
+        )
+
+        if verbose:
+            print(f"Time elapsed: {(time.time()-start):.2f} seconds")
+            print("Fixed params:", user_params)
+            print("Best num_boost_round:", best_num_boost_round)
+            print("CV score:", best_cv_score)
+
+        return user_params, final_model, best_num_boost_round, best_cv_score, None
+
+    if search_type not in ("optuna", "random", "grid"):
+        raise ValueError("search_type must be 'optuna' or 'none' (or legacy 'random'/'grid').")
+
+
+    # ----- helper to train final sklearn model -----
+    def train_final_sklearn(best_params_user: dict, best_rounds: int):
+        # sklearn wrapper uses n_estimators; map best_rounds -> n_estimators
+        model = sklearn_model_cls(
+            random_state=seed,
+            n_jobs=-1,
+            tree_method="hist",
+            # important: set tuned params
+            **best_params_user,
+            # important: set n_estimators to best CV round count
+            n_estimators=int(best_rounds),
+            # set eval_metric for consistent reporting
+            eval_metric=eval_metric,
+            # ensure multiclass wrapper gets num_class
+            **({"num_class": extra["num_class"]} if "num_class" in extra else {}),
+        )
+        model.fit(X_train, y_train, sample_weight=sample_weights)
+        return model
+
+    # ----------------------------
+    # Optuna objective: one trial = one param set evaluated by xgb.cv
+    # ----------------------------
+    def optuna_objective(trial: optuna.trial.Trial) -> float:
+        # Core search space (good default for 250–2000 samples)
+        user_params = {
+            "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
+            "max_depth": trial.suggest_int("max_depth", 2, 9),
+            "min_child_weight": trial.suggest_int("min_child_weight", 1, 30),
+            "subsample": trial.suggest_float("subsample", 0.5, 1.0),
+            "colsample_bytree": trial.suggest_float("colsample_bytree", 0.5, 1.0),
+            "gamma": trial.suggest_float("gamma", 0.0, 10.0),
+            "reg_lambda": trial.suggest_float("reg_lambda", 0.1, 30.0, log=True),
+            "reg_alpha": trial.suggest_float("reg_alpha", 0.0, 10.0),
+        }
+
+        params = {**base_params, **user_params}
+
+        cv_res = xgb.cv(
+            params=params,
+            dtrain=dtrain,
+            nfold=cv,
+            num_boost_round=num_boost_round,
+            early_stopping_rounds=early_stopping_rounds,
+            stratified=stratified,
+            seed=seed,
+            verbose_eval=False,
+        )
+
+        best_num_round = len(cv_res)
+        metric_col = f"test-{eval_metric}-mean"
+        score = float(cv_res[metric_col].iloc[-1])
+
+        # store best round so you can reuse it for final training
+        trial.set_user_attr("best_num_boost_round", best_num_round)
+
+        return score  # Optuna will maximize/minimize depending on direction
+
+    direction = "maximize" if maximize else "minimize"
+    sampler = optuna.samplers.TPESampler(seed=seed)
+
+    study = optuna.create_study(direction=direction, sampler=sampler)
+
+    start_time = time.time()
+    study.optimize(optuna_objective, n_trials=n_trials, timeout=timeout, show_progress_bar=verbose)
+    end_time = time.time()
+
+    best_params_user = dict(study.best_trial.params)
+    best_num_boost_round = int(study.best_trial.user_attrs["best_num_boost_round"])
+    best_cv_score = float(study.best_value)
+
+    if verbose:
+        print(f"Time elapsed for Optuna search: {(end_time - start_time):.2f} seconds")
+        print("Best params:", best_params_user)
+        print("Best num_boost_round:", best_num_boost_round)
+        print(f"Best CV {eval_metric}:", best_cv_score)
+        
+    best_model = train_final_sklearn(best_params_user, best_num_boost_round)
+    return best_params_user, best_model
+
+    # # Train final model on ALL training data using best params and best_num_boost_round
+    # final_params = {**base_params, **best_params_user}
+    # final_model = xgb.train(
+    #     params=final_params,
+    #     dtrain=dtrain,
+    #     num_boost_round=best_num_boost_round,
+    # )
+
+    # return best_params_user, final_model, best_num_boost_round, best_cv_score, study
+
+
 
 
 def train_linear(X_train, y_train, search_type, sample_weights=None, regression=False):
@@ -264,6 +481,76 @@ def train_linear(X_train, y_train, search_type, sample_weights=None, regression=
 
     return search.best_params_, search.best_estimator_
 
+def train_mlp(X_train, Y_train_encoded, regression = False, class_weights = None):
+    import torch
+    import torch.nn as nn
+    from torch.utils.data import DataLoader, TensorDataset
+
+    class MLP(nn.Module):
+        def __init__(self, input_dim, hidden_dim, output_dim):
+            super(MLP, self).__init__()
+            self.fc1 = nn.Linear(input_dim, hidden_dim)
+            self.relu = nn.ReLU()
+            self.layer_norm = nn.LayerNorm(hidden_dim)
+            self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+            self.relu2 = nn.ReLU()
+            self.layer_norm2 = nn.LayerNorm(hidden_dim)
+            self.fc3 = nn.Linear(hidden_dim, output_dim)
+            
+
+        def forward(self, x):
+            out = self.fc1(x)
+            out = self.relu(out)
+            out = self.layer_norm(out)  
+            out = self.fc2(out)
+            out = self.relu2(out)
+            out = self.layer_norm2(out)  
+            out = self.fc3(out)
+            return out
+
+    input_dim = X_train.shape[1]
+    hidden_dim = 128
+    if regression:
+        output_dim = 1
+    else:
+        output_dim = max(len(class_weights),len(torch.unique(torch.tensor(Y_train_encoded))))
+    
+    
+    if regression:
+        criterion = torch.nn.MSELoss()
+    else:
+        criterion=torch.nn.CrossEntropyLoss(weight=class_weights)
+    
+
+    model = MLP(input_dim, hidden_dim, output_dim)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+
+    dataset = TensorDataset(torch.tensor(X_train, dtype=torch.float32), torch.tensor(Y_train_encoded, dtype=torch.long))
+    dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
+
+    num_epochs = 10
+    for epoch in range(num_epochs):
+        for inputs, labels in dataloader:
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+
+    return model
+
+def make_mlp_predictions(model, X_test):
+    import torch
+    model.eval()
+    with torch.no_grad():
+        inputs = torch.tensor(X_test, dtype=torch.float32)
+        outputs = model(inputs)
+        if outputs.shape[1] == 1:
+            return outputs.numpy().squeeze()
+        else:
+            probs = torch.softmax(outputs, dim=1)
+            return probs.numpy()
+
 
 def save_model(label_name, output_dir, best_params, best_model):
     label_name = label_name.replace("/", " ")
@@ -293,6 +580,28 @@ def load_model(label_name, output_dir):
         best_params = json.load(f)
     best_model = joblib.load(os.path.join(label_dir, "best_model.pkl"))
     return best_params, best_model
+
+def save_mlp_model(label_name, output_dir, model):
+    label_name = label_name.replace("/", " ")
+    label_name = label_name.replace(" ", "_")
+    label_dir = os.path.join(output_dir, f"{label_name}")
+    os.makedirs(label_dir, exist_ok=True)
+    # Save model
+    joblib.dump(model, os.path.join(label_dir, "mlp_model.pkl"))
+    
+def mlp_model_exists(label_name, output_dir):
+    label_name = label_name.replace("/", " ")
+    label_name = label_name.replace(" ", "_")
+    label_dir = os.path.join(output_dir, f"{label_name}")
+    return os.path.exists(label_dir) and os.path.exists(os.path.join(label_dir, "mlp_model.pkl"))
+
+def load_mlp_model(label_name, output_dir):
+    label_name = label_name.replace("/", " ")
+    label_name = label_name.replace(" ", "_")
+    label_dir = os.path.join(output_dir, f"{label_name}")
+    model = joblib.load(os.path.join(label_dir, "mlp_model.pkl"))
+    return model
+    
 
 
 def main():
@@ -373,27 +682,27 @@ def main():
         
         if args.model_type == "one-vs-all":
             raise NotImplementedError("One-vs-all is not implemented in this version.")
-            all_probs = np.empty((len(Y_test_filtered), len(unique_labels)))
-            for i, label_name in enumerate(unique_labels):
-                if not model_exists(label_name, output_dir):
-                    print(f"Starting classifier on label {label_name}")
-                    
-                    # Create binary labels: 1 for current label, 0 otherwise
-                    y_train_binary = (Y_train == label_name).astype(int)
-                    # sample_weights = 
-                    # best_params, best_model = train_func(X_train, y_train_binary, args.search_type, sample_weights)
-
-                    # Save the best parameters and model for the current label
-                    save_model(label_name, output_dir, best_params, best_model)
-                else:
-                    print(f"Only doing eval for {label_name}")
-                    best_params, best_model = load_model(label_name, output_dir)
+        # all_probs = np.empty((len(Y_test_filtered), len(unique_labels)))
+        # for i, label_name in enumerate(unique_labels):
+        #     if not model_exists(label_name, output_dir):
+        #         print(f"Starting classifier on label {label_name}")
                 
-                # Predict the labels for the test set using the best model
-                y_probs = best_model.predict_proba(X_test_filtered)
-                assert np.allclose(y_probs.sum(axis=1), 1.0, atol=1e-6), "Not all rows sum to 1"
-                all_probs[:, i] = y_probs[:, 1]  # Store probabilities for the positive class
-                evaluate_multiclass_and_save(Y_test_filtered, all_probs, unique_labels, output_dir)
+        #         # Create binary labels: 1 for current label, 0 otherwise
+        #         y_train_binary = (Y_train == label_name).astype(int)
+        #         # sample_weights = 
+        #         # best_params, best_model = train_func(X_train, y_train_binary, args.search_type, sample_weights)
+
+        #         # Save the best parameters and model for the current label
+        #         save_model(label_name, output_dir, best_params, best_model)
+        #     else:
+        #         print(f"Only doing eval for {label_name}")
+        #         best_params, best_model = load_model(label_name, output_dir)
+            
+        #     # Predict the labels for the test set using the best model
+        #     y_probs = best_model.predict_proba(X_test_filtered)
+        #     assert np.allclose(y_probs.sum(axis=1), 1.0, atol=1e-6), "Not all rows sum to 1"
+        #     all_probs[:, i] = y_probs[:, 1]  # Store probabilities for the positive class
+        #     evaluate_multiclass_and_save(Y_test_filtered, all_probs, unique_labels, output_dir)
         elif args.model_type == "multiclass":
             if not model_exists("multiclass_tree", output_dir):
                 print(f"Starting classifier on all labels")
@@ -421,6 +730,8 @@ def main():
         evaluate_regression_and_save(Y_test, all_probs, output_dir)
     else:
         raise ValueError("model_type must be 'multiclass', 'one-vs-all', or 'regression'")
+
+
 
         
 if __name__ == "__main__":

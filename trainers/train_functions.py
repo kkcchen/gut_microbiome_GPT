@@ -354,6 +354,8 @@ def subsample_contrastive_pretrain(
             
             data_dict_main = data_dict["view1"]
             data_dict_aux  = data_dict["view2"]
+            # log_depth_1 = data_dict_main.get("log_depth", None)
+            # log_depth_2 = data_dict_aux.get("log_depth", None)
 
             taxa = data_dict_main["ids"]
             values = data_dict_main["values"]
@@ -400,14 +402,35 @@ def subsample_contrastive_pretrain(
                     graph_data=graph_data,
                 )
                 logger.info(f"Time for embedding view 2: {time.time() - timer:5.2f} seconds")
-                z1 = out1["cell_emb"]   # (B, D)
-                z2 = out2["cell_emb"]   # (B, D)
+                z1 = out1["cell_emb_proj"]   # (B, D) #### added _proj for projection head
+                z2 = out2["cell_emb_proj"]   # (B, D) ### added _proj for projection head
                 logger.info("Computing contrastive loss")
                 timer = time.time()
-                loss = nt_xent(z1, z2, temperature=0.2) # nt_xent_loss_accelerate(z1, z2, accelerator, temperature=0.2)
+                loss_contrast = nt_xent(z1, z2, temperature=0.2) # nt_xent_loss_accelerate(z1, z2, accelerator, temperature=0.2)
+                # --- NEW: depth regression loss ---
+                # depth_pred_1 = out1["depth_pred"]  # (B,)
+                # depth_pred_2 = out2["depth_pred"]  # (B,)
+
+                # # move targets to device / dtype
+                # t1 = log_depth_1.to(depth_pred_1.device, dtype=depth_pred_1.dtype)
+                # t2 = log_depth_2.to(depth_pred_2.device, dtype=depth_pred_2.dtype)
+
+                # # optional but recommended: normalize within batch for stability
+                # t1n = (t1 - t1.mean()) / (t1.std() + 1e-6)
+                # t2n = (t2 - t2.mean()) / (t2.std() + 1e-6)
+
+                # p1n = (depth_pred_1 - depth_pred_1.mean()) / (depth_pred_1.std() + 1e-6)
+                # p2n = (depth_pred_2 - depth_pred_2.mean()) / (depth_pred_2.std() + 1e-6)
+
+                # loss_depth = 0.5 * F.mse_loss(p1n, t1n) + 0.5 * F.mse_loss(p2n, t2n)
+
+                # lambda_depth = 0.1  # good starting point
+                loss = loss_contrast #+ lambda_depth * loss_depth
                 logger.info(f"Time for contrastive loss computation: {time.time() - timer:5.2f} seconds")
                 
-            accelerator.log({"train/contrastive": loss.item()}, step=global_iter)
+            accelerator.log({"train/contrastive": loss_contrast.item()}, step=global_iter)
+            # accelerator.log({"train/depth_loss": loss_depth.item()}, step=global_iter)
+            # accelerator.log({"train/total_loss": loss.item()}, step=global_iter)
 
             logger.info("Backpropagating loss")
             timer = time.time()
@@ -528,6 +551,9 @@ def evaluate_contrastive(
             logger.info("Evaluating batch {}".format(batch))
             data_dict_main = data_dict["view1"]
             data_dict_aux  = data_dict["view2"]
+            
+            # log_depth_1 = data_dict_main.get("log_depth", None)
+            # log_depth_2 = data_dict_aux.get("log_depth", None)
 
             taxa = data_dict_main["ids"]
             values = data_dict_main["values"]
@@ -569,11 +595,27 @@ def evaluate_contrastive(
                     graph_data=graph_data,
                 )
 
-                z1 = out1["cell_emb"]   # (B, D)
-                z2 = out2["cell_emb"]   # (B, D)
+                z1 = out1["cell_emb_proj"]   # (B, D)
+                z2 = out2["cell_emb_proj"]   # (B, D)
                 logger.info("Computing eval contrastive loss")
                 logger.info(f"Time for embedding view 2 for eval: {time.time() - timer:5.2f} seconds")
-                loss = nt_xent(z1, z2, temperature=0.2) #  nt_xent_loss_accelerate(z1, z2, accelerator, temperature=0.2)
+                loss_contrast = nt_xent(z1, z2, temperature=0.2) #  nt_xent_loss_accelerate(z1, z2, accelerator, temperature=0.2)
+                
+                # depth_pred_1 = out1["depth_pred"]
+                # depth_pred_2 = out2["depth_pred"]
+                # t1 = log_depth_1.to(depth_pred_1.device, dtype=depth_pred_1.dtype)
+                # t2 = log_depth_2.to(depth_pred_2.device, dtype=depth_pred_2.dtype)
+
+                # t1n = (t1 - t1.mean()) / (t1.std() + 1e-6)
+                # t2n = (t2 - t2.mean()) / (t2.std() + 1e-6)
+                # p1n = (depth_pred_1 - depth_pred_1.mean()) / (depth_pred_1.std() + 1e-6)
+                # p2n = (depth_pred_2 - depth_pred_2.mean()) / (depth_pred_2.std() + 1e-6)
+
+                # loss_depth = 0.5 * F.mse_loss(p1n, t1n) + 0.5 * F.mse_loss(p2n, t2n)
+
+                # lambda_depth = 0.1
+                loss = loss_contrast# + lambda_depth * loss_depth
+                
             total_loss += loss.item()
 
 

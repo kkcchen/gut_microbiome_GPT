@@ -45,7 +45,7 @@ def main():
     model.eval()
     
     use_gnn = model_config.get("base_model_config", {}).get("use_gnn", False)
-    
+    bin_strategy = model_config.get("base_model_config", {}).get("bin_strategy", "binning")
     batch_obskey = None
     continuous_obskey = None
     
@@ -72,7 +72,8 @@ def main():
         vocab=vocab,
         batch_obskey=batch_obskey,
         continuous_obskey=continuous_obskey,
-        nrows=args.nrows  # Set to None to use all rows
+        nrows=args.nrows,  # Set to None to use all rows
+        bin_strategy=bin_strategy
     )
     
     if not is_classification:
@@ -84,8 +85,9 @@ def main():
         use_continuous_labels=not is_classification,
         gen_percent=0.0,  # No generation for encoding
         vocab=vocab,
-        batch_size=64,  # Adjust batch size as needed
+        batch_size=128,  # Adjust batch size as needed
         shuffle=False,  # Do not shuffle for encoding
+        do_clr=True
     )
     
     # Prepare model and dataloader with accelerate

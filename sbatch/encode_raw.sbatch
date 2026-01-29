@@ -11,7 +11,9 @@
 source ~/hmbenv/bin/activate
 
 python -m scripts.encode_raw \
-  --train-input /project/aip-rahulgk/gutmodel/remove_redundant_oct24/finetune_train.h5ad \
-  --test-input /project/aip-rahulgk/gutmodel/remove_redundant_oct24/finetune_test.h5ad \
+  --train-input experiment_saves/contrastive_embed/encoded_contrastive_final_depth_aux_train_best.h5ad \
+  --test-input experiment_saves/contrastive_embed/encoded_contrastive_final_depth_aux_test_best.h5ad \
+  --train-output experiment_saves/contrastive_embed/encoded_contrastive_final_depth_aux_train_best.h5ad \
+  --test-output experiment_saves/contrastive_embed/encoded_contrastive_final_depth_aux_test_best.h5ad \
   --prevalence-threshold 0.01 \
   --abundance-threshold 0.05

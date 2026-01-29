@@ -216,6 +216,7 @@ if __name__ == "__main__":
         shuffle=True,
         gen_percent=0,
         contrastive_embedding=False,
+        do_clr=True,
     )
     valid_loader = prepare_dataloader(
         valid_data_dict,
@@ -226,6 +227,7 @@ if __name__ == "__main__":
         shuffle=False,
         gen_percent=0,
         contrastive_embedding=False,
+        do_clr=True,
     )
     
     trainloader_len = len(train_loader)
