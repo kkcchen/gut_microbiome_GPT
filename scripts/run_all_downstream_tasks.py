@@ -324,7 +324,7 @@ def run_mlp(method_conf, X_train, Y_train, X_test, Y_test, output_dir, sample_we
         Y_test_encoded = le.transform(Y_test)
         if not mlp_model_exists("multiclass_mlp", multiclass_output_dir):
             print(f"\t [MULTICLASS MLP] Starting MLP classifier on all regions")
-            model = train_mlp(X_train, Y_train_encoded,  sample_weights=sample_weights)
+            model = train_mlp(X_train, Y_train_encoded,  class_weights=sample_weights)
             save_mlp_model("multiclass_mlp", multiclass_output_dir, model)
         else:
             print(f"\t [MULTICLASS MLP] Only doing eval for all regions")
@@ -341,7 +341,7 @@ def run_mlp(method_conf, X_train, Y_train, X_test, Y_test, output_dir, sample_we
         os.makedirs(reg_output_dir, exist_ok=True)
         if not mlp_model_exists("regression_mlp", reg_output_dir):
             print(f"\t [MLP Regression] Starting MLP regressor")
-            model = train_mlp(X_train, Y_train, regression=True, sample_weights=sample_weights)
+            model = train_mlp(X_train, Y_train, regression=True, class_weights=sample_weights)
             save_mlp_model("regression_mlp", reg_output_dir, model)
         else:
             print(f"\t [MLP Regression] Only doing eval for regression")
@@ -425,7 +425,7 @@ def run_task(task_name: str,
             else:
                 sample_weights = None
 
-            if method_name not in ["random_forest", "linear", "xgboost", "tabpfn"]:
+            if method_name not in ["random_forest", "linear", "xgboost", "tabpfn", "mlp"]:
                 print(f"Task '{task_name}' method '{method_name}' is not implemented.")
                 continue
             if method_name == "random_forest":

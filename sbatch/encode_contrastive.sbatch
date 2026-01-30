@@ -16,15 +16,15 @@ source ~/hmbenv/bin/activate
 python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not available. Exiting.'" || exit 1
 
 # === Set paths ===
-EXPERIMENT_PATH=experiment_saves/contrastive_final_depth_aux
+EXPERIMENT_PATH=experiment_saves/contrastive_final_arcsine
 
 SAFETENSORS_PATH=$EXPERIMENT_PATH/model_checkpoints/best_model/model.safetensors
 # SAFETENSORS_PATH=$EXPERIMENT_PATH/model_checkpoints/intermediate_checkpoints/epoch_3/model.safetensors
 VOCAB_DIR=$EXPERIMENT_PATH/model_checkpoints/data_checkpoint
 MODEL_CONFIG_PATH=$EXPERIMENT_PATH/model_checkpoints/model_config.json
 
-TRAIN_OUTPUT_PATH=experiment_saves/contrastive_embed/encoded_contrastive_final_depth_aux_train_best.h5ad
-TEST_OUTPUT_PATH=experiment_saves/contrastive_embed/encoded_contrastive_final_depth_aux_test_best.h5ad
+TRAIN_OUTPUT_PATH=experiment_saves/contrastive_embed/encoded_contrastive_final_arcsine_train_best.h5ad
+TEST_OUTPUT_PATH=experiment_saves/contrastive_embed/encoded_contrastive_final_arcsine_test_best.h5ad
 
 TRAIN_ANN_PATH=/project/aip-rahulgk/gutmodel/hmc_final/downstream_train.h5ad
 TEST_ANN_PATH=/project/aip-rahulgk/gutmodel/hmc_final/downstream_test.h5ad

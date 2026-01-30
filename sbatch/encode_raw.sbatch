@@ -11,9 +11,9 @@
 source ~/hmbenv/bin/activate
 
 python -m scripts.encode_raw \
-  --train-input experiment_saves/contrastive_embed/encoded_contrastive_final_depth_aux_train_best.h5ad \
-  --test-input experiment_saves/contrastive_embed/encoded_contrastive_final_depth_aux_test_best.h5ad \
-  --train-output experiment_saves/contrastive_embed/encoded_contrastive_final_depth_aux_train_best.h5ad \
-  --test-output experiment_saves/contrastive_embed/encoded_contrastive_final_depth_aux_test_best.h5ad \
+  --train-input experiment_saves/contrastive_embed/encoded_contrastive_final_arcsine_train_best.h5ad \
+  --test-input experiment_saves/contrastive_embed/encoded_contrastive_final_arcsine_test_best.h5ad \
+  --train-output experiment_saves/contrastive_embed/encoded_contrastive_final_arcsine_train_best.h5ad \
+  --test-output experiment_saves/contrastive_embed/encoded_contrastive_final_arcsine_test_best.h5ad \
   --prevalence-threshold 0.01 \
   --abundance-threshold 0.05

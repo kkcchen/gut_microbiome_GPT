@@ -11,11 +11,11 @@
 # Activate your virtual environment
 source ~/hmbenv/bin/activate
 cd /home/dpellow/projects/aip-rahulgk/dpellow/gut_microbiome_GPT
-EXPERIMENT_PATH=experiment_saves/contrastive_downstream_final_projected_mlp
+EXPERIMENT_PATH=experiment_saves/contrastive_downstream_final_arcsine
 EMBED_PATH=experiment_saves/contrastive_embed/
-TRAIN_PATH=$EMBED_PATH/encoded_contrastive_final_projected_train_best_with_raw.h5ad
-TEST_PATH=$EMBED_PATH/encoded_contrastive_final_projected_test_best_with_raw.h5ad
-CONFIG_PATH=configs/downstream_all_mlp.json
+TRAIN_PATH=$EMBED_PATH/encoded_contrastive_final_arcsine_train_best.h5ad
+TEST_PATH=$EMBED_PATH/encoded_contrastive_final_arcsine_test_best.h5ad
+CONFIG_PATH=configs/downstream_all_embed.json
 export SCIPY_ARRAY_API=1
 CMD="python -m scripts.run_all_downstream_tasks \
     --train-path $TRAIN_PATH \
