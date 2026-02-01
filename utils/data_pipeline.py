@@ -107,9 +107,7 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
         'valid_loader': valid_loader,
         'taxa_vocab': taxa_vocab,
         'batch_vocab': batch_vocab,
-        'graph_data': graph_data,
-        'train_adata': train_adata,
-        'valid_adata': valid_adata
+        'graph_data': graph_data
     }
 
 

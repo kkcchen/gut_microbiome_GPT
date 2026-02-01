@@ -46,6 +46,7 @@ class MicrobiomeTrainer:
         self.patience = cfg.training.get('patience', self.max_epochs)
         self.log_interval = cfg.training.log_interval
         self.grad_clip = cfg.training.get('grad_clip', 1.0)
+        self.checkpoint_every = cfg.training.get('checkpoint_every', 5)
         
         # Task flags
         self.use_batch_labels = cfg.data.use_batch_labels
@@ -55,11 +56,7 @@ class MicrobiomeTrainer:
         self.checkpoint_dir = cfg.paths.checkpoint_dir
         self.intermediate_dir = cfg.paths.intermediate_dir
         
-        # Checkpointing config
-        self.checkpoint_epochs = set(cfg.training.get(
-            'checkpoint_epochs',
-            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 14]
-        ))
+        
     
     def train(
         self,
@@ -91,10 +88,6 @@ class MicrobiomeTrainer:
         logger.info(f"Best val loss: {best_val_loss:.6f}, Patience: {patience_counter}/{self.patience}")
         
         while epoch < self.max_epochs:
-            # Save intermediate checkpoints at specified epochs
-            if epoch in self.checkpoint_epochs:
-                self._save_intermediate_checkpoint(model, epoch)
-            
             logger.info("=" * 80)
             logger.info(f"Epoch {epoch + 1}/{self.max_epochs}")
             logger.info("=" * 80)
@@ -136,15 +129,17 @@ class MicrobiomeTrainer:
                 logger.info("=" * 80)
                 break
             
+            # Save intermediate checkpoints at specified epochs
+            if epoch % self.checkpoint_every == 0:
+                self._save_intermediate_checkpoint(model, epoch)
+                if self.accelerator.is_main_process:
+                    self._save_training_state(
+                        model, optimizer, scheduler, epoch, best_val_loss, patience_counter
+                    )
+            
+
             # Update epoch
             epoch += 1
-            
-            # Save training state checkpoint
-            if self.accelerator.is_main_process:
-                self._save_training_state(
-                    model, optimizer, scheduler, epoch, best_val_loss, patience_counter
-                )
-            
             self.accelerator.wait_for_everyone()
         
         logger.info("=" * 80)
@@ -303,6 +298,10 @@ class MicrobiomeTrainer:
         depth = batch['depth']  # (B,)
         original_depth = batch['original_depth']  # (B,)
         batch_ids = batch.get('batch_ids', None)  # (B,) or None
+        # get metadata fields if specified
+        metadata = {k: v for k, v in batch.items() 
+                    if k not in ['taxa_ids', 'perturbed_counts', 'original_counts', 
+                                 'expressed_mask', 'depth', 'original_depth', 'batch_ids']}
         
         # Forward pass through model
         # Adjust based on your model's forward signature
@@ -371,7 +370,7 @@ class MicrobiomeTrainer:
         }
         torch.save(metadata, save_path / 'metadata.pt')
         
-        logger.info(f"💾 Saved best model to {save_path}")
+        logger.info(f"Saved best model to {save_path}")
     
     def _save_intermediate_checkpoint(self, model, epoch: int):
         """Save intermediate checkpoint at specific epoch."""
@@ -380,7 +379,7 @@ class MicrobiomeTrainer:
             save_path.mkdir(parents=True, exist_ok=True)
             
             self.accelerator.save_model(model, save_path)
-            logger.info(f"💾 Saved intermediate checkpoint to {save_path}")
+            logger.info(f"Saved intermediate checkpoint to {save_path}")
     
     def _save_training_state(
         self,
@@ -405,4 +404,4 @@ class MicrobiomeTrainer:
         }
         
         torch.save(state, checkpoint_path / 'training_state.pt')
-        logger.info(f"💾 Saved training state to {checkpoint_path}")
+        logger.info(f"Saved training state to {checkpoint_path}")
