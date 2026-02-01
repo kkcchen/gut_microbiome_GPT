@@ -440,7 +440,9 @@ def preprocess(config_path: Path):
     print_task_counts("Test", final_test_adata)
     # 5. save processed data
     pretrain_save_path = os.path.join(paths['save_path'], 'pretrain.h5ad')
-    os.mkdir(paths['save_path'], exist_ok=True)
+
+    os.makedirs(paths['save_path'], exist_ok=True)
+
     adata.write_h5ad(pretrain_save_path)
     print(f"Pretrain data saved to: {pretrain_save_path}")
     downstream_train_save_path = os.path.join(paths['save_path'], 'downstream_train.h5ad')

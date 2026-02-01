@@ -7,55 +7,6 @@ from trainers import logger
 import torch.nn.functional as F
 
 
-def compute_loss(
-                    outputs,
-                    targets,
-                    cfg,
-                    vocab
-                 ) -> tuple[torch.Tensor, Dict[str, float]]:
-    '''
-    Compute the loss for microbiome representation learning.
-    :param outputs: Model outputs, dict containing the various different outputs
-    :param targets: Ground truth targets, dict containing the various different targets
-    :param cfg: Configuration object.
-    :param vocab: Vocabulary object for taxa 
-    :return: tuple of (loss tensor, metrics dictionary)
-    '''
-    loss = 0.0
-    metrics = {}
-    
-    # Expression reconstruction loss 
-    if cfg.tasks.do_reconstruction:
-        recon_output = outputs['abundance']
-        recon_target = targets['original_counts']
-        recon_mask = targets['expressed_mask']
-        
-        recon_loss = masked_mse_loss(
-            recon_output,
-            recon_target,
-            recon_mask
-        )
-        metrics['reconstruction_loss'] = recon_loss.item()
-        loss += cfg.params.reconstruction_loss_weight * recon_loss
-    
-    
-    # Contrastive loss
-    if cfg.tasks.do_contrastive:
-        z1 = outputs['view1']['cell_emb_proj']
-        z2 = outputs['view2']['cell_emb_proj']  
-        contrastive_loss = nt_xent(
-            z1, z2
-        )
-        metrics['contrastive_loss'] = contrastive_loss.item()
-        loss += cfg.params.contrastive_loss_weight * contrastive_loss
-    
-    
-    return loss, metrics
-        
-
-
-
-
 def masked_mse_loss(
     input: torch.Tensor, target: torch.Tensor, mask: torch.Tensor
 ) -> torch.Tensor:
@@ -103,3 +54,44 @@ def nt_xent(z1: torch.Tensor, z2: torch.Tensor, temperature: float = 0.2) -> tor
     labels = (labels + B) % (2 * B)
 
     return F.cross_entropy(logits, labels)
+
+def zinb_nll_loss(
+    mean: torch.Tensor,
+    disp: torch.Tensor,
+    pi: torch.Tensor,
+    target: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Compute the ZINB negative log-likelihood loss.
+    mean, disp, pi: predicted parameters from the model, shape batch_size x n_taxa
+    target: original counts
+    """
+    eps = 1e-8
+    mean = mean + eps
+    disp = disp + eps
+
+    # Log likelihood for NB
+    t1 = torch.lgamma(disp + target) - torch.lgamma(disp) - torch.lgamma(target + 1)
+    t2 = disp * (torch.log(disp) - torch.log(disp + mean))
+    t3 = target * (torch.log(mean) - torch.log(disp + mean))
+    nb_case = t1 + t2 + t3
+
+    # Log likelihood for zero inflation
+    zero_nb = torch.pow(disp / (disp + mean), disp)
+    zero_case = torch.log(pi + (1.0 - pi) * zero_nb + eps)
+
+    # Combine cases
+    result = torch.where(target < 1e-8, zero_case, torch.log(1.0 - pi + eps) + nb_case)
+
+    loss = -result
+    return loss.sum() / target.shape[1]  # average over taxa
+
+def mse_loss(
+    input: torch.Tensor,
+    target: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Compute the MSE loss between input and target.
+    """
+    loss = F.mse_loss(input, target, reduction="mean")
+    return loss

@@ -9,7 +9,7 @@ import torch
 from pathlib import Path
 from typing import Dict, Optional
 from trainers import logger
-from trainers.loss_functions import compute_loss
+from trainers.loss_functions import zinb_nll_loss, mse_loss
 
 
 class MicrobiomeTrainer:
@@ -272,7 +272,7 @@ class MicrobiomeTrainer:
         batch: Dict[str, torch.Tensor]
     ) -> tuple[torch.Tensor, Dict[str, float]]:
         """
-        Forward pass and loss computation.
+        Forward pass of model and loss computation in one function.
         
         Expected batch format:
         {
@@ -314,8 +314,7 @@ class MicrobiomeTrainer:
         )
         
         # Compute loss using imported loss function
-        # This function should be implemented in trainers/loss_functions.py
-        loss, metrics = compute_loss(
+        loss, metrics = self.compute_loss(
             outputs=outputs,
             targets={
                 'original_counts': original_counts,
@@ -405,3 +404,47 @@ class MicrobiomeTrainer:
         
         torch.save(state, checkpoint_path / 'training_state.pt')
         logger.info(f"Saved training state to {checkpoint_path}")
+
+
+    def compute_loss(self,   
+                    outputs,
+                    targets,
+                    cfg,
+                 ) -> tuple[torch.Tensor, Dict[str, float]]:
+        '''
+        Compute the loss for microbiome representation learning.
+        :param outputs: Model outputs, dict containing the various different outputs
+        :param targets: Ground truth targets, dict containing the various different targets
+        :param cfg: Configuration object.
+        :param vocab: Vocabulary object for taxa 
+        :return: tuple of (loss tensor, metrics dictionary)
+        '''
+        loss = 0.0
+        metrics = {}
+        
+        # Expression reconstruction loss 
+        tasks = cfg.training.tasks
+        if 'denoising' in tasks:
+            # output from model will be different depending on modelling distribution
+            if cfg.data.distribution == 'zinb':
+                # ZINB distribution parameters
+                outputs_mean = outputs["denoising_mean"]
+                outputs_disp = outputs["denoising_disp"]
+                outputs_pi = outputs["denoising_pi"]
+                denoising_loss = zinb_nll_loss(
+                    outputs_mean,
+                    outputs_disp,
+                    outputs_pi,
+                    targets['original_counts'],
+                    targets['expressed_mask']
+                )
+            else: # no distribution specified, direct count prediction
+                outputs_counts = outputs["denoising_counts"]
+                denoising_loss = mse_loss(
+                    outputs_counts,
+                    targets['original_counts'],
+                    targets['expressed_mask']
+                )
+            metrics["denoising_loss"] = denoising_loss.item()
+            loss += denoising_loss
+        return loss, metrics
