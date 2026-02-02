@@ -444,3 +444,4 @@ class MicrobiomeTrainer:
             metrics["denoising_loss"] = denoising_loss.item()
             loss += denoising_loss
         return loss, metrics
+

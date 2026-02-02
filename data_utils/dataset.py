@@ -159,6 +159,7 @@ class MicrobiomeDataset(Dataset):
                 size=min(n_unexpressed_needed, len(unexpressed_indices)),
                 replace=False
             )
+            # TODO: consider having this weighted by the taxa observed frequency in the dataset
             
             # Combine expressed + unexpressed
             selected_indices = np.concatenate([expressed_indices, sampled_unexpressed])
