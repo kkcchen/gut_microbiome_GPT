@@ -49,6 +49,7 @@ def main(cfg):
     """
     accelerator = setup_training_environment(cfg)
     
+    
     logger.info("Preparing microbiome data...")
     data_artifacts = prepare_microbiome_data(
         cfg=cfg,
@@ -75,13 +76,13 @@ def main(cfg):
     logger.info("Initializing training components...")
     total_steps = len(train_loader) * cfg.training.max_epochs
     training_state = initialize_training_components(
-        cfg=cfg,
         model_config=model_config,
+        cfg=cfg,
         total_steps=total_steps,
         accelerator=accelerator
     )
     
-    training_state = accelerator.prepare(
+    prepared_train_loader, prepared_valid_loader, prepared_model, prepared_optimizer, prepared_scheduler = accelerator.prepare(
         train_loader,
         valid_loader,
         training_state['model'],
@@ -101,12 +102,13 @@ def main(cfg):
     )
     
     logger.info("Starting training...")
+
     trainer.train(
-        model=training_state['model'],
-        train_loader=train_loader,
-        valid_loader=valid_loader,
-        optimizer=training_state['optimizer'],
-        scheduler=training_state['scheduler'],
+        model=prepared_model,
+        train_loader=prepared_train_loader,
+        valid_loader=prepared_valid_loader,
+        optimizer=prepared_optimizer,
+        scheduler=prepared_scheduler,
         start_epoch=training_state['epoch'],
         best_val_loss=training_state['best_val_loss'],
         patience_counter=training_state['patience_counter']
@@ -133,9 +135,9 @@ if __name__ == "__main__":
     )
     
     args = parser.parse_args()
-    
+
     # Load and merge configurations
-    config = load_and_validate_config(args.config, args.overrides)
+    cfg = load_and_validate_config(args.config, args.overrides)
     
     # Run training
-    main(config)
+    main(cfg)

@@ -35,7 +35,7 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
     train_adata, valid_adata = split_data(
         adata,
         split_key=cfg.data.get('split_key', None),
-        test_size=cfg.training.get('val_size', 0.1),
+        val_size=cfg.training.get('val_size', 0.1),
         seed=cfg.training.seed
     )
     
@@ -70,6 +70,16 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
     
     # 6. Create dataloaders
     logger.info("Creating dataloaders...")
+    if 'downsample_ratio_range' not in cfg.data:
+        logger.warning("Config 'data.downsample_ratio_range' not found, using default: (0.5, 0.9)")
+    if 'upsample_ratio_range' not in cfg.data:
+        logger.warning("Config 'data.upsample_ratio_range' not found, using default: (1.1, 2.0)")
+    if 'perturbation_ratio' not in cfg.data:
+        logger.warning("Config 'data.perturbation_ratio' not found, using default: 0.6")
+    if 'perturbation_distribution' not in cfg.data:
+        logger.warning("Config 'data.perturbation_distribution' not found, using default: 'zinb'")
+    if 'perturbation_scale' not in cfg.data:
+        logger.warning("Config 'data.perturbation_scale' not found, using default: 0.55")
     collator = MicrobiomeCollator(
         max_seq_len=cfg.data.max_seq_len,
         downsample_ratio_range=cfg.data.get('downsample_ratio_range', (0.5, 0.9)),
@@ -79,11 +89,13 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
         perturbation_scale=cfg.data.get('perturbation_scale', 0.55),
     )
     
+    if "num_workers" not in cfg.data:
+        logger.warning("Config 'data.num_workers' not found, using default: 1")
     train_loader = DataLoader(
         train_dataset,
         batch_size=cfg.training.batch_size,
         shuffle=True,
-        num_workers=cfg.data.get('num_workers', 4),
+        num_workers=cfg.data.get('num_workers', 1),
         collate_fn=collator,
         pin_memory=True,
         drop_last=True
@@ -93,7 +105,7 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
         valid_dataset,
         batch_size=cfg.validation.batch_size,
         shuffle=False,
-        num_workers=cfg.data.get('num_workers', 4),
+        num_workers=cfg.data.get('num_workers', 1),
         collate_fn=collator,
         pin_memory=True
     )

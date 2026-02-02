@@ -1,11 +1,11 @@
 paths:
-  model_config_path: "./outputs/model_config.json"
-  ann_table_path: "/path/to/data/hmc_table.csv"
+  model_config_path: "outputs/pretrain/model_config.json"
+  ann_table_path: "/home/tiantian/projects/aip-rahulgk/gutmodel/hmc_final/pretrain.h5ad"
   vocab_path: null
-  best_dir: "./outputs/best_model"
-  checkpoint_dir: "./outputs/checkpoints"
-  data_restore_dir: "./outputs/data_cache"
-  intermediate_dir: "./outputs/intermediate"
+  best_dir: "outputs/pretrain/best_model"
+  checkpoint_dir: "outputs/pretrain/checkpoints"
+  data_restore_dir: "outputs/pretrain/data_cache"
+  intermediate_dir: "outputs/pretrain/intermediate"
 
 wandb:
   enabled: false
@@ -26,6 +26,7 @@ training:
   enable_fp16: false
   train_mask_ratio: 0.15
   notes: "Experimenting with new architecture"
+  tasks: ["denoising"]
 
 validation:
   batch_size: 64
@@ -35,6 +36,10 @@ data:
   norm_strategy: "clr" # choices: clr, none
   split_key: "study_id" # we probably want to split train/val by entire studies, so it resembles close to real-world/test scenario
   val_size: 0.1
+  use_batch_labels: true
+  max_seq_len: 200
+  num_workers: 4
+  distribution: "zinb"
 
 
 model:
@@ -53,10 +58,7 @@ model:
     d_hid: 512
     nlayers: 3
     dropout: 0.1
-    input_emb_style: "continuous" # choices: scaling, continuous, category
-    freeze_vocab: false
-    freeze_value_encoder: false
-    do_attn_mask: false
+    abundance_emb_style: "continuous" # choices: scaling, continuous, category
     # Example: If you change architecture, just add new keys here
     # activation: "gelu" 
     # use_flash_attn: true

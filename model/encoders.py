@@ -148,7 +148,6 @@ class ContinuousValueEncoder(nn.Module):
         self.linear2 = nn.Linear(d_model, d_model)
         self.norm = nn.LayerNorm(d_model)
         self.max_value = max_value
-        self.mask_embedding = nn.Embedding(1, d_model)  # Embedding for mask_value
         if freeze:
             self._freeze_parameters()
 
@@ -168,11 +167,6 @@ class ContinuousValueEncoder(nn.Module):
         # expand last dimension
         x = x.unsqueeze(-1)
 
-        # Handle mask_value
-        mask_indices = (x == self.mask_value).squeeze(-1)
-        if mask_indices.any():
-            x[mask_indices] = 0  # Temporarily set mask_value to 0 for processing
-
         # Ensure values are within range
         assert torch.max(x) <= self.max_value, "Input values exceed max_value. too many bins?"
 
@@ -180,10 +174,6 @@ class ContinuousValueEncoder(nn.Module):
         x = self.activation(self.linear1(x))
         x = self.linear2(x)
         x = self.norm(x)
-
-        # Replace mask_value positions with mask embedding
-        if mask_indices.any():
-            x[mask_indices] = self.mask_embedding(torch.zeros(mask_indices.sum(), dtype=torch.long, device=x.device))
 
         return self.dropout(x)
 

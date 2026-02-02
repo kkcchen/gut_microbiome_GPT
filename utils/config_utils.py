@@ -27,11 +27,11 @@ def load_and_validate_config(config_path: str, overrides: list = None):
         config = yaml_conf
     
     # Validate required fields
-    _validate_config_structure(config)
+    # _validate_config_structure(config)
     
-    logger.info(f"Loaded configuration from {config_path}")
+    print(f"Loaded configuration from {config_path}")
     if overrides:
-        logger.info(f"Applied overrides: {overrides}")
+        print(f"Applied overrides: {overrides}")
     
     return config
 

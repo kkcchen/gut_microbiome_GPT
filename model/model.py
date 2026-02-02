@@ -21,8 +21,9 @@ from .encoders import (
 )
 
 from .decoders import (
-    ExprDecoder,
+    AbundanceDecoder,
 )
+from trainers import logger
 
 # PLACEHOLDER FOR NOW
 
@@ -33,13 +34,16 @@ class hgmGPT(nn.Module):
         nhead: int,
         d_hid: int,
         nlayers: int,
+        num_taxa: int,
         use_batch_labels: bool = False,
         num_batch_labels: Optional[int] = None,
         dropout: float = 0.5,
         abundance_emb_style: str = "continuous",
+        sample_emb_style: str = "cls",
         use_gnn: bool = False,
         num_gnn_nodes: Optional[int] = None,
         tasks: List[str] = ["denoising"],
+        model_distribution: Optional[str] = "zinb",
     ):
         """
         The base model for the human gut microbiome. This initializes the transformer based architecture for encoding abundance tables. 
@@ -66,14 +70,21 @@ class hgmGPT(nn.Module):
         :type num_gnn_nodes: Optional[int]
         :param tasks: The list of tasks to perform, e.g., denoising, bottleneck, contrastive
         :type tasks: List[str]
+        :param model_distribution: The distribution model to use, e.g., "zinb"
+        :type model_distribution: Optional[str]
         """
         super().__init__()
         self.model_type = "Transformer"
         self.d_model = d_model
         self.use_batch_labels = use_batch_labels
+        self.num_batch_labels = num_batch_labels
         self.abundance_emb_style = abundance_emb_style # default, continuous, mentioned in paper. could try using category encoding but this is likely less expressive
         self.nhead = nhead
         self.tasks = tasks
+        self.model_distribution = model_distribution
+        self.num_taxa = num_taxa
+        self.sample_emb_style = sample_emb_style
+        self.dropout = dropout
         if self.abundance_emb_style not in ["category", "continuous", "scaling"]:
             raise ValueError(
                 f"abundance_emb_style should be one of category, continuous, scaling, "
@@ -84,32 +95,39 @@ class hgmGPT(nn.Module):
         self.use_gnn = use_gnn
         if use_gnn:
             assert num_gnn_nodes is not None, "num_gnn_nodes must be provided when use_gnn is True"
-            self.taxa_encoder = TaxaGraphEncoder(num_gnn_nodes, 
-                                            vocab_num_special_tokens, 
-                                            vocab_len - vocab_num_special_tokens, 
-                                            d_model, 
-                                            padding_idx=vocab_pad_index)
+            self.taxa_encoder = TaxaGraphEncoder(num_nodes=num_gnn_nodes, 
+                                            num_special_tokens=0, 
+                                            num_taxa=self.num_taxa, 
+                                            embedding_dim=d_model)
         else:
-            self.taxa_encoder = TaxaEncoder(vocab_len, d_model, init_vocab_path, freeze_vocab, padding_idx=vocab_pad_index)
+            self.taxa_encoder = TaxaEncoder(num_taxa=self.num_taxa, 
+                                            embedding_dim=d_model, 
+                                            init_taxa_embedding_path=None, # TODO: add option later
+                                            )
 
         if self.abundance_emb_style == "continuous":
-            self.value_encoder = ContinuousValueEncoder(d_model, dropout)
+            self.value_encoder = ContinuousValueEncoder(d_model, self.dropout)
         else:
             print("Using scaling style for input embedding, just identity for now")
             self.value_encoder = nn.Identity()  # nn.Softmax(dim=1)
 
         # Batch Encoder
         if use_batch_labels:
-            assert num_batch_labels is not None, "num_batch_labels must be provided when use_batch_labels is True"
-            self.batch_encoder = BatchLabelEncoder(num_batch_labels, d_model)
+            assert self.num_batch_labels is not None, "num_batch_labels must be provided when use_batch_labels is True"
+            self.batch_encoder = BatchLabelEncoder(num_embeddings=self.num_batch_labels, 
+                                                   embedding_dim=d_model)
 
         # TODO: also probably need some metadata encoder, not implemented yet
         # ================================================================================
 
         # ================================ BUILD TRANSFORMER =============================
+        # build special tokens
+        # sample token embedding, learned
+        self.sample_token_emb = nn.Parameter(torch.randn(1, self.d_model))  # (1, d_model)
+
         # TODO: potentially try cross attention
         encoder_layers = TransformerEncoderLayer(
-            d_model, nhead, d_hid, dropout, batch_first=True
+            d_model, nhead, d_hid, self.dropout, batch_first=True
         )
         self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
         # ================================================================================
@@ -121,16 +139,40 @@ class hgmGPT(nn.Module):
         # 1. denoising
         # expression decoder, this operates on all the taxa tokens
         if "denoising" in tasks:
-            self.abundance_decoder = ExprDecoder(
+            self.denoising_decoder = AbundanceDecoder(
                 d_model=d_model,
-                nfirst_tokens_to_skip=...,
-                dropout=dropout,
-                distribution=...,
-                use_depth=...,
+                num_special_tokens=2 if use_batch_labels else 1,
+                distribution=self.model_distribution,
+                dropout=self.dropout
             )
         
         # 2. bottleneck 
         # TODO: zero out all the taxa tokens, leave only sample_token and batch_id_token, and essentially recreate the distribution for each taxa
+
+        # ================================================================================
+        # =============================== PRINT MODEL INFO ===============================
+        logger.info(f"Initialized hgmGPT model with {sum(p.numel() for p in self.parameters() if p.requires_grad)} trainable parameters")
+        self._log_arguments()
+        # print model architecture
+        logger.info(self)
+
+    def _log_arguments(self):
+        """helper function to log all model arguments."""
+        logger.info("Model arguments:")
+        logger.info(f"\t d_model: {self.d_model}")
+        logger.info(f"\t use_batch_labels: {self.use_batch_labels}")
+        if self.use_batch_labels:
+            logger.info(f"\t num_batch_labels: {self.num_batch_labels}")
+        logger.info(f"\t abundance_emb_style: {self.abundance_emb_style}")
+        logger.info(f"\t nhead: {self.nhead}")
+        logger.info(f"\t tasks: {self.tasks}")
+        logger.info(f"\t sample_emb_style: {self.sample_emb_style}")
+        logger.info(f"\t dropout: {self.dropout}")
+        logger.info(f"\t model_distribution: {self.model_distribution}")
+        logger.info(f"\t use_gnn: {self.use_gnn}")
+        if self.use_gnn:
+            logger.info(f"\t num_taxa (vocab size): {self.num_taxa}")
+        
 
     def encode(
         self,
@@ -168,9 +210,8 @@ class hgmGPT(nn.Module):
         if self.use_batch_labels:
             batch_emb = self.batch_encoder(batch_ids)  # (batch, d_model)
         
-        # 2. sample token embedding, learned
-        sample_token_emb = nn.Parameter(torch.randn(B, 1, self.d_model))  # (1, 1, d_model)
         # concat all special tokens, sample token first
+        sample_token_emb = self.sample_token_emb.unsqueeze(0).expand(B, -1, -1)
         if self.use_batch_labels:
             total_embs = torch.cat(
                 [sample_token_emb, batch_emb.unsqueeze(1), total_embs], dim=1
@@ -330,7 +371,8 @@ class hgmGPT(nn.Module):
         transformer_output = self.encode(
             taxa_ids,
             abundance_values,
-            graph_data,
+            batch_ids,
+            graph_data
         )  # (batch, seq_len + number of special tokens, d_model)
 
         assert not torch.isnan(transformer_output).any(), "NaN in transformer output"

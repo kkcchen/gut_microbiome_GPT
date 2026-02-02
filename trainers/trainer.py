@@ -307,7 +307,7 @@ class MicrobiomeTrainer:
         # Adjust based on your model's forward signature
         outputs = model(
             taxa_ids=taxa_ids,
-            counts=perturbed_counts,
+            abundance_values=perturbed_counts,
             depth=depth,
             batch_ids=batch_ids,
             graph_data=self.graph_data
@@ -324,7 +324,6 @@ class MicrobiomeTrainer:
                 'batch_ids': batch_ids
             },
             cfg=self.cfg,
-            vocab=self.taxa_vocab
         )
         
         return loss, metrics
@@ -416,7 +415,6 @@ class MicrobiomeTrainer:
         :param outputs: Model outputs, dict containing the various different outputs
         :param targets: Ground truth targets, dict containing the various different targets
         :param cfg: Configuration object.
-        :param vocab: Vocabulary object for taxa 
         :return: tuple of (loss tensor, metrics dictionary)
         '''
         loss = 0.0
@@ -436,14 +434,12 @@ class MicrobiomeTrainer:
                     outputs_disp,
                     outputs_pi,
                     targets['original_counts'],
-                    targets['expressed_mask']
                 )
             else: # no distribution specified, direct count prediction
                 outputs_counts = outputs["denoising_counts"]
                 denoising_loss = mse_loss(
                     outputs_counts,
                     targets['original_counts'],
-                    targets['expressed_mask']
                 )
             metrics["denoising_loss"] = denoising_loss.item()
             loss += denoising_loss

@@ -1,4 +1,4 @@
-from collator import MicrobiomeCollator
-from dataset import MicrobiomeDataset
-from vocabs import TaxaVocabulary, BatchVocabulary
-from graph_helpers import build_tg_data_from_taxon_df
+from .collator import MicrobiomeCollator
+from .dataset import MicrobiomeDataset
+from .vocabs import TaxaVocabulary, BatchVocabulary
+from .graph_helpers import build_tg_data_from_taxon_df

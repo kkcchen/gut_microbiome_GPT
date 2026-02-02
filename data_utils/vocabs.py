@@ -75,9 +75,10 @@ class BatchVocabulary:
         
         :param batch_names: List of unique batch/study names.
         """
-        self.batch_names = sorted(set(batch_names))
+        self.batch_names = sorted(set(batch_names)) + ['unknown']
         self.token_to_id = {name: idx for idx, name in enumerate(self.batch_names)}
         self.id_to_token = {idx: name for idx, name in enumerate(self.batch_names)}
+        self.unk_id = len(self.batch_names) - 1  # ID for 'unknown' batch
     
     @classmethod
     def from_adata(cls, adata: ad.AnnData, key: str = 'study_id') -> 'BatchVocabulary':
@@ -102,7 +103,15 @@ class BatchVocabulary:
         :param batch_names: List of batch names.
         :return: Array of integer IDs.
         """
-        return np.array([self.token_to_id[name] for name in batch_names])
+        encoded = []
+        
+        for name in batch_names:
+            if name in self.token_to_id:
+                encoded.append(self.token_to_id[name])
+            else:
+                # Map unknown batch to <UNK> token
+                encoded.append(self.unk_id)        
+        return np.array(encoded)
     
     def decode_batches(self, batch_ids: np.ndarray) -> List[str]:
         """

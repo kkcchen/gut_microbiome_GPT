@@ -49,5 +49,5 @@ def masked_relative_error(
     Compute the masked relative error between input and target.
     """
     assert mask.any()
-    loss = torch.abs(input[mask] - target[mask]) / (target[mask] + 1e-4)
+    loss = torch.abs(torch.abs(input[mask] - target[mask]) / (target[mask] + 1e-4))
     return loss.mean()

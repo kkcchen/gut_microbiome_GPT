@@ -7,7 +7,8 @@ import anndata as ad
 from typing import Dict, List, Tuple, Optional
 from torch.utils.data import Dataset
 
-from vocabs import TaxaVocabulary, BatchVocabulary
+from .vocabs import TaxaVocabulary, BatchVocabulary
+from trainers import logger
 
 
 class MicrobiomeDataset(Dataset):
@@ -64,7 +65,7 @@ class MicrobiomeDataset(Dataset):
                 if field not in adata.obs.columns:
                     raise ValueError(f"Metadata field '{field}' not found in adata.obs")
         else:
-            print("No metadata fields specified for dataset.")
+            logger.warning("No metadata fields specified for dataset.")
 
     
     def __len__(self) -> int:

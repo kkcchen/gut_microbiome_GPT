@@ -31,27 +31,10 @@ def build_model_config(cfg, taxa_vocab, batch_vocab=None, graph_data=None) -> di
     
     # Add dynamic configuration based on data and tasks
     dynamic_config = {
-        # Task flags
-        "do_mvc": cfg.model.tasks.do_mvc,
-        "do_taxa_decoder": cfg.model.tasks.do_taxa_decoder,
-        "do_contrastive": cfg.model.tasks.do_contrastive,
-        
-        # Data configuration
-        "use_batch_labels": cfg.data.use_batch_labels,
-        "use_gnn": cfg.model.get('use_gnn', False),
-        "n_input_bins": cfg.data.num_bins,
-        
-        # Vocabulary parameters
-        "vocab_len": len(taxa_vocab),
-        
-        # Batch labels
-        "num_batch_labels": len(batch_vocab) if batch_vocab else 0,
-        
-        # Paths
-        "init_vocab_path": cfg.paths.get('vocab_path', None),
-        
-        # GNN parameters
-        "num_gnn_nodes": graph_data.num_nodes if graph_data else None,
+        # use the vocab to initialize some parameters
+        "num_taxa": len(taxa_vocab),
+        "use_batch_labels": batch_vocab is not None,
+        "num_batch_labels": len(batch_vocab) if batch_vocab else None,
     }
     
     model_config.update(dynamic_config)
@@ -198,44 +181,44 @@ def initialize_training_components(model_config: dict, cfg, total_steps: int, ac
 
 
 
-def restore_or_initialize_state(cfg, model_config, train_loader, accelerator):
-    """
-    Restore from checkpoint or initialize fresh training state.
+# def restore_or_initialize_state(cfg, model_config, train_loader, accelerator):
+#     """
+#     Restore from checkpoint or initialize fresh training state.
     
-    :param cfg: Configuration object.
-    :param model_config: Model configuration dictionary.
-    :param train_loader: Training data loader (for computing total steps).
-    :param accelerator: Accelerator instance.
-    :return: Dictionary containing training state components.
-    """
-    from utils.config_utils import get_wandb_config
+#     :param cfg: Configuration object.
+#     :param model_config: Model configuration dictionary.
+#     :param train_loader: Training data loader (for computing total steps).
+#     :param accelerator: Accelerator instance.
+#     :return: Dictionary containing training state components.
+#     """
+#     from utils.config_utils import get_wandb_config
     
-    total_steps = len(train_loader) * cfg.training.max_epochs
+#     total_steps = len(train_loader) * cfg.training.max_epochs
     
-    model, optimizer, scheduler, epoch, best_val_loss, patience_counter, extra_state = \
-        create_or_restore_training_state_wandb(
-            model_config=model_config,
-            init_lr=cfg.training.init_lr,
-            warmup_ratio_or_step=cfg.training.cosine_warmup_ratio_or_step,
-            total_steps=total_steps,
-            checkpoint_dir=cfg.paths.checkpoint_dir,
-            use_wandb=cfg.wandb.enabled,
-            wandb_entity=cfg.wandb.get('entity', None),
-            wandb_project=cfg.wandb.get('project', 'microbiome-pretrain'),
-            wandb_config=get_wandb_config(cfg),
-            accelerator=accelerator,
-            wandb_run_name=cfg.wandb.get('run_name', None),
-            wandb_run_notes=cfg.wandb.get('run_notes', None)
-        )
+#     model, optimizer, scheduler, epoch, best_val_loss, patience_counter, extra_state = \
+#         create_or_restore_training_state_wandb(
+#             model_config=model_config,
+#             init_lr=cfg.training.init_lr,
+#             warmup_ratio_or_step=cfg.training.cosine_warmup_ratio_or_step,
+#             total_steps=total_steps,
+#             checkpoint_dir=cfg.paths.checkpoint_dir,
+#             use_wandb=cfg.wandb.enabled,
+#             wandb_entity=cfg.wandb.get('entity', None),
+#             wandb_project=cfg.wandb.get('project', 'microbiome-pretrain'),
+#             wandb_config=get_wandb_config(cfg),
+#             accelerator=accelerator,
+#             wandb_run_name=cfg.wandb.get('run_name', None),
+#             wandb_run_notes=cfg.wandb.get('run_notes', None)
+#         )
     
-    return {
-        'model': model,
-        'optimizer': optimizer,
-        'scheduler': scheduler,
-        'epoch': epoch,
-        'best_val_loss': best_val_loss,
-        'patience_counter': patience_counter,
-        'extra_state': extra_state,
-        'train_loader': None,  # Will be filled by caller
-        'valid_loader': None,  # Will be filled by caller
-    }
+#     return {
+#         'model': model,
+#         'optimizer': optimizer,
+#         'scheduler': scheduler,
+#         'epoch': epoch,
+#         'best_val_loss': best_val_loss,
+#         'patience_counter': patience_counter,
+#         'extra_state': extra_state,
+#         'train_loader': None,  # Will be filled by caller
+#         'valid_loader': None,  # Will be filled by caller
+#     }

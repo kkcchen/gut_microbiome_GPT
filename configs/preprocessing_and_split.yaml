@@ -2,7 +2,7 @@ paths:
   taxonomic_table_path: "/home/tiantian/projects/aip-rahulgk/tiantian/gut_microbiome_GPT/data/taxonomic_table.csv"
   metadata_path: "/home/tiantian/projects/aip-rahulgk/tiantian/gut_microbiome_GPT/data/sample_metadata.tsv"
   tags_path: "/home/tiantian/projects/aip-rahulgk/tiantian/gut_microbiome_GPT/data/tags.tsv"
-  save_path: "/home/tiantian/projects/aip-rahulgk/tiantian/gut_microbiome_GPT/outputs/hmc_final"
+  save_path: "/home/tiantian/projects/aip-rahulgk/gutmodel/hmc_final"
 
 general_config:
   seed: 42
