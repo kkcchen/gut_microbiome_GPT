@@ -83,3 +83,43 @@ class AbundanceDecoder(nn.Module):
             return {
                 "pred": F.softplus(pred.squeeze(-1))  # (batch, num_taxa)
             }
+
+
+class SampleProjection(nn.Module):
+    """
+    Projects sample-level embeddings to a lower-dimensional space.
+    
+    Useful for tasks like contrastive learning or batch effect correction.
+    """
+    
+    def __init__(
+        self,
+        d_model: int,
+        projection_dim: int,
+    ):
+        """
+        Args:
+            d_model: Dimension of transformer hidden states
+            projection_dim: Dimension of projected sample embeddings
+        """
+        super().__init__()
+        self.projection = nn.Sequential(
+            nn.Linear(d_model, d_model),
+            nn.ReLU(),
+            nn.Linear(d_model, projection_dim)
+        )
+    
+    def forward(self, x: Tensor) -> Tensor:
+        """
+        Args:
+            x: Transformer cell_embedding of shape (batch_size, d_model)
+        
+        Returns:
+            Projected sample embeddings of shape (batch_size, projection_dim)
+        """
+        # Assume the first token is the sample embedding token
+        
+        # Apply projection MLP
+        projected = self.projection(x)  # (batch_size, projection_dim)
+        
+        return {"projected": projected}
