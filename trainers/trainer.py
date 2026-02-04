@@ -445,3 +445,28 @@ class MicrobiomeTrainer:
             loss += denoising_loss
         return loss, metrics
 
+    def _compute_denoising_loss(self, outputs, targets, cfg):
+        '''
+        Compute denoising loss.
+        :param outputs: Model outputs for denoising.
+        :param targets: Ground truth counts.
+        :param cfg: Configuration object.
+        :return: Denoising loss tensor.
+        '''
+        if cfg.data.distribution == 'zinb':
+            outputs_mean = outputs["denoising_mean"]
+            outputs_disp = outputs["denoising_disp"]
+            outputs_pi = outputs["denoising_pi"]
+            denoising_loss = zinb_nll_loss(
+                outputs_mean,
+                outputs_disp,
+                outputs_pi,
+                targets['original_counts'],
+            )
+        else: # no distribution specified, direct count prediction
+            outputs_counts = outputs["denoising_counts"]
+            denoising_loss = mse_loss(
+                outputs_counts,
+                targets['original_counts'],
+            )
+        return denoising_loss

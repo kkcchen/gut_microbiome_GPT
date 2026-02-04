@@ -183,11 +183,10 @@ class BatchLabelEncoder(nn.Module):
         self,
         num_embeddings: int,
         embedding_dim: int,
-        padding_idx: Optional[int] = None,
     ):
         super().__init__()
         self.embedding = nn.Embedding(
-            num_embeddings, embedding_dim, padding_idx=padding_idx
+            num_embeddings, embedding_dim
         )
         self.enc_norm = nn.LayerNorm(embedding_dim)
 
