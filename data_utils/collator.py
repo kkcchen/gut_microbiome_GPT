@@ -240,13 +240,13 @@ class MicrobiomeCollator:
         :return: Tuple of (perturbed_counts, perturbed_depths).
         """
         B, L = counts.shape
-        depths = counts.sum(axis=1).astype(np.int64)  # (B,)
-        low, high = self.downsample_ratio_range
+        total_counts = counts.sum(axis=1).astype(np.int64)  # (B,)
+        low, high = self.downsample_range
         ratios = self.rng.uniform(low, high, size=B)
-        target_depths = np.floor(depths * ratios).astype(np.int64)  # (B,)
-        ps = counts / depths[:, None]  # (B, L)
-        perturbed_counts = self.rng.multinomial(n=target_depths, pvals=ps).astype(counts.dtype, copy=False)
-        return perturbed_counts, target_depths
+        target_totals = np.floor(total_counts * ratios).astype(np.int64)  # (B,)
+        ps = counts / total_counts[:, None]  # (B, L)
+        perturbed_counts = self.rng.multinomial(n=target_totals, pvals=ps).astype(counts.dtype, copy=False)
+        return perturbed_counts, target_totals
     
     
     ### TODO torch instead of numpy?
@@ -263,7 +263,7 @@ class MicrobiomeCollator:
         """
         B, L = counts.shape
 
-        low, high = self.downsample_ratio_range
+        low, high = self.downsample_range
         ratios = self.rng.uniform(low, high, size=B).astype(np.float64)  # (B,)
 
         # Broadcast ratios across taxa: (B, 1) -> (B, L)
@@ -273,6 +273,6 @@ class MicrobiomeCollator:
         perturbed_counts = self.rng.binomial(n=counts, p=p).astype(counts.dtype, copy=False)
 
         # Realized depths after thinning (random)
-        perturbed_depths = perturbed_counts.sum(axis=1).astype(np.int64)
+        perturbed_totals = perturbed_counts.sum(axis=1).astype(np.int64)
 
-        return perturbed_counts, perturbed_depths
+        return perturbed_counts, perturbed_totals

@@ -319,7 +319,7 @@ class MicrobiomeTrainer:
             depth_2 = batch['depth_2']  # (B,)
             outputs_2 = model(
                 taxa_ids=taxa_ids,
-                counts=perturbed_counts_2,
+                abundance_values=perturbed_counts_2,
                 depth=depth_2,
                 batch_ids=batch_ids,
                 graph_data=self.graph_data
@@ -439,8 +439,8 @@ class MicrobiomeTrainer:
             outputs = outputs["view_1"] # use this as outputs for any other losses
         
         # Expression reconstruction loss 
-        tasks = cfg.training.tasks
-        if 'denoising' in tasks:
+        tasks = cfg.tasks
+        if tasks.do_denoising:
             # output from model will be different depending on modelling distribution
             if cfg.data.distribution == 'zinb':
                 # ZINB distribution parameters
@@ -461,7 +461,7 @@ class MicrobiomeTrainer:
                 )
             metrics["denoising_loss"] = denoising_loss.item()
             loss += denoising_loss
-        if 'contrastive' in tasks:
+        if tasks.do_contrastive:
             # Placeholder for contrastive loss computation
             contrastive_loss = nt_xent_loss(
                 outputs["projected"],

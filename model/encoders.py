@@ -30,13 +30,14 @@ class TaxaEncoder(nn.Module):
             taxa_embeddings = np.load(init_taxa_embedding_path)
             n, d_taxa = taxa_embeddings.shape
             print(f"Loaded taxa embeddings of shape {taxa_embeddings.shape}")
-            # normalize the initialized embeddings
+            # normalize the initialized embeddings 
+            # TODO: why is this being done?
             taxa_embeddings_normalized = normalize(taxa_embeddings, norm='l2', axis=1)
+            # Now create embedding matrix of shape (n, d_taxa)
+            self.embedding = nn.Embedding(num_taxa, d_taxa)
             # load into embedding layer
             with torch.no_grad():
                 self.embedding.weight.copy_(torch.from_numpy(taxa_embeddings_normalized))
-            # Now create embedding matrix of shape (n, d_taxa)
-            self.embedding = nn.Embedding(num_taxa, d_taxa)
             self.proj = nn.Sequential(
                 nn.Linear(d_taxa, embedding_dim),  # expand hidden layer width
                 nn.ReLU(),
@@ -138,13 +139,13 @@ class ContinuousValueEncoder(nn.Module):
     def __init__(self, 
                 d_model: int, 
                 dropout: float = 0.1, 
-                max_value: int = 512, 
+                max_value: int = 512, # Need to make sure to set this when using raw count or other continuous values 
                 freeze:bool=False):
         # TODO: add arguments to allow different activation functions
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
         self.linear1 = nn.Linear(1, d_model)
-        self.activation = nn.ReLU()
+        self.activation = nn.ReLU() # TODO: Is it an issue that values can now be negative?
         self.linear2 = nn.Linear(d_model, d_model)
         self.norm = nn.LayerNorm(d_model)
         self.max_value = max_value
@@ -171,7 +172,7 @@ class ContinuousValueEncoder(nn.Module):
         assert torch.max(x) <= self.max_value, "Input values exceed max_value. too many bins?"
 
         # Process non-mask values
-        x = self.activation(self.linear1(x))
+        x = self.activation(self.linear1(x)) # TODO: Is it ok that x can have negative values
         x = self.linear2(x)
         x = self.norm(x)
 

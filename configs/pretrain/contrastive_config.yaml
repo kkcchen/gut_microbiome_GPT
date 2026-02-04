@@ -26,7 +26,7 @@ training:
   grad_accumulation_steps: 1
   enable_fp16: false
   train_mask_ratio: 0.15
-  notes: "Experimenting with new architecture"
+  notes: "Testing contrastive after refactor"
   contrastive_temperature: 0.2
 
 validation:

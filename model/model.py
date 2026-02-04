@@ -262,8 +262,8 @@ class hgmGPT(nn.Module):
         output = {}
         
         # Denoising task: decode all taxa tokens
-        if 'denoising' in self.tasks and hasattr(self, 'denoising_decoder'):
-            denoising_output = self.denoising_decoder(transformer_output)
+        if 'denoising' in self.tasks and hasattr(self, 'abundance_decoder'):
+            denoising_output = self.abundance_decoder(transformer_output)
             
             # Add predictions with task prefix
             if self.denoising_decoder.distribution == "zinb":
@@ -292,8 +292,7 @@ class hgmGPT(nn.Module):
         if 'contrastive' in self.tasks and hasattr(self, 'contrastive_projection_head'):
             # Get sample embedding
             sample_embedding = self._get_sample_embedding(transformer_output)
-            projection = self.contrastive_projection_head(sample_embedding)
-            output["contrastive_proj"] = projection
+            output["projected"] = self.contrastive_projection_head(sample_embedding)
         
         return output
 

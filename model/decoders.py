@@ -120,6 +120,5 @@ class SampleProjection(nn.Module):
         # Assume the first token is the sample embedding token
         
         # Apply projection MLP
-        projected = self.projection(x)  # (batch_size, projection_dim)
+        return self.projection(x)  # (batch_size, projection_dim)
         
-        return {"projected": projected}

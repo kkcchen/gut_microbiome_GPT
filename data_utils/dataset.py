@@ -111,7 +111,8 @@ class MicrobiomeDataset(Dataset):
                 sample_dict[field] = self.adata.obs.iloc[idx][field]
         
         return sample_dict
-    
+    # TODO: IMPORTANT - NOTE THIS IS DONE BEFORE THE COLLATOR
+    # SO CLR ETC AND DOWNSAMPLING ARE COMPUTED ON THE SELECTED TAXA ONLY
     def _select_taxa_dynamic(
         self,
         counts: np.ndarray
