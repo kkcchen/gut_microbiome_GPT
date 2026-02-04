@@ -9,7 +9,7 @@ import torch
 from pathlib import Path
 from typing import Dict, Optional
 from trainers import logger
-from trainers.loss_functions import zinb_nll_loss, mse_loss
+from trainers.loss_functions import zinb_nll_loss, mse_loss, nt_xent_loss
 
 
 class MicrobiomeTrainer:
@@ -303,6 +303,8 @@ class MicrobiomeTrainer:
                     if k not in ['taxa_ids', 'perturbed_counts', 'original_counts', 
                                  'expressed_mask', 'depth', 'original_depth', 'batch_ids']}
         
+          
+        
         # Forward pass through model
         # Adjust based on your model's forward signature
         outputs = model(
@@ -312,6 +314,19 @@ class MicrobiomeTrainer:
             batch_ids=batch_ids,
             graph_data=self.graph_data
         )
+        if self.cfg.tasks.do_contrastive:
+            perturbed_counts_2 = batch['perturbed_counts_2']  # (B, L)
+            depth_2 = batch['depth_2']  # (B,)
+            outputs_2 = model(
+                taxa_ids=taxa_ids,
+                abundance_values=perturbed_counts_2,
+                depth=depth_2,
+                batch_ids=batch_ids,
+                graph_data=self.graph_data
+            )
+            outputs = {"view_1": outputs, "view_2": outputs_2}
+            
+        
         
         # Compute loss using imported loss function
         loss, metrics = self.compute_loss(
@@ -419,10 +434,13 @@ class MicrobiomeTrainer:
         '''
         loss = 0.0
         metrics = {}
+        if self.cfg.tasks.do_contrastive:
+            outputs_2 = outputs["view_2"]
+            outputs = outputs["view_1"] # use this as outputs for any other losses
         
         # Expression reconstruction loss 
-        tasks = cfg.training.tasks
-        if 'denoising' in tasks:
+        tasks = cfg.tasks
+        if tasks.do_denoising:
             # output from model will be different depending on modelling distribution
             if cfg.data.distribution == 'zinb':
                 # ZINB distribution parameters
@@ -443,6 +461,15 @@ class MicrobiomeTrainer:
                 )
             metrics["denoising_loss"] = denoising_loss.item()
             loss += denoising_loss
+        if tasks.do_contrastive:
+            # Placeholder for contrastive loss computation
+            contrastive_loss = nt_xent_loss(
+                outputs["projected"],
+                outputs_2["projected"],   
+                temperature=cfg.training.contrastive_temperature
+            )
+            metrics["contrastive_loss"] = contrastive_loss.item()
+            loss += contrastive_loss
         return loss, metrics
 
     def _compute_denoising_loss(self, outputs, targets, cfg):

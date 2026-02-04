@@ -22,6 +22,7 @@ from .encoders import (
 
 from .decoders import (
     AbundanceDecoder,
+    SampleProjection,
 )
 from trainers import logger
 
@@ -35,6 +36,7 @@ class hgmGPT(nn.Module):
         d_hid: int,
         nlayers: int,
         num_taxa: int,
+        d_proj: Optional[int] = None,
         use_batch_labels: bool = False,
         num_batch_labels: Optional[int] = None,
         dropout: float = 0.5,
@@ -56,6 +58,8 @@ class hgmGPT(nn.Module):
         :type d_hid: int
         :param nlayers: The number of transformer encoder layers.
         :type nlayers: int
+        :param d_proj: The dimension of the projection head for contrastive learning.
+        :type d_proj: Optional[int]
         :param use_batch_labels: Whether to use batch labels for batch effect correction.
         :type use_batch_labels: bool
         :param num_batch_labels: The number of batch labels.
@@ -139,7 +143,7 @@ class hgmGPT(nn.Module):
         # 1. denoising
         # expression decoder, this operates on all the taxa tokens
         if "denoising" in tasks:
-            self.denoising_decoder = AbundanceDecoder(
+            self.abundance_decoder = AbundanceDecoder(
                 d_model=d_model,
                 num_special_tokens=2 if use_batch_labels else 1,
                 distribution=self.model_distribution,
@@ -148,6 +152,13 @@ class hgmGPT(nn.Module):
         
         # 2. bottleneck 
         # TODO: zero out all the taxa tokens, leave only sample_token and batch_id_token, and essentially recreate the distribution for each taxa
+        
+        # 3. contrastive
+        # projection head to compute contrastive loss on
+        if "contrastive" in tasks:
+            self.contrastive_projection_head = SampleProjection(d_model = d_model,
+                                                                projection_dim = d_proj)
+            
 
         # ================================================================================
         # =============================== PRINT MODEL INFO ===============================
@@ -235,6 +246,7 @@ class hgmGPT(nn.Module):
         
         For denoising task: Decodes all taxa tokens to predict denoised abundances.
         For bottleneck task: Uses only special tokens (sample embeddings) to reconstruct full profile.
+        For contrastive task: Projects sample embeddings for contrastive loss computation.
         
         Args:
             transformer_output: Output from transformer encoder, shape (batch, num_special_tokens + num_taxa, d_model)
@@ -245,12 +257,13 @@ class hgmGPT(nn.Module):
                 - For denoising without dist: {"denoising_pred"}
                 - For bottleneck with ZINB: {"bottleneck_mean", "bottleneck_disp", "bottleneck_pi"}
                 - For bottleneck without dist: {"bottleneck_pred"}
+                - For contrastive: {"contrastive_proj"}
         """
         output = {}
         
         # Denoising task: decode all taxa tokens
-        if 'denoising' in self.tasks and hasattr(self, 'denoising_decoder'):
-            denoising_output = self.denoising_decoder(transformer_output)
+        if 'denoising' in self.tasks and hasattr(self, 'abundance_decoder'):
+            denoising_output = self.abundance_decoder(transformer_output)
             
             # Add predictions with task prefix
             if self.denoising_decoder.distribution == "zinb":
@@ -275,6 +288,11 @@ class hgmGPT(nn.Module):
         #         output["bottleneck_pi"] = bottleneck_output["pi"]
         #     else:
         #         output["bottleneck_pred"] = bottleneck_output["pred"]
+        
+        if 'contrastive' in self.tasks and hasattr(self, 'contrastive_projection_head'):
+            # Get sample embedding
+            sample_embedding = self._get_sample_embedding(transformer_output)
+            output["projected"] = self.contrastive_projection_head(sample_embedding)
         
         return output
 

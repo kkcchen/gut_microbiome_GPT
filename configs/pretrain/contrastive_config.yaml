@@ -1,11 +1,12 @@
 paths:
-  model_config_path: "outputs/pretrain/model_config.json"
-  ann_table_path: "/home/tiantian/projects/aip-rahulgk/gutmodel/hmc_final/pretrain.h5ad"
+  output_top_level: "./outputs/contrastive_refactored"
+  model_config_path: "${paths.output_top_level}/model_config.json"
+  ann_table_path: "/project/aip-rahulgk/gutmodel/hmc_final"
   vocab_path: null
-  best_dir: "outputs/pretrain/best_model"
-  checkpoint_dir: "outputs/pretrain/checkpoints"
-  data_restore_dir: "outputs/pretrain/data_cache"
-  intermediate_dir: "outputs/pretrain/intermediate"
+  best_dir: "${paths.output_top_level}/best_model/"
+  checkpoint_dir: "${paths.output_top_level}/checkpoints/"
+  data_restore_dir: "${paths.output_top_level}/data_cache/"
+  intermediate_dir: "${paths.output_top_level}/intermediate/"
 
 wandb:
   enabled: false
@@ -15,32 +16,27 @@ wandb:
   run_notes: null
 
 training:
-  seed: 42
+  seed: 423982475693
   init_lr: 1e-4
-  batch_size: 32
-  max_epochs: 15
-  cosine_warmup_ratio_or_step: 0.1
+  batch_size: 64
+  max_epochs: 50
+  cosine_warmup_ratio_or_step: 0.1 # is this ever used?
   log_interval: 10
   patience: null
   grad_accumulation_steps: 1
   enable_fp16: false
   train_mask_ratio: 0.15
-  notes: "Experimenting with new architecture"
-  tasks: ["denoising"]
+  notes: "Testing contrastive after refactor"
   contrastive_temperature: 0.2
 
 validation:
-  batch_size: 64
+  batch_size: 128
   eval_interval_epochs: 1
 
 data:
-  norm_strategy: "clr" # choices: clr, none
+  norm_strategy: "clr" # choices: clr, none, rel_abundance, log_rel_abundance, log_counts, binning, arcsine
   split_key: "study_id" # we probably want to split train/val by entire studies, so it resembles close to real-world/test scenario
   val_size: 0.1
-  use_batch_labels: true
-  max_seq_len: 200
-  num_workers: 4
-  distribution: "zinb"
 
 
 model:
@@ -49,7 +45,7 @@ model:
   tasks:
     do_mvc: false
     do_taxa_decoder: false
-    do_contrastive: false
+    do_contrastive: true
 
   # === FLEXIBLE ARCHITECTURE SECTION ===
   # Any key added here is automatically passed to the model config dict
@@ -59,7 +55,10 @@ model:
     d_hid: 512
     nlayers: 3
     dropout: 0.1
-    abundance_emb_style: "continuous" # choices: scaling, continuous, category
+    input_emb_style: "continuous" # choices: scaling, continuous, category
+    freeze_vocab: false
+    freeze_value_encoder: false
+    do_attn_mask: false
     # Example: If you change architecture, just add new keys here
     # activation: "gelu" 
     # use_flash_attn: true

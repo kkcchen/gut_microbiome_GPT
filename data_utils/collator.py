@@ -6,7 +6,8 @@ import numpy as np
 from typing import List, Dict, Tuple
 from skbio.stats.composition import closure, clr
 
-
+# TODO: How do we want to handle random number generation? Generator passed in __init__, created in __init__, or created in each function that needs it.
+#       For now, initialize in __init__
 class MicrobiomeCollator:
     """
     Collator that performs:
@@ -24,7 +25,8 @@ class MicrobiomeCollator:
         perturbation_ratio: float = 0.6,
         perturbation_distribution: str = 'zinb',
         perturbation_scale: float = 0.55,
-        norm_strategy: str = 'clr'
+        norm_strategy: str = 'clr',
+        do_contrastive: bool = False,
     ):
         """
         Initialize collator with perturbation and selection parameters.
@@ -33,7 +35,7 @@ class MicrobiomeCollator:
         :param downsample_ratio_range: Range for downsampling multiplier.
         :param upsample_ratio_range: Range for upsampling multiplier.
         :param perturbation_prob: Probability of applying perturbation per sample.
-        :param perturbation_distribution: 'zinb' or 'multinomial'
+        :param perturbation_distribution: 'zinb' | 'multinomial' | 'binomial'
         """
         self.max_seq_len = max_seq_len
         self.downsample_range = downsample_ratio_range
@@ -42,6 +44,8 @@ class MicrobiomeCollator:
         self.perturbation_scale = perturbation_scale
         self.perturbation_distribution = perturbation_distribution
         self.norm_strategy = norm_strategy
+        self.do_contrastive = do_contrastive
+        self.rng = np.random.default_rng()
     
     def __call__(self, batch: List[Dict]) -> Dict[str, torch.Tensor]:
         """
@@ -93,6 +97,13 @@ class MicrobiomeCollator:
             
         }
         
+        if self.do_contrastive:
+            # create a second perturbed view for contrastive learning
+            counts_perturbed_2, depths_perturbed_2 = self._perturb_batch(counts_full)
+            counts_perturbed_norm_2 = self._apply_normalization(counts_perturbed_2)
+            batched['perturbed_counts_2'] = torch.from_numpy(counts_perturbed_norm_2).float()
+            batched['depth_2'] = torch.from_numpy(depths_perturbed_2).float()
+        
         if batch_ids is not None:
             batch_ids = np.array([s['batch_id'] for s in batch])
             batched['batch_ids'] = torch.from_numpy(batch_ids).long()
@@ -115,6 +126,7 @@ class MicrobiomeCollator:
         
         return batched
     
+    ## TODO: Are these functions fast?? Shouldn't this be done in torch?
     def _apply_normalization(self,
                              counts: np.ndarray) -> np.ndarray:
         """
@@ -124,12 +136,43 @@ class MicrobiomeCollator:
         """
         if self.norm_strategy == 'clr':
             # Add pseudocount to avoid log(0)
-            counts_pc = counts + 1.0
+            counts_pc = counts + 1e-8 # TODO pseudo-count could be a parameter or in config
             counts_closed = closure(counts_pc)
             clr_counts = clr(counts_closed)
             return clr_counts.astype(np.float32)
         elif self.norm_strategy == 'none':
             return counts.astype(np.float32)
+        elif self.norm_strategy == 'rel_abundance':
+            counts_pc = counts + 1e-8
+            counts_closed = closure(counts_pc)
+            return counts_closed.astype(np.float32)
+        elif self.norm_strategy == 'log_rel_abundance':
+            counts_pc = counts + 1e-8
+            counts_closed = closure(counts_pc)
+            log_rel_abundance = np.log(counts_closed)
+            return log_rel_abundance.astype(np.float32)
+        elif self.norm_strategy == 'log_counts':
+            counts_pc = counts + 1e-8
+            log_counts = np.log(counts_pc)
+            return log_counts.astype(np.float32)
+        elif self.norm_strategy == 'binning': # TODO: Test this
+            # bin the counts into N quantile bins, but all zeros go in bin 0
+            N = 50 # TODO: make N a parameter
+            bins = np.zeros_like(counts, dtype=int)
+            nz = counts > 0
+            x = np.where(nz, counts, np.nan).astype(np.float32)
+            cut = np.nanquantile(x, np.linspace(0, 1, N + 1), axis=1).transpose(1, 0)[:, 1:-1]  # (B, N-1)
+            bins = (counts[..., None] >= cut[:, None, :]).sum(axis=-1).astype(np.int32)
+            bins[~nz] = 0
+            bins[nz] += 1  # reserve 0 for absence -> bins 1..N for nonzero
+            # edges = np.quantile(counts[nz], np.linspace(0, 1, N + 1))
+            # bins[nz] = np.digitize(counts[nz],edges[1:-1]) + 1
+            return bins.astype(np.float32)
+        elif self.norm_strategy == 'arcsine':
+            counts_pc = counts + 1e-8
+            counts_closed = closure(counts_pc)
+            arcsine_transformed = np.arcsin(np.sqrt(counts_closed))
+            return arcsine_transformed.astype(np.float32) 
         else:
             raise ValueError(f"Unknown normalization strategy: {self.norm_strategy}")
 
@@ -149,23 +192,12 @@ class MicrobiomeCollator:
             resample_fn = self._multinomial_resample
         elif self.perturbation_distribution == 'zinb':
             resample_fn = self._zinb_resample
+        elif self.perturbation_distribution == 'binomial':
+            resample_fn = self._binomial_resample
         else:
             raise ValueError(f"Unknown perturbation distribution: {self.perturbation_distribution}")
         # fast perturbation
         return resample_fn(counts)
-    
-    def _multinomial_resample(
-        self,
-        counts: np.ndarray,
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Vectorized multinomial resampling for entire batch.
-        
-        :param counts: Count matrix (batch_size, n_total_taxa).
-        :return: Tuple of (perturbed_counts, perturbed_depths).
-        """
-        # not implemented
-        raise NotImplementedError("Multinomial resampling not implemented yet.")
     
     def _zinb_resample(
         self,
@@ -196,3 +228,51 @@ class MicrobiomeCollator:
         perturbed_counts = np.maximum((counts - p) * pi, 0)  # B, N
         perturbed_depths = perturbed_counts.sum(axis=1)  # B,
         return perturbed_counts.astype(np.float32), perturbed_depths.astype(np.float32)
+    
+    def _multinomial_resample(
+        self,
+        counts: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Vectorized multinomial resampling for entire batch.
+        
+        :param counts: Count matrix (batch_size, n_total_taxa).
+        :return: Tuple of (perturbed_counts, perturbed_depths).
+        """
+        B, L = counts.shape
+        total_counts = counts.sum(axis=1).astype(np.int64)  # (B,)
+        low, high = self.downsample_range
+        ratios = self.rng.uniform(low, high, size=B)
+        target_totals = np.floor(total_counts * ratios).astype(np.int64)  # (B,)
+        ps = counts / total_counts[:, None]  # (B, L)
+        perturbed_counts = self.rng.multinomial(n=target_totals, pvals=ps).astype(counts.dtype, copy=False)
+        return perturbed_counts, target_totals
+    
+    
+    ### TODO torch instead of numpy?
+    def _binomial_resample(
+        self,
+        counts: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Binomial thinning, as a more efficient alternative to multinomial resampling.
+        
+        
+        :param counts: Count matrix (batch_size, n_total_taxa).
+        :return: Tuple of (perturbed_counts, perturbed_depths).
+        """
+        B, L = counts.shape
+
+        low, high = self.downsample_range
+        ratios = self.rng.uniform(low, high, size=B).astype(np.float64)  # (B,)
+
+        # Broadcast ratios across taxa: (B, 1) -> (B, L)
+        p = ratios[:, None]
+
+        # Vectorized binomial draws across the full matrix
+        perturbed_counts = self.rng.binomial(n=counts, p=p).astype(counts.dtype, copy=False)
+
+        # Realized depths after thinning (random)
+        perturbed_totals = perturbed_counts.sum(axis=1).astype(np.int64)
+
+        return perturbed_counts, perturbed_totals
