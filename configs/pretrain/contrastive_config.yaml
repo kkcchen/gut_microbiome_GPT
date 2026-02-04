@@ -1,5 +1,5 @@
 paths:
-  output_top_level: "./outputs/contrastive_refactored"
+  output_top_level: "./outputs/contrastive_refactored_multinomial_log_rel_abundance"
   model_config_path: "${paths.output_top_level}/model_config.json"
   ann_table_path: "/project/aip-rahulgk/gutmodel/hmc_final/pretrain.h5ad"
   vocab_path: null
@@ -9,7 +9,7 @@ paths:
   intermediate_dir: "${paths.output_top_level}/intermediate/"
 
 wandb:
-  enabled: false
+  enabled: true
   entity: null
   project: "microbiome-foundation"
   run_name: null
@@ -35,13 +35,13 @@ validation:
   eval_interval_epochs: 1
 
 data:
-  norm_strategy: "clr" # choices: clr, none, rel_abundance, log_rel_abundance, log_counts, binning, arcsine
+  norm_strategy: "log_rel_abundance" # choices: clr, none, rel_abundance, log_rel_abundance, log_counts, binning, arcsine
   split_key: "study_id" # we probably want to split train/val by entire studies, so it resembles close to real-world/test scenario
   val_size: 0.1
   use_batch_labels: false
   max_seq_len: 500
   num_workers: 4
-  distribution: "binomial"
+  distribution: "multinomial"
 
 model:
   use_gnn: false
