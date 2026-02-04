@@ -44,8 +44,8 @@ class hgmGPT(nn.Module):
         sample_emb_style: str = "cls",
         use_gnn: bool = False,
         num_gnn_nodes: Optional[int] = None,
-        tasks: List[str] = ["denoising"],
-        model_distribution: Optional[str] = "zinb",
+        tasks: List[str] = [],
+        model_distribution: Optional[str] = None,
     ):
         """
         The base model for the human gut microbiome. This initializes the transformer based architecture for encoding abundance tables. 
@@ -266,7 +266,7 @@ class hgmGPT(nn.Module):
             denoising_output = self.abundance_decoder(transformer_output)
             
             # Add predictions with task prefix
-            if self.denoising_decoder.distribution == "zinb":
+            if self.abundance_decoder.distribution == "zinb":
                 output["denoising_mean"] = denoising_output["mean"]
                 output["denoising_disp"] = denoising_output["disp"]
                 output["denoising_pi"] = denoising_output["pi"]

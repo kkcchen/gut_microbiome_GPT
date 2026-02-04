@@ -30,11 +30,13 @@ def build_model_config(cfg, taxa_vocab, batch_vocab=None, graph_data=None) -> di
     model_config = OmegaConf.to_container(cfg.model.params, resolve=True)
     
     # Add dynamic configuration based on data and tasks
+    tasks = OmegaConf.to_container(cfg.training.tasks, resolve=True)
     dynamic_config = {
         # use the vocab to initialize some parameters
         "num_taxa": len(taxa_vocab),
         "use_batch_labels": batch_vocab is not None,
         "num_batch_labels": len(batch_vocab) if batch_vocab else None,
+        "tasks" : tasks,
     }
     
     model_config.update(dynamic_config)

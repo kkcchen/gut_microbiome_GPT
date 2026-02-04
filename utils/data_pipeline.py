@@ -76,7 +76,7 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
         logger.warning("Config 'data.upsample_ratio_range' not found, using default: (1.1, 2.0)")
     if 'perturbation_ratio' not in cfg.data:
         logger.warning("Config 'data.perturbation_ratio' not found, using default: 0.6")
-    if 'perturbation_distribution' not in cfg.data:
+    if 'distribution' not in cfg.data:
         logger.warning("Config 'data.perturbation_distribution' not found, using default: 'zinb'")
     if 'perturbation_scale' not in cfg.data:
         logger.warning("Config 'data.perturbation_scale' not found, using default: 0.55")
@@ -85,8 +85,9 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
         downsample_ratio_range=cfg.data.get('downsample_ratio_range', (0.5, 0.9)),
         upsample_ratio_range=cfg.data.get('upsample_ratio_range', (1.1, 2.0)),
         perturbation_ratio=cfg.data.get('perturbation_ratio', 0.6),
-        perturbation_distribution=cfg.data.get('perturbation_distribution', 'zinb'),
+        perturbation_distribution=cfg.data.get('distribution', 'zinb'),
         perturbation_scale=cfg.data.get('perturbation_scale', 0.55),
+        do_contrastive=cfg.model.tasks.get('do_contrastive', False)
     )
     
     if "num_workers" not in cfg.data:
