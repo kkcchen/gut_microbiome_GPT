@@ -6,6 +6,7 @@ paths:
   checkpoint_dir: "outputs/pretrain/checkpoints"
   data_restore_dir: "outputs/pretrain/data_cache"
   intermediate_dir: "outputs/pretrain/intermediate"
+  graph_path: outputs/pretrain/taxonomic_graph.pt
 
 wandb:
   enabled: false
