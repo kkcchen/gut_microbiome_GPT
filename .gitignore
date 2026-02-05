@@ -6,3 +6,5 @@ notebooks/dataset_characterization
 wandb
 logs/
 datasets_full
+.vscode/
+outputs/

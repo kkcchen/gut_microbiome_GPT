@@ -80,11 +80,13 @@ class TaxaGraphEncoder(nn.Module):
         elif graph_type == "gat":
             self.conv_model = GAT(embedding_dim, embedding_dim, num_layers=2, heads=4, norm="layer")
         
+        assert num_special_tokens == 0, "Currently do not support special token embeddings in TaxaGraphEncoder"
         # 2. special token embeddings
-        assert padding_idx >= self.num_taxa, "Padding idx should be in special tokens range"
-        self.special_embedding = nn.Embedding(
-            num_special_tokens, embedding_dim, padding_idx=padding_idx-self.num_taxa
-        )
+        # might not make sense
+        # assert padding_idx >= self.num_taxa, "Padding idx should be in special tokens range"
+        # self.special_embedding = nn.Embedding(
+        #     num_special_tokens, embedding_dim, padding_idx=padding_idx-self.num_taxa
+        # )
                
     def forward(self, x: torch.Tensor, graph_data: Data) -> torch.Tensor:
         """
@@ -112,7 +114,7 @@ class TaxaGraphEncoder(nn.Module):
         batch_size, seq_len = x.shape
         out = torch.zeros(batch_size, seq_len, node_embs.size(-1), device=x.device)
 
-        # ---- 2. Split taxa vs special tokens ----
+        # # ---- 2. Split taxa vs special tokens ----
         taxa_mask = x < self.num_taxa
         special_mask = ~taxa_mask
 
@@ -122,8 +124,9 @@ class TaxaGraphEncoder(nn.Module):
             node_indices = vocabindex_to_nodeindex[taxa_indices]
             out[taxa_mask] = node_embs[node_indices]
 
-        # ---- 4. Special tokens ----
+        # # ---- 4. Special tokens ----
         if special_mask.any():
+            assert False, "Special token embeddings not supported yet"
             special_indices = x[special_mask] - self.num_taxa
             out[special_mask] = self.special_embedding(special_indices)
 

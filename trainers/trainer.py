@@ -605,9 +605,6 @@ class MicrobiomeTrainer:
                 if sample_ids is not None:
                     all_sample_ids.extend(sample_ids)
                 
-                if return_outputs:
-                    all_outputs.append({k: v.cpu() for k, v in outputs.items()})
-                
                 # Log progress
                 if (batch_idx + 1) % self.log_interval == 0:
                     logger.info(f"Processed {batch_idx + 1}/{len(data_loader)} batches")

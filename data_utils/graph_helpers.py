@@ -92,7 +92,7 @@ def build_parent_children(taxon_df):
             child = valid_chain[i + 1]
             if parent != child:
                 if child in child_parents and parent not in child_parents[child]:
-                    sub_name = f"{child}|{parent}"
+                    sub_name = f"{parent}|{child}"
                     assert sub_name not in child_parents, f"{sub_name} was in child_parents"
                     child_parents[sub_name].add(parent)
                     parent_children[parent].add(sub_name)
@@ -170,7 +170,7 @@ def collapse_single_child_nodes(parent_children, child_parents, parent_child_dis
     return parent_children, child_parents, parent_child_distances
 
 
-def get_leaf_embedding_index(path_parts, data):
+def get_leaf_embedding_index(path_parts, data, return_last_valid=False):
     """
     Check if a taxonomic path (list of names) exists in the current graph.
     Handles merged nodes like 'Bacteria.Bacillota'.
@@ -225,6 +225,8 @@ def get_leaf_embedding_index(path_parts, data):
                 i = j - 1  # because next loop iteration starts from here
             
         if not found_edge:
+            if return_last_valid:
+                return data.name_to_idx[p]
             return None
 
         i += 1
@@ -327,7 +329,7 @@ def build_tg_data_from_taxon_df(taxon_df, vocab_list, undirected: bool = True):
     data.parent_child_distances = parent_child_distances
     
     data.vocabindex_to_nodeindex = torch.zeros(len(vocab_list), dtype=torch.long)
-    for vocab_index, fullname in enumerate(vocab_list):
+    for vocab_index, fullname in vocab_list.items():
         separated_name = taxon_df.loc[fullname]
         data.vocabindex_to_nodeindex[vocab_index] = get_leaf_embedding_index(separated_name.to_list(), data)
         assert data.vocabindex_to_nodeindex[vocab_index] is not None, f"Could not find node for {fullname}"

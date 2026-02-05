@@ -4,6 +4,7 @@ Main data preparation pipeline orchestration.
 import torch
 import anndata as ad
 import numpy as np
+import torch
 from pathlib import Path
 from typing import Dict, Tuple, Optional
 from sklearn.model_selection import train_test_split
@@ -31,6 +32,10 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
     logger.info(f"Loading preprocessed data from {cfg.paths.ann_table_path}")
     adata = load_anndata(cfg.paths.ann_table_path)
     
+    if cfg.debug.nrows:
+        adata = adata[:cfg.debug.nrows].copy()
+        logger.info(f"Debug mode: using only {cfg.debug.nrows} rows")
+    
     # 2. Split train/validation
     logger.info("Splitting train/validation...")
     train_adata, valid_adata = split_data(
@@ -50,11 +55,12 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
         logger.info(f"Batch Vocab saved at {cfg.data.batch_vocab_path} with {len(batch_vocab)} batches")
     logger.info(f"Taxa Vocab saved at {cfg.data.taxa_vocab_path} with {len(taxa_vocab)} taxa")
     
-    # 4. Build taxonomic graph (if using GNN)
+    # 4. Build taxonomic graph (if using GNN) take a look here
     graph_data = None
-    if cfg.model.get('use_gnn', False):
+    if cfg.model.params.get('use_gnn', False):
         logger.info("Building taxonomic graph...")
-        graph_data = build_tg_data_from_taxon_df(adata.varm['taxonomy'], taxa_vocab.vocab_list)
+        graph_data = build_tg_data_from_taxon_df(adata.varm['taxonomy'], taxa_vocab.id_to_token)
+        torch.save(graph_data, cfg.paths.graph_path)
     
     # 5. Create datasets (raw data, no preprocessing)
     logger.info("Creating datasets with dynamic top-k selection...")
