@@ -170,7 +170,7 @@ def collapse_single_child_nodes(parent_children, child_parents, parent_child_dis
     return parent_children, child_parents, parent_child_distances
 
 
-def get_leaf_embedding_index(path_parts, data):
+def get_leaf_embedding_index(path_parts, data, return_last_valid=False):
     """
     Check if a taxonomic path (list of names) exists in the current graph.
     Handles merged nodes like 'Bacteria.Bacillota'.
@@ -225,6 +225,8 @@ def get_leaf_embedding_index(path_parts, data):
                 i = j - 1  # because next loop iteration starts from here
             
         if not found_edge:
+            if return_last_valid:
+                return data.name_to_idx[p]
             return None
 
         i += 1
