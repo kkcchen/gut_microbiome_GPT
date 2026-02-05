@@ -185,7 +185,7 @@ class TransformerModel(nn.Module):
         output = self.transformer_encoder(
             total_embs, src_key_padding_mask=src_key_padding_mask
         )
-        return output, cur_taxa_token_embs # (batch, seq_len, embsize), (batch, seq_len, embsize)
+        return output, cur_taxa_token_embs, values # (batch, seq_len, embsize), (batch, seq_len, embsize)
     
     # # this only initializes the taxa embedding layer
     # def init_weights(self, freeze) -> None:
@@ -297,7 +297,7 @@ class TransformerModel(nn.Module):
             mask=attn_mask,
         )
         
-        return all_output, token_embs  # (batch, seq_len, embsize)
+        return all_output, token_embs, values  # (batch, seq_len, embsize)
     
     def forward(
         self,
@@ -337,7 +337,7 @@ class TransformerModel(nn.Module):
         
         if self.use_gnn:
             assert graph_data is not None, "graph_data should not be None when use_gnn is True"
-        transformer_output, cur_taxa_token_embs = self.transformer_generate(
+        transformer_output, cur_taxa_token_embs, value_embs = self.transformer_generate(
             taxa,
             values,
             key_padding_mask,
@@ -346,9 +346,13 @@ class TransformerModel(nn.Module):
             input_cell_emb=input_cell_emb,
             graph_data=graph_data,
         )
+
         # print(f"transformer_output shape: {transformer_output.shape}")
         assert not torch.isnan(transformer_output).any(), "NaN in transformer output"
         output = {}
+        # output cur_taxa_token_embs for logging purposes
+        output["token_embs"] = cur_taxa_token_embs
+        output["value_embs"] = value_embs
         decoder_output = self.abundance_decoder(
             transformer_output
             if not self.use_batch_labels

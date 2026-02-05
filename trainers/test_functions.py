@@ -65,23 +65,23 @@ def create_testdata_state(adata, num_bins, vocab, batch_obskey, continuous_obske
         binning=num_bins,
     )
     
-    hmc_npy = np.array(adata.X, dtype=np.float32)
+    X = adata.X
+    hmc_npy = X.toarray().astype(np.float32, copy=False) if hasattr(X, "toarray") else np.asarray(X, dtype=np.float32)
     taxa_ids = np.array(adata.var["taxa_id"])
     if remove_nas:
         hmc_npy = preprocessor.remove_nas_from_np(hmc_npy, adata)
     if bin_strategy == "binning":
-        stacked_rows, _ = preprocessor.bin_from_np(hmc_npy, taxa_ids)
+        stacked_rows, _, allzero_rows = preprocessor.bin_from_np(hmc_npy, taxa_ids)
     elif bin_strategy == "clr":
-        stacked_rows = preprocessor.clr_from_np(hmc_npy, taxa_ids)
+        stacked_rows, allzero_rows = preprocessor.clr_from_np(hmc_npy, taxa_ids)
     elif bin_strategy == "clr_plus":
         stacked_rows, allzero_rows = preprocessor.clrplus_from_np(hmc_npy, taxa_ids)
-        mask = np.ones(adata.n_obs, dtype=bool)
-        mask[allzero_rows] = False  # mark rows to remove
-
-        adata = adata[mask].copy()
     else:
         raise ValueError(f"Unknown bin_strategy: {bin_strategy}")
 
+    mask = np.ones(adata.n_obs, dtype=bool)
+    mask[allzero_rows] = False  # mark rows to remove
+    adata = adata[mask].copy()
     # create tokenizer
     adata.layers["binned_rows"] = stacked_rows
 

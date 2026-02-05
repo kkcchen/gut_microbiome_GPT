@@ -502,16 +502,18 @@ def create_or_restore_data_state(anndata_path,
             preprocessor = Preprocessor(
                 binning=num_bins,
             )
-            hmc_npy = np.array(adata.X, dtype=np.float32)
+            X = adata.X
+            hmc_npy = X.toarray().astype(np.float32, copy=False) if hasattr(X, "toarray") else np.asarray(X, dtype=np.float32)
+
             taxa_ids = np.array(adata.var["taxa_id"])
             
             if remove_nas:
                 hmc_npy = preprocessor.remove_nas_from_np(hmc_npy, adata)
                 
             if bin_strategy == "binning":
-                stacked_rows, _ = preprocessor.bin_from_np(hmc_npy, taxa_ids)
+                stacked_rows, _, allzero_rows = preprocessor.bin_from_np(hmc_npy, taxa_ids)
             elif bin_strategy == "clr":
-                stacked_rows = preprocessor.clr_from_np(hmc_npy, taxa_ids)
+                stacked_rows, allzero_rows = preprocessor.clr_from_np(hmc_npy, taxa_ids)
             elif bin_strategy == "clr_plus":
                 stacked_rows, allzero_rows = preprocessor.clrplus_from_np(hmc_npy, taxa_ids)
                 mask = np.ones(adata.n_obs, dtype=bool)

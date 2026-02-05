@@ -140,7 +140,7 @@ def eval_and_save(
     is_classification: bool,
     graph_data: Data = None,
 ) -> None:
-    val_loss, val_acc = evaluate(model, valid_loader, vocab, accelerator, loss_fn, is_classification, graph_data).values()
+    val_loss, val_acc = evaluate(model, valid_loader, vocab, accelerator, loss_fn, is_classification, global_iter, graph_data).values()
 
     # logger.info(f"valid loss/mse {val_loss:5.4f} | accuracy {val_acc:5.4f}")
     accelerator.log({
@@ -162,11 +162,10 @@ def evaluate(
     accelerator: Accelerator,
     loss_fn,
     is_classification: bool,
+    global_step: int,
     graph_data: Data = None,
 ) -> Dict[str, Any]:
-    """
-    Evaluate the model on the validation set.
-    """
+
     model.eval()
     val_losses = []
 
@@ -177,6 +176,9 @@ def evaluate(
         else:
             all_preds = []
             all_targets = []
+        
+        taxa_emb_acc = init_emb_acc(device=accelerator.device)
+        values_emb_acc = init_emb_acc(device=accelerator.device)
 
         for data_dict in valid_loader:
             taxa = data_dict["ids"]
@@ -191,18 +193,34 @@ def evaluate(
                     src_key_padding_mask=key_padding_mask,
                     graph_data=graph_data
                 )
+                logger.info(f"output_dict keys: {output_dict.keys()}")
                 preds = output_dict["logits"]
                 loss = loss_fn(preds, targets)
 
-            val_losses.append(loss.item())
+            # LOSS: gather across GPUs
+            gathered_loss = accelerator.gather_for_metrics(loss.detach())
+            val_losses.append(gathered_loss.mean().item())
 
             if is_classification:
                 predictions = torch.argmax(preds, dim=-1)
-                correct_predictions += (predictions == targets).sum().item()
-                total_predictions += targets.size(0)
+
+                # GATHER PREDS + TARGETS
+                predictions = accelerator.gather_for_metrics(predictions)
+                targets_g   = accelerator.gather_for_metrics(targets)
+
+                correct_predictions += (predictions == targets_g).sum().item()
+                total_predictions += targets_g.numel()
+
             else:
-                all_preds.append(preds.cpu())
-                all_targets.append(targets.cpu())
+                # GATHER FOR REGRESSION
+                preds_g   = accelerator.gather_for_metrics(preds)
+                targets_g = accelerator.gather_for_metrics(targets)
+
+                all_preds.append(preds_g.cpu())
+                all_targets.append(targets_g.cpu())
+            
+            update_emb_acc(taxa_emb_acc, output_dict["token_embs"], key_padding_mask)
+            update_emb_acc(values_emb_acc, output_dict["value_embs"], key_padding_mask)
 
         avg_val_loss = np.mean(val_losses)
 
@@ -214,8 +232,89 @@ def evaluate(
             mae = np.mean(np.abs(all_preds - all_targets))
             metrics = {"val_mae": mae}
 
+        finalize_and_log_emb_acc(taxa_emb_acc, accelerator, step=global_step, name="taxa_emb")
+        finalize_and_log_emb_acc(values_emb_acc, accelerator, step=global_step, name="value_emb")
+
     return {"val_loss": avg_val_loss, **metrics}
 
+
+@torch.no_grad()
+def init_emb_acc(device):
+    return {
+        "num_tokens": torch.zeros(1, device=device),
+
+        "token_norm_mean_sum": torch.zeros(1, device=device),
+        "token_norm_std_sum":  torch.zeros(1, device=device),
+        "token_norm_min": torch.full((1,), float("inf"), device=device),
+        "token_norm_max": torch.full((1,), -float("inf"), device=device),
+
+        "D": None,
+    }
+
+
+@torch.no_grad()
+def update_emb_acc(acc, token_embs, key_padding_mask):
+    # token_embs: (B, L, D)
+    # key_padding_mask: (B, L)  True = PAD
+
+    valid = ~key_padding_mask
+    if valid.sum() == 0:
+        raise ValueError("No valid tokens found in the batch for embedding accumulation.")
+
+    x = token_embs[valid]   # (N, D)
+    N, D = x.shape
+    acc["D"] = D
+
+    token_norms = x.norm(dim=-1)
+
+    acc["token_norm_mean_sum"] += token_norms.mean() * N
+    acc["token_norm_std_sum"]  += token_norms.std()  * N
+    acc["token_norm_min"] = torch.minimum(acc["token_norm_min"], token_norms.min())
+    acc["token_norm_max"] = torch.maximum(acc["token_norm_max"], token_norms.max())
+
+    acc["num_tokens"] += N
+
+
+@torch.no_grad()
+def finalize_and_log_emb_acc(acc, accelerator, step, name):
+    # ---- SUM REDUCTIONS (correct use of accelerator.reduce) ----
+    acc["num_tokens"] = accelerator.reduce(acc["num_tokens"], reduction="sum")
+    acc["token_norm_mean_sum"] = accelerator.reduce(
+        acc["token_norm_mean_sum"], reduction="sum"
+    )
+    acc["token_norm_std_sum"] = accelerator.reduce(
+        acc["token_norm_std_sum"], reduction="sum"
+    )
+
+    if acc["num_tokens"].item() == 0:
+        return
+
+    total_n = acc["num_tokens"].item()
+
+    global_mean = (acc["token_norm_mean_sum"] / total_n).item()
+    global_std  = (acc["token_norm_std_sum"]  / total_n).item()
+
+    # ---- EXTREMA: GATHER PER-RANK SCALARS, THEN REDUCE LOCALLY ----
+    token_norm_min_all = accelerator.gather_for_metrics(acc["token_norm_min"])
+    token_norm_max_all = accelerator.gather_for_metrics(acc["token_norm_max"])
+
+    global_min = token_norm_min_all.min().item()
+    global_max = token_norm_max_all.max().item()
+
+    D = acc["D"]
+
+    log_dict = {
+        f"{name}/token_norm_mean": global_mean,
+        f"{name}/token_norm_std":  global_std,
+        f"{name}/token_norm_min":  global_min,
+        f"{name}/token_norm_max":  global_max,
+        f"{name}/theoretical_norm": D ** 0.5,
+        f"{name}/num_tokens": total_n,
+    }
+
+    if accelerator.is_main_process:
+        accelerator.log(log_dict, step=step)
+        
 
 def unfreeze_base_model(model: FinetunedTransformer, optimizer) -> List[nn.Parameter]:
     """
@@ -343,7 +442,9 @@ def create_data_state_finetune(anndata_path, num_bins, vocab_restore_dir, data_r
                 binning=num_bins,
             )
             
-            hmc_npy = np.array(adata.X, dtype=np.float32)
+            X = adata.X
+            hmc_npy = X.toarray().astype(np.float32, copy=False) if hasattr(X, "toarray") else np.asarray(X, dtype=np.float32)
+
             
             adata.var["taxa_id"] = adata.var_names.map(vocab.stoi)
             taxa_ids = np.array(adata.var["taxa_id"])
@@ -353,15 +454,15 @@ def create_data_state_finetune(anndata_path, num_bins, vocab_restore_dir, data_r
                 hmc_npy = preprocessor.remove_nas_from_np(hmc_npy, adata)
                 
             if bin_strategy == "binning":
-                stacked_rows, _ = preprocessor.bin_from_np(hmc_npy, taxa_ids)
+                stacked_rows, _, allzero_rows = preprocessor.bin_from_np(hmc_npy, taxa_ids)
             elif bin_strategy == "clr":
-                stacked_rows = preprocessor.clr_from_np(hmc_npy, taxa_ids)
+                stacked_rows, allzero_rows = preprocessor.clr_from_np(hmc_npy, taxa_ids)
             elif bin_strategy == "clr_plus":
                 stacked_rows, allzero_rows = preprocessor.clrplus_from_np(hmc_npy, taxa_ids)
-                mask = np.ones(adata.n_obs, dtype=bool)
-                mask[allzero_rows] = False  # mark rows to remove
-
-                adata = adata[mask].copy()
+            
+            mask = np.ones(adata.n_obs, dtype=bool)
+            mask[allzero_rows] = False  # mark rows to remove
+            adata = adata[mask].copy()
             # create tokenizer
             adata.layers["binned_rows"] = stacked_rows
             tokenizer = Tokenizer(vocab)
@@ -396,10 +497,12 @@ def create_data_state_finetune(anndata_path, num_bins, vocab_restore_dir, data_r
         data_list = [train_data_dict, valid_data_dict, vocab, batch_vocab, graph_data if use_gnn else None]
     else:
         data_list = [None, None, None, None, None]
+    
     # broadcast to all other ranks
     accelerator.wait_for_everyone()
     broadcast_object_list(data_list)
-    
+    if use_gnn:
+        data_list[4] = data_list[4].to(accelerator.device)
     return tuple(data_list)
 
 

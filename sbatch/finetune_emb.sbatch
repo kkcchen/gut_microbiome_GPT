@@ -17,7 +17,7 @@ source ~/hmbenv/bin/activate
 python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not available. Exiting.'" || exit 1
 
 # === Set paths ===
-BASEMODEL_PATH=experiment_saves/big-model
+BASEMODEL_PATH=experiment_saves/gat-1
 DATASET_PATH=/project/aip-rahulgk/gutmodel/remove_redundant_oct24
 
 PORT=$((29500 + $SLURM_JOB_ID % 1000))
@@ -51,47 +51,47 @@ do
     fi
 
     # Experiment path
-    RUN_NAME="frozen_${TARGET}"
-    EXPERIMENT_PATH=$BASEMODEL_PATH/frozen_base/$RUN_NAME
+    RUN_NAME="filtered1_${TARGET}"
+    EXPERIMENT_PATH=$BASEMODEL_PATH/filter1/$RUN_NAME
     NOTES="Finetune for $TARGET ($TASK_TYPE)."
 
-    # echo "training on finetune data..."
-    # accelerate launch --main_process_port $PORT -m scripts.trainer_finetune \
-    #     --base-model-config-path $BASEMODEL_PATH/model_checkpoints/model_config.json \
-    #     --base-model-path $BASEMODEL_PATH/model_checkpoints/best_model/model.safetensors \
-    #     --vocab-restore-path $BASEMODEL_PATH/model_checkpoints/data_checkpoint/augmented_data.h5ad \
-    #     \
-    #     --train-input $DATASET_PATH/finetune_train.h5ad \
-    #     \
-    #     --best-dir $EXPERIMENT_PATH/best_model \
-    #     --data-restore-path $EXPERIMENT_PATH/augmented_data_finetune.h5ad \
-    #     \
-    #     --model-config-path $EXPERIMENT_PATH/finetune_model_config.json \
-    #     \
-    #     --frozen-max-epochs 0 \
-    #     --unfrozen-max-epochs 10 \
-    #     \
-    #     --batch-size 64 \
-    #     --init-lr 0.0001 \
-    #     \
-    #     --notes "$NOTES" \
-    #     --wandb-enabled \
-    #     --wandb-entity haoze-deng-university-of-toronto \
-    #     --wandb-project microbiome-finetune-batch \
-    #     --wandb-run-name $RUN_NAME \
-    #     --seed 44 \
-    #     \
-    #     --task-type $TASK_TYPE \
-    #     --downstream-task $TARGET \
-    #     $IGNORED_LABEL \
-    #     --start-over
+    echo "training on finetune data..."
+    accelerate launch --main_process_port $PORT -m scripts.trainer_finetune \
+        --base-model-config-path $BASEMODEL_PATH/model_checkpoints/model_config.json \
+        --base-model-path $BASEMODEL_PATH/model_checkpoints/best_model/model.safetensors \
+        --vocab-restore-dir $BASEMODEL_PATH/model_checkpoints/data_checkpoint \
+        \
+        --train-input $DATASET_PATH/finetune_train.h5ad \
+        \
+        --best-dir $EXPERIMENT_PATH/best_model \
+        --data-restore-path $EXPERIMENT_PATH/augmented_data_finetune.h5ad \
+        \
+        --model-config-path $EXPERIMENT_PATH/finetune_model_config.json \
+        \
+        --frozen-max-epochs 0 \
+        --unfrozen-max-epochs 5 \
+        \
+        --batch-size 64 \
+        --init-lr 0.0001 \
+        \
+        --notes "$NOTES" \
+        --wandb-enabled \
+        --wandb-entity haoze-deng-university-of-toronto \
+        --wandb-project microbiome-finetune-batch \
+        --wandb-run-name $RUN_NAME \
+        --seed 42 \
+        \
+        --task-type $TASK_TYPE \
+        --downstream-task $TARGET \
+        $IGNORED_LABEL \
+        --start-over
 
 
     accelerate launch --main_process_port $PORT -m scripts.tester_finetune \
         --best-path $EXPERIMENT_PATH/best_model/model.safetensors \
         --model-config-path $EXPERIMENT_PATH/finetune_model_config.json \
         \
-        --finetune-vocab-path $EXPERIMENT_PATH/augmented_data_finetune.h5ad \
+        --vocab-dir $BASEMODEL_PATH/model_checkpoints/data_checkpoint \
         \
         --anndata-path $DATASET_PATH/finetune_test.h5ad \
         \

@@ -98,12 +98,12 @@ def main():
             values = data_dict["values"]
             src_padding_mask = taxa.eq(vocab.pad_index)
             unwrapped_model = accelerator.unwrap_model(model)
-            output, _ = unwrapped_model.encode(
+            output, _, _ = unwrapped_model.encode(
                 src=taxa,  # (batch, seq_len)
                 values=values,  # (batch, seq_len)
                 src_key_padding_mask=src_padding_mask,  # (batch, seq_len)
                 graph_data=graph_data,  # Graph data if applicable
-            )  # (batch, seq_len, embsize)
+            ).values()  # (batch, seq_len, embsize)
             cell_emb = unwrapped_model.get_cell_emb_from_layer(output)  # (batch, embsize)
             gathered = accelerator.gather_for_metrics(cell_emb)  # Gather across processes
             all_cell_embs.append(gathered.cpu())

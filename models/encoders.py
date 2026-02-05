@@ -92,9 +92,9 @@ class TaxaGraphEncoder(nn.Module):
         # 1. deal with taxa embeddings
         self.graph_type = graph_type
         if graph_type == "gcn":
-            self.conv_model = GCN(embedding_dim, embedding_dim, num_layers=num_layers, out_channels=embedding_dim, norm="layer")
+            self.conv_model = GCN(embedding_dim, embedding_dim, num_layers=num_layers, norm="layer")
         elif graph_type == "gat":
-            self.conv_model = GAT(embedding_dim, embedding_dim, num_layers=num_layers, heads=4, out_channels=embedding_dim, norm="layer")
+            self.conv_model = GAT(embedding_dim, embedding_dim, num_layers=num_layers, heads=4, norm="layer")
         
         # 2. special token embeddings
         assert padding_idx >= self.num_taxa, "Padding idx should be in special tokens range"

@@ -15,13 +15,13 @@ source ~/hmbenv/bin/activate
 python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not available. Exiting.'" || exit 1
 
 # put your command here
-DATA_DIR="/project/aip-rahulgk/gutmodel/remove_redundant_oct24"
-RUN_NAME="clr-scale-moredata"
-NOTES="11/6 experiment with clr plus and scaling."
+DATA_DIR="/project/aip-rahulgk/gutmodel/metagenomics_jan6"
+RUN_NAME="wgs_16s_combo"
+NOTES="having combined wgs and 16s data, pretrain on combined dataset"
 
 EXPERIMENT_PATH=experiment_saves/$RUN_NAME
 
-ANN_TABLE_PATH="$DATA_DIR/pretrain.h5ad"
+ANN_TABLE_PATH="$DATA_DIR/combined_16s_wgs.h5ad"
 
 SAVE_DIR="$EXPERIMENT_PATH/model_checkpoints"
 BEST_DIR="$SAVE_DIR/best_model"
@@ -57,7 +57,7 @@ accelerate launch --main_process_port 0 -m scripts.trainer \
     --do-mvc \
     --use-gnn \
     --gnn-type "gat" \
-    --data-bin-strategy "clr_plus" \
+    --data-bin-strategy "binning" \
     --do-taxa-decoder \
     # --use-batch-labels \
     # --do-contrastive &

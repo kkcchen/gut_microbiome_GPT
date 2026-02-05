@@ -56,7 +56,7 @@ class FinetunedTransformer(nn.Module):
         graph_data: Optional[Data] = None,
     ) -> Tensor:
         output_dict = {}
-        encoded_output, _ = self.base_model.encode(
+        encoded_output, token_embs, value_embs = self.base_model.encode(
             src,
             values,
             src_key_padding_mask,
@@ -64,6 +64,8 @@ class FinetunedTransformer(nn.Module):
         )
         env_emb = self.base_model.get_cell_emb_from_layer(encoded_output)  # (batch, embsize)
         output_dict['logits'] = self.decoder_head(env_emb)
+        output_dict["token_embs"] = token_embs
+        output_dict["value_embs"] = value_embs
         return output_dict
 
 

@@ -68,8 +68,7 @@ class MicrobiomeVocab():
         pad_value: int = 0,
         mask_value: int = -1,
         ) -> 'MicrobiomeVocab':
-        assert "taxa" in adata.var, "The AnnData object must have 'taxa' in var."
-        vocab_list = adata.var["taxa"].tolist()
+        vocab_list = adata.var_names.tolist()
         
         vocab = cls(
             vocab_list=vocab_list,
