@@ -17,3 +17,4 @@ xgboost
 seaborn
 torch_geometric
 omegaconf
+umap-learn
