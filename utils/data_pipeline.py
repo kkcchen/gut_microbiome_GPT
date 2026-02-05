@@ -30,6 +30,10 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
     logger.info(f"Loading preprocessed data from {cfg.paths.ann_table_path}")
     adata = load_anndata(cfg.paths.ann_table_path)
     
+    if cfg.debug.nrows:
+        adata = adata[:cfg.debug.nrows].copy()
+        logger.info(f"Debug mode: using only {cfg.debug.nrows} rows")
+    
     # 2. Split train/validation
     logger.info("Splitting train/validation...")
     train_adata, valid_adata = split_data(
@@ -44,11 +48,11 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
     taxa_vocab = TaxaVocabulary.from_adata(train_adata)
     batch_vocab = BatchVocabulary.from_adata(train_adata) if cfg.data.use_batch_labels else None
     
-    # 4. Build taxonomic graph (if using GNN)
+    # 4. Build taxonomic graph (if using GNN) take a look here
     graph_data = None
-    if cfg.model.get('use_gnn', False):
+    if cfg.model.params.get('use_gnn', False):
         logger.info("Building taxonomic graph...")
-        graph_data = build_tg_data_from_taxon_df(adata.varm['taxonomy'], taxa_vocab.vocab_list)
+        graph_data = build_tg_data_from_taxon_df(adata.varm['taxonomy'], taxa_vocab.id_to_token)
     
     # 5. Create datasets (raw data, no preprocessing)
     logger.info("Creating datasets with dynamic top-k selection...")

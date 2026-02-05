@@ -35,6 +35,7 @@ def build_model_config(cfg, taxa_vocab, batch_vocab=None, graph_data=None) -> di
         "num_taxa": len(taxa_vocab),
         "use_batch_labels": batch_vocab is not None,
         "num_batch_labels": len(batch_vocab) if batch_vocab else None,
+        "num_gnn_nodes": graph_data.num_nodes if graph_data else None,
     }
     
     model_config.update(dynamic_config)

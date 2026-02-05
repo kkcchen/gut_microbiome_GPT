@@ -29,7 +29,7 @@ def masked_relative_error(
   
 
 # from chatGPT 
-def nt_xent(z1: torch.Tensor, z2: torch.Tensor, temperature: float = 0.2) -> torch.Tensor:
+def nt_xent_loss(z1: torch.Tensor, z2: torch.Tensor, temperature: float = 0.2) -> torch.Tensor:
     """
     Standard SimCLR / NT-Xent loss
     z1, z2: (B, D)

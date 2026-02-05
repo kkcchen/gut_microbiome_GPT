@@ -43,7 +43,7 @@ class MicrobiomeTrainer:
         
         # Training config
         self.max_epochs = cfg.training.max_epochs
-        self.patience = cfg.training.get('patience', self.max_epochs)
+        self.patience = cfg.training.get('patience') or self.max_epochs
         self.log_interval = cfg.training.log_interval
         self.grad_clip = cfg.training.get('grad_clip', 1.0)
         self.checkpoint_every = cfg.training.get('checkpoint_every', 5)
@@ -314,7 +314,7 @@ class MicrobiomeTrainer:
             batch_ids=batch_ids,
             graph_data=self.graph_data
         )
-        if self.cfg.tasks.do_contrastive:
+        if "contrastive" in self.cfg.training.tasks:
             perturbed_counts_2 = batch['perturbed_counts_2']  # (B, L)
             depth_2 = batch['depth_2']  # (B,)
             outputs_2 = model(
@@ -434,7 +434,7 @@ class MicrobiomeTrainer:
         '''
         loss = 0.0
         metrics = {}
-        if self.cfg.tasks.do_contrastive:
+        if "contrastive" in self.cfg.training.tasks:
             outputs_2 = outputs["view_2"]
             outputs = outputs["view_1"] # use this as outputs for any other losses
         
