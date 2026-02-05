@@ -89,9 +89,13 @@ def zinb_nll_loss(
 def mse_loss(
     input: torch.Tensor,
     target: torch.Tensor,
+    relative: bool = False,
 ) -> torch.Tensor:
     """
     Compute the MSE loss between input and target.
     """
+    if relative:
+        weight = torch.sqrt(1/(target + 1e-4))
+        loss = F.mse_loss(weight * input, weight * target, reduction="mean")
     loss = F.mse_loss(input, target, reduction="mean")
     return loss

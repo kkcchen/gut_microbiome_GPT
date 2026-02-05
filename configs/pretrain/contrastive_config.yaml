@@ -1,5 +1,5 @@
 paths:
-  output_top_level: "./outputs/contrastive_refactored_multinomial_log_rel_abundance"
+  output_top_level: "./outputs/contrastive_refactored_multinomial_downsample_clr"
   model_config_path: "${paths.output_top_level}/model_config.json"
   ann_table_path: "/project/aip-rahulgk/gutmodel/hmc_final/pretrain.h5ad"
   vocab_path: null
@@ -10,9 +10,9 @@ paths:
 
 wandb:
   enabled: true
-  entity: null
+  entity: "haoze-deng-university-of-toronto"
   project: "microbiome-foundation"
-  run_name: null
+  run_name: multinomial_downsample_clr_denoising
   run_notes: null
 
 training:
@@ -26,8 +26,8 @@ training:
   grad_accumulation_steps: 1
   enable_fp16: false
   train_mask_ratio: 0.15
-  notes: "Testing contrastive after refactor"
-  tasks: ["contrastive"]
+  notes: "Testing denoising after refactor"
+  tasks: ["denoising"]
   contrastive_temperature: 0.2
 
 validation:
@@ -35,7 +35,7 @@ validation:
   eval_interval_epochs: 1
 
 data:
-  norm_strategy: "log_rel_abundance" # choices: clr, none, rel_abundance, log_rel_abundance, log_counts, binning, arcsine
+  norm_strategy: "clr" # choices: clr, none, rel_abundance, log_rel_abundance, log_counts, binning, arcsine
   split_key: "study_id" # we probably want to split train/val by entire studies, so it resembles close to real-world/test scenario
   val_size: 0.1
   use_batch_labels: false
@@ -49,7 +49,7 @@ model:
   tasks:
     do_mvc: false
     do_taxa_decoder: false
-    do_contrastive: true
+    do_contrastive: false
 
   # === FLEXIBLE ARCHITECTURE SECTION ===
   # Any key added here is automatically passed to the model config dict

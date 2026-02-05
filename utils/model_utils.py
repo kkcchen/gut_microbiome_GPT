@@ -129,7 +129,7 @@ def initialize_wandb(cfg, accelerator):
         entity=cfg.wandb.get('entity', None),
         name=cfg.wandb.get('run_name', None),
         notes=cfg.wandb.get('run_notes', None),
-        config=cfg,
+        config=OmegaConf.to_container(cfg, resolve=True),
         reinit=True
     )
     accelerator.init_trackers(wandb_project)

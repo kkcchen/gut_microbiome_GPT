@@ -497,11 +497,12 @@ class MicrobiomeTrainer:
                     targets['original_counts'],
                 )
             else: # no distribution specified, direct count prediction
+                # TODO: we probably don't want the mse on raw counts, maybe relative error? 
                 outputs_counts = outputs["denoising_pred"]
+                
                 denoising_loss = mse_loss(
                     outputs_counts,
-                    targets['original_counts'],
-                )
+                    targets['original_counts']                )
             metrics["denoising_loss"] = denoising_loss.item()
             loss += denoising_loss
         if 'contrastive' in tasks:
