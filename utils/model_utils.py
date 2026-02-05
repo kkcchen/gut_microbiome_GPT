@@ -2,6 +2,8 @@
 Model configuration and initialization utilities.
 """
 import json
+import os
+import torch
 from omegaconf import OmegaConf
 from trainers import logger
 from model import hgmGPT
@@ -133,6 +135,7 @@ def initialize_wandb(cfg, accelerator):
     logger.info(f"Initialized W&B run: {wandb_run.name}")
     return wandb_run
 
+
 def initialize_training_components(model_config: dict, cfg, total_steps: int, accelerator):
     """
     Initialize model, optimizer, and scheduler.
@@ -175,6 +178,29 @@ def initialize_training_components(model_config: dict, cfg, total_steps: int, ac
         'patience_counter': patience_counter,
         'extra_state': extra_states,
     }
+
+def load_trained_model(cfg, model_config, accelerator):
+    """
+    Load trained model from checkpoint for inference.
+    
+    :param cfg: Configuration object.
+    :param model_config: Complete model configuration.
+    :param accelerator: Accelerator instance.
+    :return: Loaded model.
+    """
+    model = hgmGPT(**model_config)
+    checkpoint_path = os.path.join(cfg.paths.best_dir, 'best_model.pt')
+    if not os.path.exists(checkpoint_path):
+        raise FileNotFoundError(f"Checkpoint not found at {checkpoint_path}")
+    
+    logger.info(f"Loading model checkpoint from {checkpoint_path}...")
+    loaded_state = torch.load(checkpoint_path, map_location='cpu')
+    model.load_state_dict(loaded_state['model'])
+    model.to(accelerator.device)
+    model.eval()
+    
+    logger.info("Model loaded and set to evaluation mode.")
+    return model
 
     
 

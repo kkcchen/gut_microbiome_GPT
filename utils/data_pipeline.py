@@ -1,6 +1,7 @@
 """
 Main data preparation pipeline orchestration.
 """
+import torch
 import anndata as ad
 import numpy as np
 from pathlib import Path
@@ -43,6 +44,11 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
     logger.info("Building vocabularies...")
     taxa_vocab = TaxaVocabulary.from_adata(train_adata)
     batch_vocab = BatchVocabulary.from_adata(train_adata) if cfg.data.use_batch_labels else None
+    taxa_vocab.save(cfg.data.taxa_vocab_path)
+    if batch_vocab:
+        batch_vocab.save(cfg.data.batch_vocab_path)
+        logger.info(f"Batch Vocab saved at {cfg.data.batch_vocab_path} with {len(batch_vocab)} batches")
+    logger.info(f"Taxa Vocab saved at {cfg.data.taxa_vocab_path} with {len(taxa_vocab)} taxa")
     
     # 4. Build taxonomic graph (if using GNN)
     graph_data = None
@@ -253,3 +259,182 @@ def print_data_statistics(
     logger.info(f"Max expressed taxa: {n_expressed_per_sample.max()}")
     logger.info(f"Samples with >= {max_seq_len} expressed: {(n_expressed_per_sample >= max_seq_len).sum()}")
     logger.info("=" * 60)
+
+
+def prepare_inference_data(cfg, accelerator) -> Dict:
+    """
+    Data pipeline for microbiome inference.
+    
+    1. Load preprocessed AnnData
+    2. Load existing vocabularies (built during training)
+    3. Create dataset (no augmentation)
+    4. Create dataloader (no shuffling, no perturbations)
+    
+    :param cfg: Configuration object (inference config).
+    :param accelerator: Accelerator for distributed inference.
+    :return: Dictionary with dataloader, vocabularies, and graph data.
+    """
+    # 1. Load preprocessed AnnData (keep raw counts)
+    logger.info(f"Loading inference data from {cfg.data.data_path}")
+    adata = load_anndata(cfg.data.data_path)
+    
+    logger.info(f"Loaded {adata.n_obs} samples with {adata.n_vars} taxa")
+    
+    # 2. Load vocabularies (must exist from training)
+    logger.info("Loading vocabularies from training...")
+    
+    if not Path(cfg.data.taxa_vocab_path).exists():
+        raise FileNotFoundError(
+            f"Taxa vocabulary not found at {cfg.data.taxa_vocab_path}. "
+            "Please run training first to generate vocabularies."
+        )
+    
+    taxa_vocab = TaxaVocabulary.load(cfg.data.taxa_vocab_path)
+    logger.info(f"Loaded taxa vocabulary: {len(taxa_vocab)} taxa")
+    
+    batch_vocab = None
+    if cfg.data.use_batch_labels:
+        if not Path(cfg.data.batch_vocab_path).exists():
+            raise FileNotFoundError(
+                f"Batch vocabulary not found at {cfg.data.batch_vocab_path}. "
+                "Please run training first to generate vocabularies."
+            )
+        batch_vocab = BatchVocabulary.load(cfg.data.batch_vocab_path)
+        logger.info(f"Loaded batch vocabulary: {len(batch_vocab)} batches (includes <UNK>)")
+    
+    # 3. Load taxonomic graph (if using GNN)
+    graph_data = None
+    if cfg.model.get('use_gnn', False):
+        if cfg.data.get('graph_path') and Path(cfg.data.graph_path).exists():
+            logger.info(f"Loading taxonomic graph from {cfg.data.graph_path}")
+            graph_data = torch.load(cfg.data.graph_path)
+        else:
+            logger.warning("GNN enabled but graph_path not found. Building graph from data...")
+            graph_data = build_tg_data_from_taxon_df(adata.varm['taxonomy'], taxa_vocab.vocab_list)
+    
+    # 4. Create dataset (no augmentation for inference)
+    logger.info("Creating inference dataset...")
+    inference_dataset = MicrobiomeDataset(
+        adata=adata,
+        taxa_vocab=taxa_vocab,
+        batch_vocab=batch_vocab,
+        max_seq_len=cfg.data.max_seq_len,
+        metadata_fields=cfg.data.get('metadata_fields', []),
+    )
+    
+    # 5. Create collator for inference (NO perturbations)
+    logger.info("Creating inference collator (no perturbations)...")
+    inference_collator = MicrobiomeCollator(
+        max_seq_len=cfg.data.max_seq_len,
+        downsample_ratio_range=None,
+        upsample_ratio_range=None,
+        perturbation_ratio=0.0,
+        perturbation_distribution=None,
+        perturbation_scale=0.0,
+        eval_mode=True,
+    )
+    
+    # 6. Create dataloader
+    logger.info("Creating inference dataloader...")
+    if "num_workers" not in cfg.data:
+        logger.warning("Config 'data.num_workers' not found, using default: 1")
+    
+    if "inference_batch_size" not in cfg.data:
+        logger.warning("Config 'data.inference_batch_size' not found, using default: 64")
+    
+    inference_loader = DataLoader(
+        inference_dataset,
+        batch_size=cfg.data.get('inference_batch_size', 64),
+        shuffle=False,  # Never shuffle for inference
+        num_workers=cfg.data.get('num_workers', 1),
+        collate_fn=inference_collator,
+        pin_memory=True,
+        drop_last=False  # Keep all samples
+    )
+    
+    # 7. Print statistics
+    if accelerator.is_main_process:
+        print_inference_statistics(adata, taxa_vocab, batch_vocab, cfg.data.max_seq_len)
+    
+    return {
+        'inference_loader': inference_loader,
+        'taxa_vocab': taxa_vocab,
+        'batch_vocab': batch_vocab,
+        'graph_data': graph_data,
+        'adata': adata,  # Return adata for metadata access
+    }
+
+
+def print_inference_statistics(adata, taxa_vocab, batch_vocab, max_seq_len):
+    """
+    Print statistics about inference data.
+    
+    :param adata: AnnData object.
+    :param taxa_vocab: TaxaVocabulary.
+    :param batch_vocab: BatchVocabulary (optional).
+    :param max_seq_len: Maximum sequence length.
+    """
+    logger.info("=" * 80)
+    logger.info("INFERENCE DATA STATISTICS")
+    logger.info("=" * 80)
+    
+    # Sample statistics
+    logger.info(f"Number of samples: {adata.n_obs}")
+    logger.info(f"Number of taxa: {adata.n_vars}")
+    
+    # Vocabulary statistics
+    logger.info(f"Taxa vocabulary size: {len(taxa_vocab)}")
+    if batch_vocab is not None:
+        logger.info(f"Batch vocabulary size: {len(batch_vocab)} (includes <UNK>)")
+    
+    # Sequencing depth statistics
+    depths = adata.X.sum(axis=1)
+    if hasattr(depths, 'A1'):  # Sparse matrix
+        depths = depths.A1
+    logger.info(f"Sequencing depth: min={depths.min():.0f}, "
+                f"median={np.median(depths):.0f}, "
+                f"max={depths.max():.0f}")
+    
+    # Taxa per sample statistics
+    expressed_per_sample = (adata.X > 0).sum(axis=1)
+    if hasattr(expressed_per_sample, 'A1'):  # Sparse matrix
+        expressed_per_sample = expressed_per_sample.A1
+    logger.info(f"Expressed taxa per sample: "
+                f"min={expressed_per_sample.min()}, "
+                f"median={np.median(expressed_per_sample):.0f}, "
+                f"max={expressed_per_sample.max()}")
+    
+    # Check if any samples exceed max_seq_len
+    samples_exceeding = (expressed_per_sample > max_seq_len).sum()
+    if samples_exceeding > 0:
+        logger.warning(
+            f"{samples_exceeding} samples ({100*samples_exceeding/adata.n_obs:.1f}%) "
+            f"have more than {max_seq_len} expressed taxa. "
+            f"Top-{max_seq_len} selection will be applied."
+        )
+    
+    # Batch information
+    if batch_vocab is not None and 'study_id' in adata.obs:
+        unique_batches = adata.obs['study_id'].nunique()
+        logger.info(f"Unique batches in data: {unique_batches}")
+    
+    logger.info("=" * 80)
+
+
+def check_unknown_batches(adata, batch_vocab):
+    """
+    Check which batches in data are not in vocabulary (will be mapped to <UNK>).
+    
+    :param adata: AnnData object.
+    :param batch_vocab: BatchVocabulary.
+    :return: Set of unknown batch names.
+    """
+    if 'study_id' not in adata.obs:
+        return set()
+    
+    data_batches = set(adata.obs['study_id'].unique())
+    vocab_batches = set(batch_vocab.batch_names) - {'<UNK>'}  # Exclude <UNK> token
+    
+    unknown_batches = data_batches - vocab_batches
+    
+    return unknown_batches

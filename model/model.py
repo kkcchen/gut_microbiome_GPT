@@ -397,3 +397,42 @@ class hgmGPT(nn.Module):
         # 2. decode
         output = self.decode(transformer_output)
         return output
+
+    def inference(
+        self,
+        taxa_ids: Tensor,
+        abundance_values: Tensor,
+        depth: Tensor,
+        batch_ids: Optional[Tensor] = None,
+        graph_data: Optional[Data] = None,
+    ) -> Mapping[str, Tensor]:
+        """
+        Forward pass of the model, used for inference. Returns only the sample embeddings. 
+            taxa_ids (:obj:`Tensor`): Token IDs representing taxa, shape [batch_size, seq_len].
+            abundance_values (:obj:`Tensor`): Token values corresponding to taxa, shape [batch_size, seq_len].
+            depth (:obj:`Tensor`): Depth information, shape [batch_size].
+            batch_ids (:obj:`Optional[Tensor]`): Batch IDs for encoding, shape [batch_size]. 
+                Required if `use_batch_labels` is True.
+        """
+        if self.use_batch_labels:
+            assert batch_ids is not None, "batch_ids should not be None when use_batch_labels is True"
+        else:
+            assert batch_ids is None, "batch_ids should be None when use_batch_labels is False"
+        
+        if self.use_gnn:
+            assert graph_data is not None, "graph_data should not be None when use_gnn is True"
+
+        # 1. encode
+        transformer_output = self.encode(
+            taxa_ids,
+            abundance_values,
+            batch_ids=None, # TODO: pass in None for now, until we figure out what to do
+            graph_data=graph_data,
+        )  # (batch, seq_len + number of special tokens, d_model)
+
+        assert not torch.isnan(transformer_output).any(), "NaN in transformer output"
+        # 2. decode
+        output = self.decode(transformer_output)
+        # 3. get sample embeddings
+        sample_embeddings = self._get_sample_embedding(transformer_output)
+        return sample_embeddings

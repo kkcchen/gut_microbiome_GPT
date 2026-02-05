@@ -24,7 +24,8 @@ class MicrobiomeTrainer:
         accelerator,
         taxa_vocab,
         batch_vocab: Optional[object] = None,
-        graph_data: Optional[torch.Tensor] = None
+        graph_data: Optional[torch.Tensor] = None,
+        wandb_run = None,
     ):
         """
         Initialize trainer with configuration and artifacts.
@@ -55,6 +56,10 @@ class MicrobiomeTrainer:
         self.best_dir = cfg.paths.best_dir
         self.checkpoint_dir = cfg.paths.checkpoint_dir
         self.intermediate_dir = cfg.paths.intermediate_dir
+        
+        # wandb
+        self.wandb_run = wandb_run
+        self.global_step = 0
         
         
     
@@ -105,6 +110,29 @@ class MicrobiomeTrainer:
             self._log_epoch_summary(
                 epoch, epoch_start_time, train_metrics, val_metrics
             )
+
+            if self.wandb_run is not None and self.accelerator.is_main_process:
+                epoch_time = time.time() - epoch_start_time
+                wandb_epoch_metrics = {
+                    'epoch': epoch,
+                    'epoch_time': epoch_time,
+                    'train/epoch_loss': train_metrics['total_loss'],
+                    'val/epoch_loss': val_metrics['total_loss'],
+                    'learning_rate': scheduler.get_last_lr()[0],
+                    'patience': patience_counter,
+                    'best_val_loss': best_val_loss,
+                }
+                
+                # Add task-specific metrics
+                for key, value in train_metrics.items():
+                    if key != 'total_loss':
+                        wandb_epoch_metrics[f'train/epoch_{key}'] = value
+                
+                for key, value in val_metrics.items():
+                    if key != 'total_loss':
+                        wandb_epoch_metrics[f'val/epoch_{key}'] = value
+                
+                self.wandb_run.log(wandb_epoch_metrics, step=self.global_step)
             
             # Get current validation loss
             val_loss = val_metrics['total_loss']
@@ -141,7 +169,7 @@ class MicrobiomeTrainer:
             # Update epoch
             epoch += 1
             self.accelerator.wait_for_everyone()
-        
+
         logger.info("=" * 80)
         logger.info(f"Training complete! Best validation loss: {best_val_loss:.6f}")
         logger.info("=" * 80)
@@ -194,6 +222,19 @@ class MicrobiomeTrainer:
                 total_metrics[key] += value
             
             num_batches += 1
+            self.global_step += 1
+            if self.wandb_run is not None and self.accelerator.is_main_process:
+                wandb_step_metrics = {
+                    'train/step_loss': loss.item(),
+                    'train/learning_rate': scheduler.get_last_lr()[0],
+                    'epoch': epoch + 1,
+                }
+                
+                # Add task-specific metrics
+                for key, value in metrics.items():
+                    wandb_step_metrics[f'train/step_{key}'] = value
+                
+                self.wandb_run.log(wandb_step_metrics, step=self.global_step)
             
             # Log at intervals
             if (batch_idx + 1) % self.log_interval == 0:
@@ -497,3 +538,139 @@ class MicrobiomeTrainer:
                 targets['original_counts'],
             )
         return denoising_loss
+    
+    def inference(
+        self,
+        model,
+        data_loader,
+        embedding_type: str = "sample",
+        return_outputs: bool = False
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Run inference to extract embeddings for all samples.
+        
+        :param model: Trained model to run inference with.
+        :param data_loader: DataLoader containing samples to embed.
+        :param embedding_type: Type of embedding to extract:
+            - "sample": Extract sample token embedding (first token)
+            - "mean": Mean pool all taxa embeddings
+            - "cls": Same as "sample" (alias)
+            - "all": Return full sequence embeddings
+        :param return_outputs: Whether to return full model outputs (for downstream tasks).
+        :return: Dictionary containing:
+            - 'embeddings': (N, d_model) tensor of sample embeddings
+            - 'taxa_ids': (N, L) tensor of taxa IDs for each sample
+            - 'batch_ids': (N,) tensor of batch IDs (if available)
+            - 'sample_ids': List of sample identifiers
+            - 'outputs': Full model outputs (if return_outputs=True)
+        """
+        model.eval()
+        
+        all_embeddings = []
+        all_taxa_ids = []
+        all_batch_ids = []
+        all_sample_ids = []
+        all_outputs = [] if return_outputs else None
+        
+        logger.info(f"Running inference on {len(data_loader)} batches...")
+        logger.info(f"Embedding type: {embedding_type}")
+        
+        with torch.no_grad():
+            for batch_idx, batch in enumerate(data_loader):
+                taxa_ids = batch['taxa_ids']  # (B, L)
+                original_counts = batch['original_counts']  # (B, L)
+                depth = batch['depth']  # (B,)
+                batch_ids = batch.get('batch_ids', None)  # (B,) or None
+                sample_ids = batch.get('sample_id', None)  # List of sample IDs
+                
+                # model inference
+                sample_embeddings = model.inference(
+                    taxa_ids=taxa_ids,
+                    abundance_values=original_counts,
+                    depth=depth,
+                    batch_ids=batch_ids,
+                    graph_data=self.graph_data
+                )
+                
+                # Collect results
+                all_embeddings.append(sample_embeddings.cpu())
+                all_taxa_ids.append(taxa_ids.cpu())
+                
+                if batch_ids is not None:
+                    all_batch_ids.append(batch_ids.cpu())
+                
+                if sample_ids is not None:
+                    all_sample_ids.extend(sample_ids)
+                
+                if return_outputs:
+                    all_outputs.append({k: v.cpu() for k, v in outputs.items()})
+                
+                # Log progress
+                if (batch_idx + 1) % self.log_interval == 0:
+                    logger.info(f"Processed {batch_idx + 1}/{len(data_loader)} batches")
+        
+        # Concatenate all batches
+        embeddings = torch.cat(all_embeddings, dim=0)  # (N, d_model) or (N, num_tokens, d_model)
+        taxa_ids = torch.cat(all_taxa_ids, dim=0)  # (N, L)
+        
+        results = {
+            'embeddings': embeddings,
+            'taxa_ids': taxa_ids,
+        }
+        
+        if all_batch_ids:
+            results['batch_ids'] = torch.cat(all_batch_ids, dim=0)
+        
+        if all_sample_ids:
+            results['sample_ids'] = all_sample_ids
+        
+        if return_outputs:
+            results['outputs'] = all_outputs
+        
+        logger.info(f"Inference complete! Extracted {embeddings.shape[0]} embeddings of dimension {embeddings.shape[-1]}")
+        
+        return results
+
+
+    def save_embeddings(
+        self,
+        embeddings_dict: Dict[str, torch.Tensor],
+        save_path: str,
+        format: str = "pt"
+    ):
+        """
+        Save extracted embeddings to disk.
+        
+        :param embeddings_dict: Dictionary returned from inference().
+        :param save_path: Path to save embeddings.
+        :param format: Save format - "pt" (PyTorch), "npz" (NumPy), or "h5" (HDF5).
+        """
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        if format == "pt":
+            torch.save(embeddings_dict, save_path)
+            logger.info(f"Saved embeddings to {save_path}")
+        
+        elif format == "npz":
+            import numpy as np
+            np_dict = {k: v.numpy() if isinstance(v, torch.Tensor) else v 
+                    for k, v in embeddings_dict.items()}
+            np.savez(save_path, **np_dict)
+            logger.info(f"Saved embeddings to {save_path}")
+        
+        elif format == "h5":
+            import h5py
+            with h5py.File(save_path, 'w') as f:
+                for key, value in embeddings_dict.items():
+                    if isinstance(value, torch.Tensor):
+                        f.create_dataset(key, data=value.numpy())
+                    elif isinstance(value, list):
+                        # Save string lists
+                        dt = h5py.string_dtype(encoding='utf-8')
+                        f.create_dataset(key, data=value, dtype=dt)
+            logger.info(f"Saved embeddings to {save_path}")
+        
+        else:
+            raise ValueError(f"Unknown format: {format}")
+

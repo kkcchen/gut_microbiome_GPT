@@ -27,6 +27,7 @@ class MicrobiomeCollator:
         perturbation_scale: float = 0.55,
         norm_strategy: str = 'clr',
         do_contrastive: bool = False,
+        eval_mode: bool = False,
     ):
         """
         Initialize collator with perturbation and selection parameters.
@@ -45,6 +46,7 @@ class MicrobiomeCollator:
         self.perturbation_distribution = perturbation_distribution
         self.norm_strategy = norm_strategy
         self.do_contrastive = do_contrastive
+        self.eval_mode = eval_mode
         self.rng = np.random.default_rng()
     
     def __call__(self, batch: List[Dict]) -> Dict[str, torch.Tensor]:
@@ -81,7 +83,11 @@ class MicrobiomeCollator:
         batch_ids = np.array([s['batch_id'] for s in batch]) if 'batch_id' in batch[0] else None
 
         # perturbation on full count vectors
-        counts_perturbed, depths_perturbed = self._perturb_batch(counts_full)
+        if self.eval_mode:
+            counts_perturbed = counts_full.copy()
+            depths_perturbed = depths_original.copy()
+        else:
+            counts_perturbed, depths_perturbed = self._perturb_batch(counts_full)
 
         # apply normalization
         counts_perturbed_norm = self._apply_normalization(counts_perturbed) 

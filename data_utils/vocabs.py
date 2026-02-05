@@ -1,9 +1,11 @@
 """
 Vocabulary classes for taxa and batch labels.
 """
+from pathlib import Path
+import pickle
 import numpy as np
 import anndata as ad
-from typing import List
+from typing import List, Union
 
 
 class TaxaVocabulary:
@@ -62,6 +64,33 @@ class TaxaVocabulary:
     def get_taxa_id(self, name: str) -> int:
         """Get taxa index by name."""
         return self.token_to_id[name]
+    
+    def save(self, path: Union[str, Path]):
+        """
+        Save vocabulary to disk.
+        
+        :param path: Path to save vocabulary (e.g., 'taxa_vocab.pkl')
+        """
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(path, 'wb') as f:
+            pickle.dump(self, f, protocol=pickle.HIGHEST_PROTOCOL)
+            
+    @classmethod
+    def load(cls, path: Union[str, Path]) -> 'TaxaVocabulary':
+        """
+        Load vocabulary from disk.
+        
+        :param path: Path to vocabulary file.
+        :return: Loaded TaxaVocabulary instance.
+        """
+        path = Path(path)
+        if not path.exists():
+            raise FileNotFoundError(f"Vocabulary file not found: {path}")
+        with open(path, 'rb') as f:
+            vocab = pickle.load(f)
+        return vocab
 
 
 class BatchVocabulary:
@@ -121,3 +150,31 @@ class BatchVocabulary:
         :return: List of batch names.
         """
         return [self.id_to_token[int(idx)] for idx in batch_ids]
+
+    def save(self, path: Union[str, Path]):
+        """
+        Save vocabulary to disk.
+        
+        :param path: Path to save vocabulary (e.g., 'batch_vocab.pkl')
+        """
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(path, 'wb') as f:
+            pickle.dump(self, f, protocol=pickle.HIGHEST_PROTOCOL)
+            
+    @classmethod
+    def load(cls, path: Union[str, Path]) -> 'BatchVocabulary':
+        """
+        Load vocabulary from disk.
+        
+        :param path: Path to vocabulary file.
+        :return: Loaded BatchVocabulary instance.
+        """
+        path = Path(path)
+        if not path.exists():
+            raise FileNotFoundError(f"Vocabulary file not found: {path}")
+        with open(path, 'rb') as f:
+            vocab = pickle.load(f)
+        return vocab
+
