@@ -26,7 +26,7 @@ training:
   enable_fp16: false
   train_mask_ratio: 0.15
   notes: "Experimenting with new architecture"
-  tasks: ["denoising"]
+  tasks: ["denoising", "contrastive"]
   contrastive_temperature: 0.2
 
 validation:

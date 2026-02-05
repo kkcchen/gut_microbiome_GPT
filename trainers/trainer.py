@@ -44,7 +44,9 @@ class MicrobiomeTrainer:
         
         # Training config
         self.max_epochs = cfg.training.max_epochs
-        self.patience = cfg.training.get('patience', self.max_epochs)
+        self.patience = cfg.training.get('patience')
+        if self.patience is None:
+            self.patience = self.max_epochs
         self.log_interval = cfg.training.log_interval
         self.grad_clip = cfg.training.get('grad_clip', 1.0)
         self.checkpoint_every = cfg.training.get('checkpoint_every', 5)
@@ -353,9 +355,9 @@ class MicrobiomeTrainer:
             abundance_values=perturbed_counts,
             depth=depth,
             batch_ids=batch_ids,
-            graph_data=self.graph_data
+            graph_data=self.graph_data,
         )
-        if self.cfg.tasks.do_contrastive:
+        if 'contrastive' in self.cfg.training.tasks:
             perturbed_counts_2 = batch['perturbed_counts_2']  # (B, L)
             depth_2 = batch['depth_2']  # (B,)
             outputs_2 = model(
@@ -363,7 +365,7 @@ class MicrobiomeTrainer:
                 abundance_values=perturbed_counts_2,
                 depth=depth_2,
                 batch_ids=batch_ids,
-                graph_data=self.graph_data
+                graph_data=self.graph_data,
             )
             outputs = {"view_1": outputs, "view_2": outputs_2}
             
@@ -473,15 +475,15 @@ class MicrobiomeTrainer:
         :param cfg: Configuration object.
         :return: tuple of (loss tensor, metrics dictionary)
         '''
+        tasks = self.cfg.training.tasks
         loss = 0.0
         metrics = {}
-        if self.cfg.tasks.do_contrastive:
+        if 'contrastive' in tasks:
             outputs_2 = outputs["view_2"]
             outputs = outputs["view_1"] # use this as outputs for any other losses
         
         # Expression reconstruction loss 
-        tasks = cfg.tasks
-        if tasks.do_denoising:
+        if 'denoising' in tasks:
             # output from model will be different depending on modelling distribution
             if cfg.data.distribution == 'zinb':
                 # ZINB distribution parameters
@@ -495,14 +497,14 @@ class MicrobiomeTrainer:
                     targets['original_counts'],
                 )
             else: # no distribution specified, direct count prediction
-                outputs_counts = outputs["denoising_counts"]
+                outputs_counts = outputs["denoising_pred"]
                 denoising_loss = mse_loss(
                     outputs_counts,
                     targets['original_counts'],
                 )
             metrics["denoising_loss"] = denoising_loss.item()
             loss += denoising_loss
-        if tasks.do_contrastive:
+        if 'contrastive' in tasks:
             # Placeholder for contrastive loss computation
             contrastive_loss = nt_xent_loss(
                 outputs["projected"],
