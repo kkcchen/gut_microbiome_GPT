@@ -3,6 +3,7 @@ Main data preparation pipeline orchestration.
 """
 import anndata as ad
 import numpy as np
+import torch
 from pathlib import Path
 from typing import Dict, Tuple, Optional
 from sklearn.model_selection import train_test_split
@@ -53,6 +54,7 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
     if cfg.model.params.get('use_gnn', False):
         logger.info("Building taxonomic graph...")
         graph_data = build_tg_data_from_taxon_df(adata.varm['taxonomy'], taxa_vocab.id_to_token)
+        torch.save(graph_data, cfg.paths.graph_path)
     
     # 5. Create datasets (raw data, no preprocessing)
     logger.info("Creating datasets with dynamic top-k selection...")
