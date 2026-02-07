@@ -143,7 +143,7 @@ class hgmGPT(nn.Module):
         # 1. denoising
         # expression decoder, this operates on all the taxa tokens
         if "denoising" in tasks:
-            self.denoising_decoder = AbundanceDecoder(
+            self.abundance_decoder = AbundanceDecoder(
                 d_model=d_model,
                 num_special_tokens=2 if use_batch_labels else 1,
                 distribution=self.model_distribution,

@@ -24,15 +24,16 @@ def setup_directories(cfg, accelerator):
     cfg.paths.graph_path = os.path.join(cfg.paths.output_dir, "taxonomic_graph.pt")
 
     # Handle start_over flag - delete existing checkpoints
-    if cfg.debug.get('start_over', False):
-        logger.info("Starting over from scratch, deleting existing training state.")
-        if os.path.exists(cfg.paths.data_restore_dir):
-            shutil.rmtree(cfg.paths.data_restore_dir)
-        if os.path.exists(cfg.paths.checkpoint_dir):
-            shutil.rmtree(cfg.paths.checkpoint_dir)
-    
-    # Create directories
     if accelerator.is_main_process:
+
+        if cfg.debug.get('start_over', False):
+            logger.info("Starting over from scratch, deleting existing training state.")
+            if os.path.exists(cfg.paths.data_restore_dir):
+                shutil.rmtree(cfg.paths.data_restore_dir)
+            if os.path.exists(cfg.paths.checkpoint_dir):
+                shutil.rmtree(cfg.paths.checkpoint_dir)
+    
+        # Create directories
         Path(cfg.paths.best_dir).mkdir(parents=True, exist_ok=True)
         Path(cfg.paths.checkpoint_dir).mkdir(parents=True, exist_ok=True)
         Path(cfg.paths.intermediate_dir).mkdir(parents=True, exist_ok=True)

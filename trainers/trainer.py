@@ -25,7 +25,6 @@ class MicrobiomeTrainer:
         taxa_vocab,
         batch_vocab: Optional[object] = None,
         graph_data: Optional[torch.Tensor] = None,
-        wandb_run = None,
     ):
         """
         Initialize trainer with configuration and artifacts.
@@ -60,7 +59,7 @@ class MicrobiomeTrainer:
         self.intermediate_dir = cfg.paths.intermediate_dir
         
         # wandb
-        self.wandb_run = wandb_run
+        self.run_wandb = cfg.wandb.enabled
         self.global_step = 0
         
         
@@ -113,7 +112,7 @@ class MicrobiomeTrainer:
                 epoch, epoch_start_time, train_metrics, val_metrics
             )
 
-            if self.wandb_run is not None and self.accelerator.is_main_process:
+            if self.run_wandb and self.accelerator.is_main_process:
                 epoch_time = time.time() - epoch_start_time
                 wandb_epoch_metrics = {
                     'epoch': epoch,
@@ -134,7 +133,7 @@ class MicrobiomeTrainer:
                     if key != 'total_loss':
                         wandb_epoch_metrics[f'val/epoch_{key}'] = value
                 
-                self.wandb_run.log(wandb_epoch_metrics, step=self.global_step)
+                self.accelerator.log(wandb_epoch_metrics, step=self.global_step)
             
             # Get current validation loss
             val_loss = val_metrics['total_loss']
@@ -225,7 +224,7 @@ class MicrobiomeTrainer:
             
             num_batches += 1
             self.global_step += 1
-            if self.wandb_run is not None and self.accelerator.is_main_process:
+            if self.run_wandb and self.accelerator.is_main_process:
                 wandb_step_metrics = {
                     'train/step_loss': loss.item(),
                     'train/learning_rate': scheduler.get_last_lr()[0],
@@ -236,7 +235,7 @@ class MicrobiomeTrainer:
                 for key, value in metrics.items():
                     wandb_step_metrics[f'train/step_{key}'] = value
                 
-                self.wandb_run.log(wandb_step_metrics, step=self.global_step)
+                self.accelerator.log(wandb_step_metrics, step=self.global_step)
             
             # Log at intervals
             if (batch_idx + 1) % self.log_interval == 0:

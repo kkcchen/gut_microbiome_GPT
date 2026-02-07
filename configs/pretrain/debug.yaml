@@ -1,12 +1,7 @@
 paths:
+  output_dir: "outputs/pretrain"
   model_config_path: "outputs/pretrain/model_config.json"
   ann_table_path: "datasets/hmc_final/pretrain.h5ad"
-  vocab_path: null
-  best_dir: "outputs/pretrain/best_model"
-  checkpoint_dir: "outputs/pretrain/checkpoints"
-  data_restore_dir: "outputs/pretrain/data_cache"
-  intermediate_dir: "outputs/pretrain/intermediate"
-  graph_path: outputs/pretrain/taxonomic_graph.pt
 
 wandb:
   enabled: false

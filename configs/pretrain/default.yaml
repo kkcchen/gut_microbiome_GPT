@@ -1,13 +1,13 @@
 paths:
   output_dir: "outputs/pretrain"
   model_config_path: "outputs/pretrain/model_config.json"
-  ann_table_path: "/home/tiantian/projects/aip-rahulgk/gutmodel/hmc_final/pretrain.h5ad"
+  ann_table_path: "/project/6101781/gutmodel/hmc_final/pretrain.h5ad"
 
 wandb:
   enabled: false
-  entity: null
+  entity: "haoze-deng-university-of-toronto"
   project: "microbiome-foundation"
-  run_name: null
+  run_name: first_run
   run_notes: null
 
 training:
@@ -39,9 +39,7 @@ data:
   distribution: "zinb"
 
 
-model:
-  use_gnn: false
-  
+model:  
   tasks:
     do_mvc: false
     do_taxa_decoder: false
@@ -56,11 +54,12 @@ model:
     nlayers: 3
     dropout: 0.1
     abundance_emb_style: "continuous" # choices: scaling, continuous, category
+    use_gnn: false
     # Example: If you change architecture, just add new keys here
     # activation: "gelu" 
     # use_flash_attn: true
     model_distribution: "zinb" # choices: zinb,...
 
 debug:
-  nrows: 200
+  # nrows: 200
   start_over: true
