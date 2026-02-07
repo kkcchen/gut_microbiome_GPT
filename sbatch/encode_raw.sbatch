@@ -11,7 +11,7 @@
 source ~/hmbenv/bin/activate
 
 python -m scripts.encode_raw \
-  --train-input /project/aip-rahulgk/gutmodel/remove_redundant_oct24/finetune_train.h5ad \
-  --test-input /project/aip-rahulgk/gutmodel/remove_redundant_oct24/finetune_test.h5ad \
+  --train-input /home/tiantian/projects/aip-rahulgk/tiantian/gut_microbiome_GPT/data/remove_redundant_oct24/finetune_train.h5ad \
+  --test-input /home/tiantian/projects/aip-rahulgk/tiantian/gut_microbiome_GPT/data/remove_redundant_oct24/finetune_test.h5ad \
   --prevalence-threshold 0.01 \
   --abundance-threshold 0.05

@@ -7,6 +7,7 @@ import torch
 from omegaconf import OmegaConf
 from trainers import logger
 from model import hgmGPT
+from typing import Dict, Optional
 
 class DictStateWrapper:
     def __init__(self, data=None):
@@ -18,7 +19,7 @@ class DictStateWrapper:
     def load_state_dict(self, state):
         self.data = state
 
-def build_model_config(cfg, taxa_vocab, batch_vocab=None, graph_data=None) -> dict:
+def build_model_config(cfg, taxa_vocab, batch_vocab=None, graph_data=None, eval=False) -> dict:
     """
     Construct complete model configuration from training config and data artifacts.
     
@@ -26,13 +27,18 @@ def build_model_config(cfg, taxa_vocab, batch_vocab=None, graph_data=None) -> di
     :param taxa_vocab: Microbiome vocabulary object.
     :param batch_vocab: Batch vocabulary (if using batch labels).
     :param graph_data: Graph data object (if using GNN).
+    :param eval: Whether this is for evaluation (affects certain config choices).
     :return: Complete model configuration dictionary.
     """
     # Start with static model parameters from config
     model_config = OmegaConf.to_container(cfg.model.params, resolve=True)
     
     # Add dynamic configuration based on data and tasks
-    tasks = OmegaConf.to_container(cfg.training.tasks, resolve=True)
+    if not eval:
+        tasks = OmegaConf.to_container(cfg.training.tasks, resolve=True)
+    else:
+        tasks = OmegaConf.to_container(cfg.eval.tasks, resolve=True)
+
     dynamic_config = {
         # use the vocab to initialize some parameters
         "num_taxa": len(taxa_vocab),
@@ -191,20 +197,119 @@ def load_trained_model(cfg, model_config, accelerator):
     :param accelerator: Accelerator instance.
     :return: Loaded model.
     """
+    # load config from cfg.paths.model_config_path if exists, otherwise build from current cfg
+    model_config_path = cfg.paths.get('model_config_path', None)
+    if model_config_path and os.path.exists(model_config_path):
+        logger.info(f"Loading model configuration from {model_config_path}...")
+        with open(model_config_path, 'r') as f:
+            model_config = json.load(f)
+    else:
+        logger.warning(f"Model configuration file not found at {model_config_path}. Building model configuration from current cfg.")
+
     model = hgmGPT(**model_config)
-    checkpoint_path = os.path.join(cfg.paths.best_dir, 'best_model.pt')
+    checkpoint_path = cfg.paths.checkpoint_path
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError(f"Checkpoint not found at {checkpoint_path}")
     
     logger.info(f"Loading model checkpoint from {checkpoint_path}...")
-    loaded_state = torch.load(checkpoint_path, map_location='cpu')
-    model.load_state_dict(loaded_state['model'])
+    if checkpoint_path.endswith('.pt') or checkpoint_path.endswith('.pth'):
+        loaded_state = torch.load(checkpoint_path, map_location='cpu')['model']
+    elif checkpoint_path.endswith('.safetensors'):
+        from safetensors.torch import load_file
+        loaded_state = load_file(checkpoint_path)
+    model.load_state_dict(loaded_state)
     model.to(accelerator.device)
     model.eval()
     
     logger.info("Model loaded and set to evaluation mode.")
     return model
 
+
+def inference(
+        model,
+        data_loader,
+        graph_data=None,
+        embedding_type: str = "sample",
+        return_outputs: bool = False
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Run inference to extract embeddings for all samples.
+        
+        :param model: Trained model to run inference with.
+        :param data_loader: DataLoader containing samples to embed.
+        :param embedding_type: Type of embedding to extract:
+            - "sample": Extract sample token embedding (first token)
+            - "mean": Mean pool all taxa embeddings
+            - "cls": Same as "sample" (alias)
+            - "all": Return full sequence embeddings
+        :param return_outputs: Whether to return full model outputs (for downstream tasks).
+        :return: Dictionary containing:
+            - 'embeddings': (N, d_model) tensor of sample embeddings
+            - 'taxa_ids': (N, L) tensor of taxa IDs for each sample
+            - 'batch_ids': (N,) tensor of batch IDs (if available)
+            - 'sample_ids': List of sample identifiers
+            - 'outputs': Full model outputs (if return_outputs=True)
+        """
+        model.eval()
+        
+        all_embeddings = []
+        all_taxa_ids = []
+        all_batch_ids = []
+        all_sample_ids = []
+        all_outputs = [] if return_outputs else None
+        
+        logger.info(f"Running inference on {len(data_loader)} batches...")
+        logger.info(f"Embedding type: {embedding_type}")
+        
+        with torch.no_grad():
+            for batch_idx, batch in enumerate(data_loader):
+                taxa_ids = batch['taxa_ids']  # (B, L)
+                original_counts = batch['original_counts']  # (B, L)
+                depth = batch['depth']  # (B,)
+                batch_ids = batch.get('batch_ids', None)  # (B,) or None
+                sample_ids = batch.get('sample_id', None)  # List of sample IDs
+                
+                # model inference
+                sample_embeddings = model.inference(
+                    taxa_ids=taxa_ids,
+                    abundance_values=original_counts,
+                    depth=depth,
+                    batch_ids=batch_ids,
+                    graph_data=graph_data
+                )
+                
+                # Collect results
+                all_embeddings.append(sample_embeddings.cpu())
+                all_taxa_ids.append(taxa_ids.cpu())
+                
+                if batch_ids is not None:
+                    all_batch_ids.append(batch_ids.cpu())
+                
+                if sample_ids is not None:
+                    all_sample_ids.extend(sample_ids)
+                
+        
+        # Concatenate all batches
+        embeddings = torch.cat(all_embeddings, dim=0)  # (N, d_model) or (N, num_tokens, d_model)
+        taxa_ids = torch.cat(all_taxa_ids, dim=0)  # (N, L)
+        
+        results = {
+            'embeddings': embeddings,
+            'taxa_ids': taxa_ids,
+        }
+        
+        if all_batch_ids:
+            results['batch_ids'] = torch.cat(all_batch_ids, dim=0)
+        
+        if all_sample_ids:
+            results['sample_ids'] = all_sample_ids
+        
+        if return_outputs:
+            results['outputs'] = all_outputs
+        
+        logger.info(f"Inference complete! Extracted {embeddings.shape[0]} embeddings of dimension {embeddings.shape[-1]}")
+        
+        return results
     
 
 

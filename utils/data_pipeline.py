@@ -32,9 +32,9 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
     logger.info(f"Loading preprocessed data from {cfg.paths.ann_table_path}")
     adata = load_anndata(cfg.paths.ann_table_path)
     
-    if cfg.debug.nrows:
+    if cfg.debug.get('nrows', None) is not None:
         adata = adata[:cfg.debug.nrows].copy()
-        logger.info(f"Debug mode: using only {cfg.debug.nrows} rows")
+        logger.warning(f"Debug mode: using only {cfg.debug.nrows} rows")
     
     # 2. Split train/validation
     logger.info("Splitting train/validation...")
@@ -49,11 +49,11 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
     logger.info("Building vocabularies...")
     taxa_vocab = TaxaVocabulary.from_adata(train_adata)
     batch_vocab = BatchVocabulary.from_adata(train_adata) if cfg.data.use_batch_labels else None
-    taxa_vocab.save(cfg.data.taxa_vocab_path)
+    taxa_vocab.save(cfg.paths.taxa_vocab_path)
     if batch_vocab:
-        batch_vocab.save(cfg.data.batch_vocab_path)
-        logger.info(f"Batch Vocab saved at {cfg.data.batch_vocab_path} with {len(batch_vocab)} batches")
-    logger.info(f"Taxa Vocab saved at {cfg.data.taxa_vocab_path} with {len(taxa_vocab)} taxa")
+        batch_vocab.save(cfg.paths.batch_vocab_path)
+        logger.info(f"Batch Vocab saved at {cfg.paths.batch_vocab_path} with {len(batch_vocab)} batches")
+    logger.info(f"Taxa Vocab saved at {cfg.paths.taxa_vocab_path} with {len(taxa_vocab)} taxa")
     
     # 4. Build taxonomic graph (if using GNN) take a look here
     graph_data = None
@@ -285,39 +285,39 @@ def prepare_inference_data(cfg, accelerator) -> Dict:
     :return: Dictionary with dataloader, vocabularies, and graph data.
     """
     # 1. Load preprocessed AnnData (keep raw counts)
-    logger.info(f"Loading inference data from {cfg.data.data_path}")
-    adata = load_anndata(cfg.data.data_path)
+    logger.info(f"Loading inference data from {cfg.paths.data_path}")
+    adata = load_anndata(cfg.paths.data_path)
     
     logger.info(f"Loaded {adata.n_obs} samples with {adata.n_vars} taxa")
     
     # 2. Load vocabularies (must exist from training)
     logger.info("Loading vocabularies from training...")
     
-    if not Path(cfg.data.taxa_vocab_path).exists():
+    if not Path(cfg.paths.taxa_vocab_path).exists():
         raise FileNotFoundError(
-            f"Taxa vocabulary not found at {cfg.data.taxa_vocab_path}. "
+            f"Taxa vocabulary not found at {cfg.paths.taxa_vocab_path}. "
             "Please run training first to generate vocabularies."
         )
     
-    taxa_vocab = TaxaVocabulary.load(cfg.data.taxa_vocab_path)
+    taxa_vocab = TaxaVocabulary.load(cfg.paths.taxa_vocab_path)
     logger.info(f"Loaded taxa vocabulary: {len(taxa_vocab)} taxa")
     
     batch_vocab = None
     if cfg.data.use_batch_labels:
-        if not Path(cfg.data.batch_vocab_path).exists():
+        if not Path(cfg.paths.batch_vocab_path).exists():
             raise FileNotFoundError(
-                f"Batch vocabulary not found at {cfg.data.batch_vocab_path}. "
+                f"Batch vocabulary not found at {cfg.paths.batch_vocab_path}. "
                 "Please run training first to generate vocabularies."
             )
-        batch_vocab = BatchVocabulary.load(cfg.data.batch_vocab_path)
+        batch_vocab = BatchVocabulary.load(cfg.paths.batch_vocab_path)
         logger.info(f"Loaded batch vocabulary: {len(batch_vocab)} batches (includes <UNK>)")
     
     # 3. Load taxonomic graph (if using GNN)
     graph_data = None
     if cfg.model.get('use_gnn', False):
-        if cfg.data.get('graph_path') and Path(cfg.data.graph_path).exists():
-            logger.info(f"Loading taxonomic graph from {cfg.data.graph_path}")
-            graph_data = torch.load(cfg.data.graph_path)
+        if cfg.paths.get('graph_path') and Path(cfg.paths.graph_path).exists():
+            logger.info(f"Loading taxonomic graph from {cfg.paths.graph_path}")
+            graph_data = torch.load(cfg.paths.graph_path)
         else:
             logger.warning("GNN enabled but graph_path not found. Building graph from data...")
             graph_data = build_tg_data_from_taxon_df(adata.varm['taxonomy'], taxa_vocab.vocab_list)
@@ -349,12 +349,12 @@ def prepare_inference_data(cfg, accelerator) -> Dict:
     if "num_workers" not in cfg.data:
         logger.warning("Config 'data.num_workers' not found, using default: 1")
     
-    if "inference_batch_size" not in cfg.data:
-        logger.warning("Config 'data.inference_batch_size' not found, using default: 64")
+    if "batch_size" not in cfg.data:
+        logger.warning("Config 'data.batch_size' not found, using default: 64")
     
     inference_loader = DataLoader(
         inference_dataset,
-        batch_size=cfg.data.get('inference_batch_size', 64),
+        batch_size=cfg.data.get('batch_size', 64),
         shuffle=False,  # Never shuffle for inference
         num_workers=cfg.data.get('num_workers', 1),
         collate_fn=inference_collator,
@@ -448,3 +448,38 @@ def check_unknown_batches(adata, batch_vocab):
     unknown_batches = data_batches - vocab_batches
     
     return unknown_batches
+
+def save_embeddings(
+        embeddings_dict: Dict[str, torch.Tensor],
+        original_adata: ad.AnnData,
+        save_path: str,
+    ):
+        """
+        Save extracted embeddings to disk.
+        
+        :param embeddings_dict: Dictionary returned from inference().
+        :param original_adata: Original AnnData object.
+        :param save_path: Path to save embeddings file.
+        """
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        # Save in AnnData format for compatibility with downstream tasks
+        # original adata is preserved in obsm named "raw"
+        # new embedding is stored in obsm named "embedding"
+        embedding_adata = ad.AnnData(
+            X=np.zeros((original_adata.n_obs, 0)),  # Empty X matrix
+            obs=original_adata.obs.copy(),
+        )
+        embedding_adata.obsm['raw'] = original_adata.X.copy()
+        embedding_adata.obsm['embedding'] = embeddings_dict['embeddings'].cpu().numpy()
+        embedding_file = save_path
+        # print statistics about the final adata, print obsm shapes for each obsm, obs columns, var
+        logger.info(f"Final embedding AnnData shape: {embedding_adata.shape}")
+        logger.info(f"obsm keys: {list(embedding_adata.obsm.keys())}")
+        for key, value in embedding_adata.obsm.items():
+            logger.info(f"obsm[{key}] shape: {value.shape}")
+        logger.info(f"obs columns: {list(embedding_adata.obs.columns)}")
+        logger.info(f"var columns: {list(embedding_adata.var.columns) if embedding_adata.var is not None else 'None'}")
+
+        embedding_adata.write_h5ad(embedding_file)
+        logger.info(f"Embeddings saved to {embedding_file}")

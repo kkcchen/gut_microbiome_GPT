@@ -659,16 +659,8 @@ class MicrobiomeTrainer:
             np.savez(save_path, **np_dict)
             logger.info(f"Saved embeddings to {save_path}")
         
-        elif format == "h5":
-            import h5py
-            with h5py.File(save_path, 'w') as f:
-                for key, value in embeddings_dict.items():
-                    if isinstance(value, torch.Tensor):
-                        f.create_dataset(key, data=value.numpy())
-                    elif isinstance(value, list):
-                        # Save string lists
-                        dt = h5py.string_dtype(encoding='utf-8')
-                        f.create_dataset(key, data=value, dtype=dt)
+        elif format == "h5ad":
+            # TODO: fix this and also add obsm, as well as raw
             logger.info(f"Saved embeddings to {save_path}")
         
         else:

@@ -90,6 +90,10 @@ def main():
     model, dataloader = accelerator.prepare(model, dataloader)
 
     # === Encode ===
+    # what device is graph data on?
+    if graph_data is not None:
+        graph_data = graph_data.to(accelerator.device)
+    
     all_cell_embs = []
     with torch.no_grad():
         for data_dict in dataloader:

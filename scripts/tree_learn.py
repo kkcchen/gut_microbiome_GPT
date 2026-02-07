@@ -160,7 +160,7 @@ def train_xgb(X_train, y_train, search_type, sample_weights=None, regression=Fal
             verbose=1
         )
     
-    elif search_type == "none":
+    elif search_type == "debug":
         # params = {
         #     "learning_rate": 0.3,
         #     "max_depth": 10,
@@ -176,6 +176,20 @@ def train_xgb(X_train, y_train, search_type, sample_weights=None, regression=Fal
             "colsample_bytree": 0.6,
             "gamma": 1.0,
             "min_child_weight": 5
+        }
+        print("Not doing any search, using fixed parameters, small for debugging:", params)
+        xgb_model.set_params(**params)
+        xgb_model.fit(X_train, y_train, sample_weight=sample_weights)
+        return params, xgb_model
+    elif search_type == "none":
+        params = {
+            "learning_rate": 0.05,
+            "max_depth": 7,
+            "n_estimators": 500,
+            "subsample": 1.0,
+            "colsample_bytree": 1.0,
+            "device": "cuda",
+            "tree_method": "hist",
         }
         print("Not doing any search, using fixed parameters:", params)
         xgb_model.set_params(**params)

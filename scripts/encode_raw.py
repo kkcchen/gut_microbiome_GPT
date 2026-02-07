@@ -7,6 +7,8 @@ def main():
     parser = argparse.ArgumentParser(description="Filter and CLR-transform a taxa abundance matrix using scikit-bio.")
     parser.add_argument("--train-input", type=str, required=True)
     parser.add_argument("--test-input", type=str, required=True)
+    parser.add_argument("--train-output", type=str, required=True)
+    parser.add_argument("--test-output", type=str, required=True)
     parser.add_argument("--prevalence-threshold", type=float, default=0.01)
     parser.add_argument("--abundance-threshold", type=float, default=0.05)
     args = parser.parse_args()
@@ -52,11 +54,11 @@ def main():
         del ds.obs["__split"]
 
     # Save filtered objects with CLR in layers
-    train_filtered.write_h5ad(args.train_input)
-    test_filtered.write_h5ad(args.test_input)
+    train_filtered.write_h5ad(args.train_output)
+    test_filtered.write_h5ad(args.test_output)
 
-    print(f"Saved CLR-transformed train data to {args.train_input}, shape: {train_filtered.obsm['raw_embedding'].shape}")
-    print(f"Saved CLR-transformed test data to {args.test_input}, shape: {test_filtered.obsm['raw_embedding'].shape}")
+    print(f"Saved CLR-transformed train data to {args.train_output}, shape: {train_filtered.obsm['raw_embedding'].shape}")
+    print(f"Saved CLR-transformed test data to {args.test_output}, shape: {test_filtered.obsm['raw_embedding'].shape}")
 
 if __name__ == "__main__":
     main()

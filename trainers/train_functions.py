@@ -33,7 +33,6 @@ import torch.nn.functional as F
 from data_utils.vocab import MicrobiomeVocab, BatchVocab
 from trainers import logger
 
-# Define a simple state wrapper for the model to use with Accelerator
 class DictStateWrapper:
     def __init__(self, data=None):
         self.data = data or {}
@@ -70,9 +69,7 @@ def pretrain(
     model.train()
     total_loss = 0.0
     total_mse = 0.0
-    # total_cls = 0.0
     total_gen = 0.0
-    # total_mvc = 0.0
     total_error = 0.0
 
     num_batches = len(train_loader)
@@ -114,14 +111,8 @@ def pretrain(
                 batch_labels = data_dict["batch_labels"]
             else:
                 batch_labels = None
-            # else:
-            #     input_gene_ids = data_dict["gene"]
-            #     input_values = data_dict["masked_expr"]
-            #     target_values = data_dict["expr"]
-            #     src_key_padding_mask = input_gene_ids.eq(vocab[args.pad_token])
 
             with accelerator.autocast():
-                # if USE_GENERATIVE_TRAINING:
                 output_dict = model(
                     taxa,
                     values,
@@ -151,11 +142,7 @@ def pretrain(
                 if use_tcs:
                     flattened_preds = output_dict["taxa_preds"].view(-1, output_dict["taxa_preds"].shape[-1])
                     flattened_target = taxa_target.view(-1)
-                    # loss_tcs = masked_mse_loss(
-                    #     output_dict["taxa_preds"],
-                    #     values_target,
-                    #     positions_to_match,
-                    # )
+
                     loss_tcs = F.cross_entropy(
                         flattened_preds,
                         flattened_target,
@@ -222,8 +209,6 @@ def pretrain(
                 #     accelerator.log({"train/loss_gen": loss_gen.item()}, step=global_iter)
 
             accelerator.backward(loss)
-            # print(model.encoder.embedding.weight.grad[:3, :3]) if model.encoder.embedding.weight.grad is not None else print("No grad")
-            # print(model.encoder.embedding.weight.grad[-3:, :3]) if model.encoder.embedding.weight.grad is not None else print("No grad")
             if accelerator.sync_gradients:
                 accelerator.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
@@ -547,6 +532,127 @@ def create_or_restore_data_state(anndata_path,
     
     return tuple(data_list)
 
+def create_or_restore_data_state_new(ann_table_path, 
+                                     data_restore_dir, 
+                                     accelerator: Accelerator, 
+                                     use_gnn=False, 
+                                     batch_obskey=None, 
+                                     nrows=None,
+                                     preprocess_strategy="default",
+                                     num_bins=15):
+    """
+    create or restore data state from the model save directory.
+    
+    :param ann_table_path: the path to the raw anndata file
+    :param data_restore_dir: the path to the data restore directory
+    :param accelerator: Accelerator used for trainning
+    :param use_gnn: if the gnn module is used for training
+    :param batch_obskey: ...
+    :param nrows: for debug, only use the first nrows rows of the anndata if specified
+    :param preprocess_strategy: choice of "default" and "binning"
+        - "default": use clr normalization, sample top 512 taxa for pretraining. if <512 taxa, pad with randomly sampled unexpressed taxa
+        - "binning": use binning strategy to bin the taxa into num_bins bins.
+    :param num_bins: only used if preprocess_strategy is "binning"
+
+    raw ann table contains the hmc data after initial filtering. This function ingests the raw anndata and creates a processed version of 
+
+    """
+    if accelerator.is_main_process:
+        batchvocab_path = os.path.join(data_restore_dir, f"batchvocab_{batch_obskey}.json")
+        vocab_path = os.path.join(data_restore_dir, "vocab_file.json")
+        os.makedirs(data_restore_dir, exist_ok=True)
+        
+        batch_vocab = None
+        
+        if os.path.exists(vocab_path) and os.path.exists(batchvocab_path):
+            # load the vocab from the file
+            # TODO: need to fix this
+            print(f"Restoring vocab and data from {data_restore_dir}")
+            vocab = MicrobiomeVocab.restore_vocab(vocab_path)
+            logger.info(f"Vocab restored from {data_restore_dir}")
+            
+            adata = ad.read_h5ad(os.path.join(data_restore_dir, "augmented_data.h5ad"))
+            if batch_obskey:
+                batch_vocab = BatchVocab.restore_batchvocab(batchvocab_path)
+                assert batch_vocab.batch_obskey == batch_obskey, "Batch obskey does not match the restored batch vocab."
+                logger.info(f"Batch vocab restored from {data_restore_dir} using key {batch_obskey}")
+            
+            # load graph
+            if use_gnn:
+                assert os.path.exists(os.path.join(data_restore_dir, "graph_data.pt")), "Graph data file not found in restore directory."
+                graph_data = torch.load(os.path.join(data_restore_dir, "graph_data.pt"), weights_only=False)
+            
+            # load the data state from the file
+            assert "split" in adata.obs and "binned_rows" in adata.layers, "The AnnData object must have 'split' in obs."
+            logger.info("Data state can be restored from {}".format(data_restore_dir))
+        else:
+            print(f"Creating vocab and data from scratch using {ann_table_path}")
+            adata = ad.read_h5ad(ann_table_path)
+            if nrows:
+                adata = adata[:nrows, :].copy()
+            vocab = MicrobiomeVocab.create_vocab_from_scratch(adata)
+            vocab.save_vocab(os.path.join(data_restore_dir, "vocab_file.json"))
+            
+            # make batch vocab
+            if batch_obskey:
+                batch_vocab = BatchVocab.create_batchvocab_from_scratch(batch_obskey, adata)
+                batch_vocab.save_batchvocab(batchvocab_path)
+                adata = batch_vocab.assign_batchvocab(adata)
+            
+            if use_gnn:
+                # make graph
+                graph_data = build_tg_data_from_taxon_df(adata.varm['taxonomy'], vocab.vocab_list)
+                torch.save(graph_data, os.path.join(restore_dir, "graph_data.pt"))
+            
+            # make data
+            preprocessor = Preprocessor(
+                binning=num_bins,
+            )
+            hmc_npy = np.array(adata.X, dtype=np.float32)
+            taxa_ids = np.array(adata.var["taxa_id"])
+            if bin_strategy == "binning":
+                stacked_rows, _ = preprocessor.bin_from_np(hmc_npy, taxa_ids)
+            elif bin_strategy == "clr":
+                stacked_rows = preprocessor.clr_from_np(hmc_npy, taxa_ids)
+            else:
+                raise ValueError(f"Unknown bin_strategy: {bin_strategy}")
+            # create tokenizer
+            adata.layers["binned_rows"] = stacked_rows
+            
+            # Randomly select exactly n_train indices without replacement
+            train_indices = np.random.choice(adata.n_obs, size=int(adata.n_obs * 0.8), replace=False)
+            is_train = np.zeros(adata.n_obs, dtype=bool)
+            is_train[train_indices] = True            
+            adata.obs["split"] = np.where(is_train, "train", "val")
+        
+        tokenizer = Tokenizer(vocab)
+        data_dict = tokenizer.tokenize_and_pad_batch(adata, batch_obskey=batch_obskey)
+        train_data_dict = {}
+        valid_data_dict = {}
+        # train and validation split
+        split_keys = ["taxa_ids", "values"]
+
+        if batch_obskey:
+            split_keys.append("batch_labels")
+
+        # Split data_dict based on adata.obs["split"]
+        split_mask = adata.obs["split"].values
+        train_mask = split_mask == "train"
+        val_mask = split_mask == "val"
+        for key in split_keys:
+            train_data_dict[key] = data_dict[key][train_mask]
+            valid_data_dict[key] = data_dict[key][val_mask]
+        
+        adata.write_h5ad(os.path.join(restore_dir, "augmented_data.h5ad"))
+        print(f"length of train and valid data: {len(train_data_dict['taxa_ids'])}, {len(valid_data_dict['taxa_ids'])}")
+        data_list = [train_data_dict, valid_data_dict, vocab, batch_vocab, graph_data if use_gnn else None]
+    else:
+        data_list = [None, None, None, None, None]
+    # broadcast to all other ranks
+    accelerator.wait_for_everyone()
+    broadcast_object_list(data_list)
+    
+    return tuple(data_list)
 
 def create_or_restore_training_state_wandb(model_config, init_lr, warmup_ratio_or_step, total_steps, checkpoint_dir, wandb_enabled, wandb_entity, wandb_project, wandb_config, accelerator: Accelerator, wandb_run_name=None, wandb_run_notes=None):
     # initial configuration of the model
@@ -563,7 +669,7 @@ def create_or_restore_training_state_wandb(model_config, init_lr, warmup_ratio_o
     model = TransformerModel(**model_config)
     trainable_params = model.parameters()
         
-    optimizer = torch.optim.Adam(trainable_params, lr=init_lr)
+    optimizer = torch.optim.AdamW(trainable_params, lr=init_lr)
     # setup scheduler
     # if warmup_ratio_or_step > 0:
     assert warmup_ratio_or_step > 0, "Warmup ratio or step must be positive"

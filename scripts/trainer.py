@@ -37,7 +37,7 @@ if __name__ == "__main__":
     parser.add_argument("--wandb-run-notes", type=str, default=None, help="wandb run notes")
 
     # optional training arguments
-    parser.add_argument("--init-lr", type=float, default=1e-3, help="Initial learning rate")
+    parser.add_argument("--init-lr", type=float, default=1e-4, help="Initial learning rate")
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size for training")
     parser.add_argument("--max-epochs", type=int, default=15, help="Maximum number of epochs")
     parser.add_argument("--cosine-warmup-ratio-or-step", type=float, default=0.1, help="Scheduler warmup ratio or step")
@@ -55,6 +55,7 @@ if __name__ == "__main__":
     parser.add_argument("--train-mask-ratio", type=float, default=0.15, help="train mask ratio")
     parser.add_argument("--freeze-vocab", action="store_true", help="Freeze the embedding layer of the vocab, if initialized from a pre-trained embedding")
     parser.add_argument("--freeze-value-encoder", action="store_true", help="Freeze the value encoder layer")
+    parser.add_argument("--input-emb-style", type=str, default="continuous", choices=["scaling", "continuous", "category"], help="Input embedding style: 'scaling' or 'continuous'")
     parser.add_argument("--data-bin-strategy", type=str, default="binning", choices=["binning", "clr"], help="Data preprocessing strategy: 'binning' or 'clr'")
     parser.add_argument("--use-gnn", action="store_true", help="Use GNN embeddings as input features")
 
@@ -96,6 +97,7 @@ if __name__ == "__main__":
     freeze_vocab = args.freeze_vocab
     freeze_value_encoder = args.freeze_value_encoder
     bin_strategy = args.data_bin_strategy
+    input_emb_style = args.input_emb_style
     
     use_batch_labels = args.use_batch_labels
     nrows = args.nrows
@@ -162,6 +164,7 @@ if __name__ == "__main__":
         contrastive_embedding=False,
     )
 
+    
     # Create or restore training state
     model_config = {
         "d_model": 128,
@@ -184,7 +187,7 @@ if __name__ == "__main__":
         "freeze_vocab": freeze_vocab,
         "freeze_value_encoder": freeze_value_encoder,
         # "input_emb_style": "scaling",
-        "input_emb_style": "continuous",
+        "input_emb_style": input_emb_style,
         "use_gnn": args.use_gnn,
         "num_gnn_nodes": graph_data.num_nodes if args.use_gnn else None,
     }

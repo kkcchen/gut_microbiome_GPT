@@ -14,7 +14,7 @@ import seaborn as sns
 
 from sklearn.metrics import accuracy_score, roc_auc_score, average_precision_score, confusion_matrix, f1_score
 
-def restore_vocab_test(anndata_path, vocab_restore_dir, use_gnn, downstream_task, batch_obskey=None, nrows=None):
+def restore_vocab_test(anndata_path, vocab_restore_dir, use_gnn, downstream_task=None, batch_obskey=None, nrows=None):
     vocab_path = os.path.join(vocab_restore_dir, "vocab_file.json")
     batchvocab_path = os.path.join(vocab_restore_dir, f"batchvocab_{downstream_task}.json") if batch_obskey else None
     if os.path.exists(vocab_restore_dir):
@@ -183,7 +183,7 @@ def evaluate_binary(label_name, y_probs, y_pred, y_test_binary):
     # Check that all shapes are equal
     assert y_probs.shape == y_pred.shape == y_test_binary.shape, \
         f"\t Shape mismatch: y_probs {y_probs.shape}, y_pred {y_pred.shape}, y_test_binary {y_test_binary.shape}"
-    print(f"\t y_probs {y_probs.shape}, y_pred {y_pred.shape}, y_test_binary {y_test_binary.shape}")
+    # print(f"\t y_probs {y_probs.shape}, y_pred {y_pred.shape}, y_test_binary {y_test_binary.shape}")
     
     # check that the shape of y_probs 1 dimensional
     assert y_probs.ndim == 1, f"y_probs should be 1-dimensional, got {y_probs.ndim} dimensions"
@@ -249,6 +249,40 @@ def evaluate_multiclass_and_save(y_true, y_probs, train_class_labels, output_dir
         json.dump(label_scores, f, indent=4)
 
     print(f"\t Scores for all labels saved to {scores_file}")
+
+def evaluate_multiclass_perm_test(y_true, y_probs, train_class_labels):
+    # evaluate, done for all
+    y_true = np.array(y_true)
+    train_class_labels = np.array(train_class_labels)
+    y_pred_index = np.argmax(y_probs, axis=1)
+    y_pred = train_class_labels[y_pred_index]
+    # print("types of predictions and targets are:", y_pred.dtype, y_true.dtype)
+    total_accuracy = accuracy_score(y_true, y_pred)
+    micro_f1 = f1_score(y_true, y_pred, average='micro')
+    macro_f1 = f1_score(y_true, y_pred, average='macro')
+    conf_mat = confusion_matrix(y_true, y_pred, labels=sorted(train_class_labels))
+    roc_dict = {
+        "Label": [],
+        "n_samples": [],
+        "Accuracy": [],
+        "AUC (ROC)": [],
+        "Average Precision": [],
+        "Baseline Precision": []
+    }
+
+    index_label_pairs = enumerate(train_class_labels)
+    index_label_pairs = sorted(index_label_pairs, key=lambda x: x[1])
+    for index, label in index_label_pairs:
+        scores = y_probs[:, index]
+        binary_predictions = (y_pred == label).astype(int)
+        binary_targets = (y_true == label).astype(int)
+        if binary_targets.sum() == 0:
+            print(f"\t Skipping label {label} as it has no positive samples")
+            continue
+        roc = evaluate_binary(label, scores, binary_predictions, binary_targets)
+        for key in roc_dict.keys():
+            roc_dict[key].append(roc[key])
+    return total_accuracy, micro_f1, macro_f1, conf_mat, roc_dict
 
 
 def evaluate_classification(model, dataloader, batch_vocab, vocab_pad_index, output_dir, accelerator, graph_data):
@@ -320,6 +354,20 @@ def evaluate_regression_and_save(y_true, y_pred, output_dir, mean=0, std=1):
     
     print(f"Regression evaluation results saved to {scores_file}")
 
+def evaluate_regression_perm_test(y_true, y_pred, mean=0, std=1):
+    """
+    y_true, y_pred: standardized values
+    mean, std: scalars for unnormalization
+    """
+    # Unstandardize
+    y_true_orig = y_true * std + mean
+    y_pred_orig = y_pred * std + mean
+    
+    mse = np.mean((y_true_orig - y_pred_orig) ** 2)
+    mae = np.mean(np.abs(y_true_orig - y_pred_orig))
+    r2 = r2_score(y_true_orig, y_pred_orig)
+    
+    return float(mse), float(mae), float(r2)
 
 def evaluate_regression(model, dataloader, vocab_pad_index, standardize_mean, standardize_std, output_dir, accelerator, graph_data):
     """

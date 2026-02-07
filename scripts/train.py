@@ -36,9 +36,9 @@ def setup_training_environment(cfg):
     )
     
     # Setup directories and handle start_over flag
-    setup_directories(cfg, accelerator)
+    cfg = setup_directories(cfg, accelerator)
     
-    return accelerator
+    return cfg, accelerator
 
 
 def main(cfg):
@@ -47,7 +47,7 @@ def main(cfg):
     
     :param cfg: OmegaConf configuration object containing all hyperparameters.
     """
-    accelerator = setup_training_environment(cfg)
+    cfg, accelerator = setup_training_environment(cfg)
     
     
     logger.info("Preparing microbiome data...")

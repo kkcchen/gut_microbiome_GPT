@@ -1,11 +1,7 @@
 paths:
+  output_dir: "outputs/pretrain"
   model_config_path: "outputs/pretrain/model_config.json"
   ann_table_path: "/home/tiantian/projects/aip-rahulgk/gutmodel/hmc_final/pretrain.h5ad"
-  vocab_path: null
-  best_dir: "outputs/pretrain/best_model"
-  checkpoint_dir: "outputs/pretrain/checkpoints"
-  data_restore_dir: "outputs/pretrain/data_cache"
-  intermediate_dir: "outputs/pretrain/intermediate"
 
 wandb:
   enabled: false
@@ -26,7 +22,7 @@ training:
   enable_fp16: false
   train_mask_ratio: 0.15
   notes: "Experimenting with new architecture"
-  tasks: ["denoising", "contrastive"]
+  tasks: ["denoising"]
   contrastive_temperature: 0.2
 
 validation:
@@ -63,8 +59,8 @@ model:
     # Example: If you change architecture, just add new keys here
     # activation: "gelu" 
     # use_flash_attn: true
+    model_distribution: "zinb" # choices: zinb,...
 
 debug:
-  nrows: 50
-  nrows: 50
+  nrows: 200
   start_over: true

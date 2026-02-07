@@ -148,7 +148,7 @@ class TransformerModel(nn.Module):
                 explicit_zero_prob=explicit_zero_prob,
                 use_batch_labels=use_batch_labels,
             )
-        if init_vocab_path is None:
+        if init_vocab_path is None and not use_gnn:
             self.init_weights(freeze_vocab)
 
     def encode(
@@ -180,11 +180,11 @@ class TransformerModel(nn.Module):
         )
         return output, cur_taxa_token_embs # (batch, seq_len, embsize), (batch, seq_len, embsize)
     
-    # # this only initializes the taxa embedding layer
-    # def init_weights(self, freeze) -> None:
-    #     initrange = 0.1
-    #     # TODO: check if this initialization is helpful and shall we apply to all?
-    #     self.encoder.embedding.weight.data.uniform_(-initrange, initrange)
+    # this only initializes the taxa embedding layer
+    def init_weights(self, freeze) -> None:
+        initrange = 0.1
+        # TODO: check if this initialization is helpful and shall we apply to all?
+        self.encoder.embedding.weight.data.uniform_(-initrange, initrange)
         if freeze:
             self.encoder.embedding.weight.requires_grad = False
 
