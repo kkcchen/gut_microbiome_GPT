@@ -95,12 +95,8 @@ class hgmGPT(nn.Module):
                 f"abundance_emb_style should be one of category, continuous, scaling, "
                 f"got {abundance_emb_style}"
             )
-        if "denoising" in tasks:
-            self.d_proj = d_proj
-        if "denoising_from_token" in tasks:
-            self.d_proj = seq_len
-        if "denoising_dm" in tasks:
-            self.d_proj = seq_len
+        self.d_proj = d_proj
+        self.seq_len = seq_len
         
         # ================================ BUILD ENCODERS ================================
         self.use_gnn = use_gnn
@@ -156,13 +152,13 @@ class hgmGPT(nn.Module):
                 distribution=self.model_distribution,
                 dropout=self.dropout
             )
-        # TODO: denoising_dm should not hard code this option
-        if "denoising_from_token" in tasks or 'denoising_dm' in tasks:
+        # TODO: make this into bottleneck
+        if "denoising_from_token" in tasks:
             # should project to the sequence length of the input to the whole model
             # note, this is not num_taxa, which is the vocab size, but the actual input sequence length
             self.sample_level_denoising_head = SampleProjection(d_model=d_model, 
-                                                                projection_dim=self.d_proj)
-        if "denoising_dm" in tasks:
+                                                                projection_dim=self.seq_len)
+        if "denoising" in tasks and self.model_distribution == "dm":
             # project the scale parameter from the sample embedding
             self.dirichlet_scale_head = SampleProjection(d_model=d_model,
                                                                 projection_dim=1)
@@ -220,12 +216,16 @@ class hgmGPT(nn.Module):
         Output: 
             tensor of shape (batch, seq_len, d_model)
         """
+        assert torch.isfinite(taxa_ids).all()
+        assert torch.isfinite(taxa_abundances).all(), f"Non-finite abundances: {taxa_abundances}"
+
         B, num_taxa = taxa_ids.shape
         if self.use_gnn:
             assert graph_data is not None, "graph_data should not be None when use_gnn is True"
             taxa_ids_embeds = self.taxa_encoder(taxa_ids, graph_data)
         else:
             taxa_ids_embeds = self.taxa_encoder(taxa_ids)  # (batch, seq_len, d_model)
+        assert torch.isfinite(taxa_ids_embeds).all(), "NaN/inf in taxa id embeddings"
 
         taxa_abundances_embeds = self.value_encoder(taxa_abundances)  # (batch, seq_len, d_model)
         if self.abundance_emb_style == "scaling":
@@ -233,6 +233,7 @@ class hgmGPT(nn.Module):
             total_embs = taxa_ids_embeds * taxa_abundances_embeds
         else:
             total_embs = taxa_ids_embeds + taxa_abundances_embeds
+        assert torch.isfinite(taxa_abundances_embeds).all(), "NaN/inf in total embeddings"
 
         # add special token embeddings before feeding to transformer
         # 1. batch labels
@@ -253,6 +254,8 @@ class hgmGPT(nn.Module):
         # TODO: need to build attention mask
 
         output = self.transformer_encoder(total_embs)
+        assert torch.isfinite(output).all(), "NaN/inf inside transformer"
+
         return output
 
     def decode(
@@ -288,6 +291,8 @@ class hgmGPT(nn.Module):
                 output["denoising_mean"] = denoising_output["mean"]
                 output["denoising_disp"] = denoising_output["disp"]
                 output["denoising_pi"] = denoising_output["pi"]
+            elif self.abundance_decoder.distribution == "dm":
+                output["denoising_mean"] = denoising_output["mean_logits"]
             else:
                 output["denoising_pred"] = denoising_output["pred"]
         
@@ -310,13 +315,16 @@ class hgmGPT(nn.Module):
             # Get sample embedding
             sample_embedding = self._get_sample_embedding(transformer_output)
             output["denoising_projected"] = self.sample_level_denoising_head(sample_embedding)
-        if "denoising_dm" in self.tasks and hasattr(self, 'dirichlet_scale_head'):
-            # Get sample embedding
-            sample_embedding = self._get_sample_embedding(transformer_output)
-            output["dirichlet_scale"] = self.dirichlet_scale_head(sample_embedding).squeeze(-1)
-        if "denoising_dm" in self.tasks and hasattr(self, 'sample_level_denoising_head'):
-            sample_embedding = self._get_sample_embedding(transformer_output)
-            output["denoising_projected"] = self.sample_level_denoising_head(sample_embedding)
+        # if "denoising" in self.tasks and hasattr(self, 'dirichlet_scale_head'):
+        if self.model_distribution == "dm":
+            if hasattr(self, 'dirichlet_scale_head'):
+                # Get sample embedding
+                sample_embedding = self._get_sample_embedding(transformer_output)
+                raw_scale = self.dirichlet_scale_head(sample_embedding).squeeze(-1)
+                output["dirichlet_scale"] = F.softplus(raw_scale) + 1e-4
+        # if "denoising_dm" in self.tasks and hasattr(self, 'sample_level_denoising_head'):
+        #     sample_embedding = self._get_sample_embedding(transformer_output)
+        #     output["denoising_projected"] = self.sample_level_denoising_head(sample_embedding)
         if 'contrastive' in self.tasks and hasattr(self, 'contrastive_projection_head'):
             # Get sample embedding
             sample_embedding = self._get_sample_embedding(transformer_output)

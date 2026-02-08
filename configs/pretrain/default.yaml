@@ -36,7 +36,7 @@ data:
   use_batch_labels: true
   max_seq_len: 200
   num_workers: 4
-  distribution: "zinb"
+  downsample_distribution: "zinb"
 
 
 model:  
@@ -58,7 +58,7 @@ model:
     # Example: If you change architecture, just add new keys here
     # activation: "gelu" 
     # use_flash_attn: true
-    model_distribution: "zinb" # choices: zinb,...
+    model_distribution: "dm" # choices: zinb,...
 
 debug:
   # nrows: 200

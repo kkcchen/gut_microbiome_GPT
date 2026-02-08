@@ -203,6 +203,10 @@ class MicrobiomeTrainer:
             # Forward pass and compute losses
             loss, metrics = self._forward_step(model, batch)
             
+            if not torch.isfinite(loss):
+                print("LOSS IS NON-FINITE")
+                raise RuntimeError("Non-finite loss")
+            
             # Backward pass
             self.accelerator.backward(loss)
             
@@ -346,6 +350,12 @@ class MicrobiomeTrainer:
                                  'expressed_mask', 'depth', 'original_depth', 'batch_ids']}
         
           
+        for k in ["taxa_ids", "perturbed_counts", "depth"]:
+            t = batch[k]
+            if not torch.isfinite(t).all():
+                raise ValueError(f"Non-finite in batch[{k}]")
+        # print("max perturbed:", batch["perturbed_counts"].max().item(),
+        #     "max depth:", batch["depth"].max().item())  
         
         # Forward pass through model
         # Adjust based on your model's forward signature
@@ -483,46 +493,8 @@ class MicrobiomeTrainer:
         
         # Expression reconstruction loss 
         if 'denoising' in tasks:
-            # output from model will be different depending on modelling distribution
-            if cfg.data.distribution == 'zinb':
-                # ZINB distribution parameters
-                outputs_mean = outputs["denoising_mean"]
-                outputs_disp = outputs["denoising_disp"]
-                outputs_pi = outputs["denoising_pi"]
-                denoising_loss = zinb_nll_loss(
-                    outputs_mean,
-                    outputs_disp,
-                    outputs_pi,
-                    targets['original_counts'],
-                )
-            else: # no distribution specified, direct count prediction
-                # TODO: implement this both using the full transformer output and just the sample-embedding
-                outputs_counts = outputs["denoising_pred"]
-                # denoising_loss = mse_loss(
-                denoising_loss = denoising_reconstruction_loss(
-                                    outputs_counts,
-                                    targets['original_counts']
-                )
-            metrics["denoising_loss"] = denoising_loss.item()
-            loss += denoising_loss
-        
-        if 'denoising_from_token' in tasks:
-            output_counts = outputs['denoising_projected']
-            denoising_loss = denoising_reconstruction_loss(
-                output_counts,
-                targets['original_counts']
-            )
-            metrics["denoising_loss"] = denoising_loss.item()
-            loss += denoising_loss
-        
-        if 'denoising_dm' in tasks:
-            scale = outputs['dirichlet_scale']
-            # for now just implement this from the sample embedding token
-            # but should also be able to implement from the full transformer output
-            # TODO: implement from full transformer output
-            # TODO: to enable this, the alpha should also be from a pooled sample embedding
-            proj_logits = outputs['denoising_projected']
-            denoising_loss = dm_nll_loss(scale,proj_logits, targets['original_counts'])
+            denoising_loss = self._compute_denoising_loss(outputs, targets, cfg)
+            
             metrics["denoising_loss"] = denoising_loss.item()
             loss += denoising_loss
         
@@ -545,22 +517,47 @@ class MicrobiomeTrainer:
         :param cfg: Configuration object.
         :return: Denoising loss tensor.
         '''
-        if cfg.data.distribution == 'zinb':
-            outputs_mean = outputs["denoising_mean"]
-            outputs_disp = outputs["denoising_disp"]
-            outputs_pi = outputs["denoising_pi"]
-            denoising_loss = zinb_nll_loss(
-                outputs_mean,
-                outputs_disp,
-                outputs_pi,
-                targets['original_counts'],
-            )
+        model_distr = cfg.model.params.model_distribution
+        tasks = cfg.training.tasks
+        # output from model will be different depending on modelling distribution
+        if model_distr == 'zinb':
+                # ZINB distribution parameters
+                outputs_mean = outputs["denoising_mean"]
+                outputs_disp = outputs["denoising_disp"]
+                outputs_pi = outputs["denoising_pi"]
+                denoising_loss = zinb_nll_loss(
+                    outputs_mean,
+                    outputs_disp,
+                    outputs_pi,
+                    targets['original_counts'],
+                )
+        elif model_distr == 'dm':
+            scale = outputs['dirichlet_scale']
+            # for now just implement this from the sample embedding token
+            # but should also be able to implement from the full transformer output
+            mean_logits = outputs['denoising_mean']
+            
+            if not torch.isfinite(scale).all():
+                raise RuntimeError("Non-finite scale before loss")
+           
+            denoising_loss = dm_nll_loss(scale,mean_logits, targets['original_counts'])
+        
         else: # no distribution specified, direct count prediction
-            outputs_counts = outputs["denoising_counts"]
-            denoising_loss = mse_loss(
-                outputs_counts,
-                targets['original_counts'],
-            )
+                # TODO: implement this both using the full transformer output and just the sample-embedding
+                outputs_counts = outputs["denoising_pred"]
+                # denoising_loss = mse_loss(
+                denoising_loss = denoising_reconstruction_loss(
+                                    outputs_counts,
+                                    targets['original_counts']
+                )
+        
+        # if 'denoising_from_token' in tasks:
+        #     output_counts = outputs['denoising_projected']
+        #     denoising_loss = denoising_reconstruction_loss(
+        #         output_counts,
+        #         targets['original_counts']
+        #     )
+        
         return denoising_loss
     
     def inference(

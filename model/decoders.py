@@ -45,6 +45,8 @@ class AbundanceDecoder(nn.Module):
         if self.distribution == "zinb":
             # Predict 3 ZINB parameters: mean, dispersion, zero-inflation probability
             self.pred_head = nn.Linear(d_model, 3)
+        elif self.distribution == 'dm':
+            self.pred_head = nn.Linear(d_model, 1)  # Predict logits for Dirichlet-Multinomial
         else:
             # Direct count prediction
             self.pred_head = nn.Linear(d_model, 1)
@@ -77,6 +79,11 @@ class AbundanceDecoder(nn.Module):
                 "mean": F.softplus(mean_logits.squeeze(-1)),  # Ensure positive mean
                 "disp": torch.exp(torch.clamp(disp_logits.squeeze(-1), max=15)),  # Positive dispersion, clamp for stability
                 "pi": torch.sigmoid(pi_logits.squeeze(-1)),  # Zero-inflation probability in [0, 1]
+            }
+        elif self.distribution == 'dm':
+            # For Dirichlet-Multinomial, we can interpret the output as logits for each taxon
+             return {
+                "mean_logits": pred.squeeze(-1)  # (batch, num_taxa)
             }
         else:
             # Direct count prediction (non-negative)
