@@ -263,7 +263,6 @@ class MicrobiomeCollator:
         """
         Binomial thinning, as a more efficient alternative to multinomial resampling.
         
-        
         :param counts: Count matrix (batch_size, n_total_taxa).
         :return: Tuple of (perturbed_counts, perturbed_depths).
         """

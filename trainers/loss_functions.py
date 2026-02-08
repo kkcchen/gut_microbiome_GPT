@@ -5,6 +5,7 @@ import torch
 from typing import Dict, Optional
 from trainers import logger
 import torch.nn.functional as F
+from skbio.stats.composition import closure
 
 
 def masked_mse_loss(
@@ -97,5 +98,43 @@ def mse_loss(
     if relative:
         weight = torch.sqrt(1/(target + 1e-4))
         loss = F.mse_loss(weight * input, weight * target, reduction="mean")
-    loss = F.mse_loss(input, target, reduction="mean")
+    else:
+        loss = F.mse_loss(input, target, reduction="mean")
     return loss
+
+def denoising_reconstruction_loss(
+    input: torch.Tensor,
+    target: torch.Tensor,
+    relative: bool = True
+) -> torch.tensor:
+    """
+    Cross-entropy between output logits and target counts (relative abundance if relative==True).
+    If relative is True, make target compositional and use softmax, otherwise raw counts (and softplus (?)).
+    """
+    if relative:
+        target_comp = torch.tensor(closure(target.cpu().numpy()), device=target.device)
+        loss = F.cross_entropy(input, target_comp)
+    else:
+        print("have not implemented denoising loss for raw counts yet.")
+    return loss
+
+
+def dm_nll_loss(
+    scale: torch.Tensor,
+    logits: torch.Tensor,
+    target: torch.Tensor,
+) -> torch.Tensor:
+    '''
+    Negative log-likelihood of the data under dirichlet multinomial parameterized
+    by the model outputs
+    '''
+    p = F.softmax(logits, dim=-1)
+    alpha = scale.unsqueeze(-1) * p + 1e-8  
+    N = target.sum(dim=-1)  # total counts per sample
+    alpha_0 = alpha.sum(dim=-1)
+    logp = torch.lgamma(N + 1) + torch.lgamma(alpha_0) - torch.lgamma(N + alpha_0) + \
+              torch.lgamma(target + alpha).sum(dim=-1) - torch.lgamma(target + 1).sum(dim=-1) - torch.lgamma(alpha).sum(dim=-1)
+    # TODO: consider weighting this by N to avoid over-emphasizing
+    # high-depth samples, or using the average log-likelihood
+    # per count instead of per sample
+    return -logp.mean()

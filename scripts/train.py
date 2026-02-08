@@ -98,7 +98,8 @@ def main(cfg):
         accelerator=accelerator,
         taxa_vocab=taxa_vocab,
         batch_vocab=batch_vocab,
-        graph_data=graph_data
+        graph_data=graph_data,
+        wandb_run=training_state['extra_state'].data['wandb_run']
     )
     
     logger.info("Starting training...")

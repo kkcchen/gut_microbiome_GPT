@@ -37,6 +37,7 @@ class hgmGPT(nn.Module):
         nlayers: int,
         num_taxa: int,
         d_proj: Optional[int] = None,
+        seq_len: Optional[int] = None,
         use_batch_labels: bool = False,
         num_batch_labels: Optional[int] = None,
         dropout: float = 0.5,
@@ -94,6 +95,12 @@ class hgmGPT(nn.Module):
                 f"abundance_emb_style should be one of category, continuous, scaling, "
                 f"got {abundance_emb_style}"
             )
+        if "denoising" in tasks:
+            self.d_proj = d_proj
+        if "denoising_from_token" in tasks:
+            self.d_proj = seq_len
+        if "denoising_dm" in tasks:
+            self.d_proj = seq_len
         
         # ================================ BUILD ENCODERS ================================
         self.use_gnn = use_gnn
@@ -149,6 +156,17 @@ class hgmGPT(nn.Module):
                 distribution=self.model_distribution,
                 dropout=self.dropout
             )
+        # TODO: denoising_dm should not hard code this option
+        if "denoising_from_token" in tasks or 'denoising_dm' in tasks:
+            # should project to the sequence length of the input to the whole model
+            # note, this is not num_taxa, which is the vocab size, but the actual input sequence length
+            self.sample_level_denoising_head = SampleProjection(d_model=d_model, 
+                                                                projection_dim=self.d_proj)
+        if "denoising_dm" in tasks:
+            # project the scale parameter from the sample embedding
+            self.dirichlet_scale_head = SampleProjection(d_model=d_model,
+                                                                projection_dim=1)
+        
         
         # 2. bottleneck 
         # TODO: zero out all the taxa tokens, leave only sample_token and batch_id_token, and essentially recreate the distribution for each taxa
@@ -157,7 +175,7 @@ class hgmGPT(nn.Module):
         # projection head to compute contrastive loss on
         if "contrastive" in tasks:
             self.contrastive_projection_head = SampleProjection(d_model = d_model,
-                                                                projection_dim = d_proj)
+                                                                projection_dim = self.d_proj)
             
 
         # ================================================================================
@@ -288,11 +306,21 @@ class hgmGPT(nn.Module):
         #         output["bottleneck_pi"] = bottleneck_output["pi"]
         #     else:
         #         output["bottleneck_pred"] = bottleneck_output["pred"]
-        
+        if "denoising_from_token" in self.tasks and hasattr(self, 'sample_level_denoising_head'):
+            # Get sample embedding
+            sample_embedding = self._get_sample_embedding(transformer_output)
+            output["denoising_projected"] = self.sample_level_denoising_head(sample_embedding)
+        if "denoising_dm" in self.tasks and hasattr(self, 'dirichlet_scale_head'):
+            # Get sample embedding
+            sample_embedding = self._get_sample_embedding(transformer_output)
+            output["dirichlet_scale"] = self.dirichlet_scale_head(sample_embedding).squeeze(-1)
+        if "denoising_dm" in self.tasks and hasattr(self, 'sample_level_denoising_head'):
+            sample_embedding = self._get_sample_embedding(transformer_output)
+            output["denoising_projected"] = self.sample_level_denoising_head(sample_embedding)
         if 'contrastive' in self.tasks and hasattr(self, 'contrastive_projection_head'):
             # Get sample embedding
             sample_embedding = self._get_sample_embedding(transformer_output)
-            output["projected"] = self.contrastive_projection_head(sample_embedding)
+            output["contrastive_projected"] = self.contrastive_projection_head(sample_embedding)
         
         return output
 

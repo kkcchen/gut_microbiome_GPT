@@ -81,13 +81,16 @@ class AbundanceDecoder(nn.Module):
         else:
             # Direct count prediction (non-negative)
             return {
-                "pred": F.softplus(pred.squeeze(-1))  # (batch, num_taxa)
+                # TODO: this may work for raw counts but may want softmax for relative abundance prediction
+                #       for now just return the logits
+                "pred": pred.squeeze(-1)  # (batch, num_taxa)
+                # "pred": F.softplus(pred.squeeze(-1))  # (batch, num_taxa)
             }
 
 
 class SampleProjection(nn.Module):
     """
-    Projects sample-level embeddings to a lower-dimensional space.
+    Projects sample-level embeddings.
     
     Useful for tasks like contrastive learning or batch effect correction.
     """

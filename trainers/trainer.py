@@ -9,7 +9,7 @@ import torch
 from pathlib import Path
 from typing import Dict, Optional
 from trainers import logger
-from trainers.loss_functions import zinb_nll_loss, mse_loss, nt_xent_loss
+from trainers.loss_functions import zinb_nll_loss, mse_loss, nt_xent_loss, denoising_reconstruction_loss, dm_nll_loss
 
 
 class MicrobiomeTrainer:
@@ -496,19 +496,41 @@ class MicrobiomeTrainer:
                     targets['original_counts'],
                 )
             else: # no distribution specified, direct count prediction
-                # TODO: we probably don't want the mse on raw counts, maybe relative error? 
+                # TODO: implement this both using the full transformer output and just the sample-embedding
                 outputs_counts = outputs["denoising_pred"]
-                
-                denoising_loss = mse_loss(
-                    outputs_counts,
-                    targets['original_counts']                )
+                # denoising_loss = mse_loss(
+                denoising_loss = denoising_reconstruction_loss(
+                                    outputs_counts,
+                                    targets['original_counts']
+                )
             metrics["denoising_loss"] = denoising_loss.item()
             loss += denoising_loss
+        
+        if 'denoising_from_token' in tasks:
+            output_counts = outputs['denoising_projected']
+            denoising_loss = denoising_reconstruction_loss(
+                output_counts,
+                targets['original_counts']
+            )
+            metrics["denoising_loss"] = denoising_loss.item()
+            loss += denoising_loss
+        
+        if 'denoising_dm' in tasks:
+            scale = outputs['dirichlet_scale']
+            # for now just implement this from the sample embedding token
+            # but should also be able to implement from the full transformer output
+            # TODO: implement from full transformer output
+            # TODO: to enable this, the alpha should also be from a pooled sample embedding
+            proj_logits = outputs['denoising_projected']
+            denoising_loss = dm_nll_loss(scale,proj_logits, targets['original_counts'])
+            metrics["denoising_loss"] = denoising_loss.item()
+            loss += denoising_loss
+        
         if 'contrastive' in tasks:
             # Placeholder for contrastive loss computation
             contrastive_loss = nt_xent_loss(
-                outputs["projected"],
-                outputs_2["projected"],   
+                outputs["contrastive_projected"],
+                outputs_2["contrastive_projected"],   
                 temperature=cfg.training.contrastive_temperature
             )
             metrics["contrastive_loss"] = contrastive_loss.item()
