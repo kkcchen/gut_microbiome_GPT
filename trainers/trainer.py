@@ -42,6 +42,10 @@ class MicrobiomeTrainer:
         self.graph_data = graph_data
         
         # Training config
+        if 'grad_clip' not in cfg.training:
+            logger.warning("TRAINING CONFIG: No grad_clip specified in config, defaulting to 1.0")
+        if 'checkpoint_every' not in cfg.training:
+            logger.warning("TRAINING CONFIG: No checkpoint_every specified in config, defaulting to 5 epochs")
         self.max_epochs = cfg.training.max_epochs
         self.patience = cfg.training.get('patience')
         if self.patience is None:
@@ -487,6 +491,7 @@ class MicrobiomeTrainer:
         tasks = self.cfg.training.tasks
         loss = 0.0
         metrics = {}
+
         if 'contrastive' in tasks:
             outputs_2 = outputs["view_2"]
             outputs = outputs["view_1"] # use this as outputs for any other losses
@@ -559,128 +564,3 @@ class MicrobiomeTrainer:
         #     )
         
         return denoising_loss
-    
-    def inference(
-        self,
-        model,
-        data_loader,
-        embedding_type: str = "sample",
-        return_outputs: bool = False
-    ) -> Dict[str, torch.Tensor]:
-        """
-        Run inference to extract embeddings for all samples.
-        
-        :param model: Trained model to run inference with.
-        :param data_loader: DataLoader containing samples to embed.
-        :param embedding_type: Type of embedding to extract:
-            - "sample": Extract sample token embedding (first token)
-            - "mean": Mean pool all taxa embeddings
-            - "cls": Same as "sample" (alias)
-            - "all": Return full sequence embeddings
-        :param return_outputs: Whether to return full model outputs (for downstream tasks).
-        :return: Dictionary containing:
-            - 'embeddings': (N, d_model) tensor of sample embeddings
-            - 'taxa_ids': (N, L) tensor of taxa IDs for each sample
-            - 'batch_ids': (N,) tensor of batch IDs (if available)
-            - 'sample_ids': List of sample identifiers
-            - 'outputs': Full model outputs (if return_outputs=True)
-        """
-        model.eval()
-        
-        all_embeddings = []
-        all_taxa_ids = []
-        all_batch_ids = []
-        all_sample_ids = []
-        all_outputs = [] if return_outputs else None
-        
-        logger.info(f"Running inference on {len(data_loader)} batches...")
-        logger.info(f"Embedding type: {embedding_type}")
-        
-        with torch.no_grad():
-            for batch_idx, batch in enumerate(data_loader):
-                taxa_ids = batch['taxa_ids']  # (B, L)
-                original_counts = batch['original_counts']  # (B, L)
-                depth = batch['depth']  # (B,)
-                batch_ids = batch.get('batch_ids', None)  # (B,) or None
-                sample_ids = batch.get('sample_id', None)  # List of sample IDs
-                
-                # model inference
-                sample_embeddings = model.inference(
-                    taxa_ids=taxa_ids,
-                    abundance_values=original_counts,
-                    depth=depth,
-                    batch_ids=batch_ids,
-                    graph_data=self.graph_data
-                )
-                
-                # Collect results
-                all_embeddings.append(sample_embeddings.cpu())
-                all_taxa_ids.append(taxa_ids.cpu())
-                
-                if batch_ids is not None:
-                    all_batch_ids.append(batch_ids.cpu())
-                
-                if sample_ids is not None:
-                    all_sample_ids.extend(sample_ids)
-                
-                # Log progress
-                if (batch_idx + 1) % self.log_interval == 0:
-                    logger.info(f"Processed {batch_idx + 1}/{len(data_loader)} batches")
-        
-        # Concatenate all batches
-        embeddings = torch.cat(all_embeddings, dim=0)  # (N, d_model) or (N, num_tokens, d_model)
-        taxa_ids = torch.cat(all_taxa_ids, dim=0)  # (N, L)
-        
-        results = {
-            'embeddings': embeddings,
-            'taxa_ids': taxa_ids,
-        }
-        
-        if all_batch_ids:
-            results['batch_ids'] = torch.cat(all_batch_ids, dim=0)
-        
-        if all_sample_ids:
-            results['sample_ids'] = all_sample_ids
-        
-        if return_outputs:
-            results['outputs'] = all_outputs
-        
-        logger.info(f"Inference complete! Extracted {embeddings.shape[0]} embeddings of dimension {embeddings.shape[-1]}")
-        
-        return results
-
-
-    def save_embeddings(
-        self,
-        embeddings_dict: Dict[str, torch.Tensor],
-        save_path: str,
-        format: str = "pt"
-    ):
-        """
-        Save extracted embeddings to disk.
-        
-        :param embeddings_dict: Dictionary returned from inference().
-        :param save_path: Path to save embeddings.
-        :param format: Save format - "pt" (PyTorch), "npz" (NumPy), or "h5" (HDF5).
-        """
-        save_path = Path(save_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        if format == "pt":
-            torch.save(embeddings_dict, save_path)
-            logger.info(f"Saved embeddings to {save_path}")
-        
-        elif format == "npz":
-            import numpy as np
-            np_dict = {k: v.numpy() if isinstance(v, torch.Tensor) else v 
-                    for k, v in embeddings_dict.items()}
-            np.savez(save_path, **np_dict)
-            logger.info(f"Saved embeddings to {save_path}")
-        
-        elif format == "h5ad":
-            # TODO: fix this and also add obsm, as well as raw
-            logger.info(f"Saved embeddings to {save_path}")
-        
-        else:
-            raise ValueError(f"Unknown format: {format}")
-

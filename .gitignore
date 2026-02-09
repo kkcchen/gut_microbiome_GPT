@@ -8,3 +8,4 @@ logs/
 datasets_full
 .vscode/
 outputs/
+data/

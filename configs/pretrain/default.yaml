@@ -58,8 +58,8 @@ model:
     # Example: If you change architecture, just add new keys here
     # activation: "gelu" 
     # use_flash_attn: true
-    model_distribution: "dm" # choices: zinb,...
+    model_distribution: "zinb" # choices: zinb,...
 
 debug:
-  # nrows: 200
+  nrows: 200
   start_over: true

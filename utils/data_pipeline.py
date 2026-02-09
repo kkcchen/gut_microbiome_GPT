@@ -89,7 +89,7 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
     if 'perturbation_ratio' not in cfg.data:
         logger.warning("Config 'data.perturbation_ratio' not found, using default: 0.6")
     if 'downsample_distribution' not in cfg.data:
-        logger.warning("Config 'data.downsample_distribution' not found, using default: 'zinb'")
+        logger.warning("Config 'data.downsample_distribution' not found, using default: 'binomial'")
     if 'perturbation_scale' not in cfg.data:
         logger.warning("Config 'data.perturbation_scale' not found, using default: 0.55")
     if 'norm_strategy' not in cfg.data:
@@ -271,7 +271,7 @@ def print_data_statistics(
     logger.info("=" * 60)
 
 
-def prepare_inference_data(cfg, accelerator) -> Dict:
+def prepare_inference_data(cfg, input_file, accelerator) -> Dict:
     """
     Data pipeline for microbiome inference.
     
@@ -281,12 +281,13 @@ def prepare_inference_data(cfg, accelerator) -> Dict:
     4. Create dataloader (no shuffling, no perturbations)
     
     :param cfg: Configuration object (inference config).
+    :param input_file: Path to the input data file for inference.
     :param accelerator: Accelerator for distributed inference.
     :return: Dictionary with dataloader, vocabularies, and graph data.
     """
     # 1. Load preprocessed AnnData (keep raw counts)
-    logger.info(f"Loading inference data from {cfg.paths.data_path}")
-    adata = load_anndata(cfg.paths.data_path)
+    logger.info(f"Loading inference data from {input_file}")
+    adata = load_anndata(input_file)
     
     logger.info(f"Loaded {adata.n_obs} samples with {adata.n_vars} taxa")
     
@@ -467,19 +468,13 @@ def save_embeddings(
         # original adata is preserved in obsm named "raw"
         # new embedding is stored in obsm named "embedding"
         embedding_adata = ad.AnnData(
-            X=np.zeros((original_adata.n_obs, 0)),  # Empty X matrix
+            X=embeddings_dict['embeddings'].cpu().numpy(),
             obs=original_adata.obs.copy(),
         )
-        embedding_adata.obsm['raw'] = original_adata.X.copy()
-        embedding_adata.obsm['embedding'] = embeddings_dict['embeddings'].cpu().numpy()
         embedding_file = save_path
         # print statistics about the final adata, print obsm shapes for each obsm, obs columns, var
         logger.info(f"Final embedding AnnData shape: {embedding_adata.shape}")
-        logger.info(f"obsm keys: {list(embedding_adata.obsm.keys())}")
-        for key, value in embedding_adata.obsm.items():
-            logger.info(f"obsm[{key}] shape: {value.shape}")
         logger.info(f"obs columns: {list(embedding_adata.obs.columns)}")
-        logger.info(f"var columns: {list(embedding_adata.var.columns) if embedding_adata.var is not None else 'None'}")
 
         embedding_adata.write_h5ad(embedding_file)
         logger.info(f"Embeddings saved to {embedding_file}")

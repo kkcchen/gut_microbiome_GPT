@@ -90,6 +90,7 @@ class hgmGPT(nn.Module):
         self.num_taxa = num_taxa
         self.sample_emb_style = sample_emb_style
         self.dropout = dropout
+        self.d_proj = d_proj
         if self.abundance_emb_style not in ["category", "continuous", "scaling"]:
             raise ValueError(
                 f"abundance_emb_style should be one of category, continuous, scaling, "
@@ -146,7 +147,7 @@ class hgmGPT(nn.Module):
         # 1. denoising
         # expression decoder, this operates on all the taxa tokens
         if "denoising" in tasks:
-            self.abundance_decoder = AbundanceDecoder(
+            self.denoising_decoder = AbundanceDecoder(
                 d_model=d_model,
                 num_special_tokens=2 if use_batch_labels else 1,
                 distribution=self.model_distribution,
@@ -238,6 +239,8 @@ class hgmGPT(nn.Module):
         # add special token embeddings before feeding to transformer
         # 1. batch labels
         if self.use_batch_labels:
+            if batch_ids is None:
+                batch_ids = torch.zeros(B, dtype=torch.long, device=taxa_ids.device)
             batch_emb = self.batch_encoder(batch_ids)  # (batch, d_model)
         
         # concat all special tokens, sample token first
@@ -283,11 +286,12 @@ class hgmGPT(nn.Module):
         output = {}
         
         # Denoising task: decode all taxa tokens
-        if 'denoising' in self.tasks and hasattr(self, 'abundance_decoder'):
-            denoising_output = self.abundance_decoder(transformer_output)
+        if 'denoising' in self.tasks and hasattr(self, 'denoising_decoder'):
+            
+            denoising_output = self.denoising_decoder(transformer_output)
             
             # Add predictions with task prefix
-            if self.abundance_decoder.distribution == "zinb":
+            if self.denoising_decoder.distribution == "zinb":
                 output["denoising_mean"] = denoising_output["mean"]
                 output["denoising_disp"] = denoising_output["disp"]
                 output["denoising_pi"] = denoising_output["pi"]
