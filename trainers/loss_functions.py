@@ -138,3 +138,13 @@ def dm_nll_loss(
     # high-depth samples, or using the average log-likelihood
     # per count instead of per sample
     return -logp.mean()
+
+def xe_smoothed_loss(logits, target_probs, positions_to_count, T=2.0, eps=1e-8):
+    # Smooth target with temperature
+    out_probs = F.softmax(logits, dim=-1)
+    log_out_probs = torch.log(out_probs) - torch.log((out_probs * positions_to_count).sum(dim=-1, keepdim=True).clamp_min(1e-8))
+    
+    target_probs_mask = (target_probs * positions_to_count) ** (1/T)
+    target_probs_norm = target_probs_mask / target_probs_mask.sum(dim=-1, keepdim=True).clamp_min(1e-8)
+    
+    return -(log_out_probs * target_probs_norm).sum()

@@ -9,7 +9,7 @@ import torch
 from pathlib import Path
 from typing import Dict, Optional
 from trainers import logger
-from trainers.loss_functions import zinb_nll_loss, mse_loss, nt_xent_loss, denoising_reconstruction_loss, dm_nll_loss
+from trainers.loss_functions import *
 
 
 class MicrobiomeTrainer:
@@ -363,24 +363,35 @@ class MicrobiomeTrainer:
         
         # Forward pass through model
         # Adjust based on your model's forward signature
-        outputs = model(
-            taxa_ids=taxa_ids,
-            abundance_values=perturbed_counts,
-            depth=depth,
-            batch_ids=batch_ids,
-            graph_data=self.graph_data,
-        )
-        if 'contrastive' in self.cfg.training.tasks:
-            perturbed_counts_2 = batch['perturbed_counts_2']  # (B, L)
-            depth_2 = batch['depth_2']  # (B,)
-            outputs_2 = model(
+        outputs = {}
+        if any(task != 'masking' for task in self.cfg.training.tasks):
+            outputs["perturbed"] = model(
                 taxa_ids=taxa_ids,
-                abundance_values=perturbed_counts_2,
-                depth=depth_2,
+                abundance_values=perturbed_counts,
+                depth=depth,
                 batch_ids=batch_ids,
                 graph_data=self.graph_data,
             )
-            outputs = {"view_1": outputs, "view_2": outputs_2}
+            if 'contrastive' in self.cfg.training.tasks:
+                perturbed_counts_2 = batch['perturbed_counts_2']  # (B, L)
+                depth_2 = batch['depth_2']  # (B,)
+                outputs_2 = model(
+                    taxa_ids=taxa_ids,
+                    abundance_values=perturbed_counts_2,
+                    depth=depth_2,
+                    batch_ids=batch_ids,
+                    graph_data=self.graph_data,
+                )
+                outputs["perturbed_2"] = outputs_2
+        if 'masking' in self.cfg.training.tasks:
+            outputs_masked = model(
+                taxa_ids=taxa_ids,
+                abundance_values=original_counts,
+                depth=depth,
+                batch_ids=batch_ids,
+                graph_data=self.graph_data,
+            )
+            outputs["original"] = outputs_masked
             
         
         
@@ -491,27 +502,38 @@ class MicrobiomeTrainer:
         tasks = self.cfg.training.tasks
         loss = 0.0
         metrics = {}
-
-        if 'contrastive' in tasks:
-            outputs_2 = outputs["view_2"]
-            outputs = outputs["view_1"] # use this as outputs for any other losses
+        if any(task != 'masking' for task in self.cfg.training.tasks):
+            outputs_1 = outputs["perturbed"]
+            if 'contrastive' in tasks:
+                outputs_2 = outputs["perturbed_2"]
+        if 'masking' in tasks:
+            original = outputs["original"]
         
         # Expression reconstruction loss 
         if 'denoising' in tasks:
-            denoising_loss = self._compute_denoising_loss(outputs, targets, cfg)
+            denoising_loss = self._compute_denoising_loss(outputs_1, targets, cfg)
             
             metrics["denoising_loss"] = denoising_loss.item()
             loss += denoising_loss
-        
+            
         if 'contrastive' in tasks:
             # Placeholder for contrastive loss computation
             contrastive_loss = nt_xent_loss(
-                outputs["contrastive_projected"],
+                outputs_1["contrastive_projected"],
                 outputs_2["contrastive_projected"],   
                 temperature=cfg.training.contrastive_temperature
             )
             metrics["contrastive_loss"] = contrastive_loss.item()
             loss += contrastive_loss
+        
+        if 'masking' in tasks:
+            # Placeholder for masking loss computation
+            masking_logits = original["masking_logits"]
+            masking_mask = original["masking_mask"].bool()
+            
+            masking_loss = xe_smoothed_loss(masking_logits, targets['original_counts'], masking_mask)
+            metrics['masking_loss'] = masking_loss.item()
+            loss += masking_loss
         return loss, metrics
 
     def _compute_denoising_loss(self, outputs, targets, cfg):
