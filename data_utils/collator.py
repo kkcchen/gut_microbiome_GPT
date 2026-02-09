@@ -89,9 +89,9 @@ class MicrobiomeCollator:
         else:
             
             # print number of zeros before perturbation
-            print(f"Before perturbation: {np.sum(counts_full == 0)} zeros out of {counts_full.size} total entries")
+            # print(f"Before perturbation: {np.sum(counts_full == 0)} zeros out of {counts_full.size} total entries")
             counts_perturbed, depths_perturbed = self._perturb_batch(counts_full)
-            print(f"After perturbation: {np.sum(counts_perturbed == 0)} zeros out of {counts_perturbed.size} total entries")
+            # print(f"After perturbation: {np.sum(counts_perturbed == 0)} zeros out of {counts_perturbed.size} total entries")
         # apply normalization
         counts_perturbed_norm = apply_normalization(self.norm_strategy, counts_perturbed) 
         
