@@ -138,3 +138,14 @@ def dm_nll_loss(
     # high-depth samples, or using the average log-likelihood
     # per count instead of per sample
     return -logp.mean()
+
+def kl_smoothed_loss(logits, target_probs, positions_to_count, T=2.0, eps=1e-8):
+    # Smooth target with temperature
+    p_normalized = torch.softmax(torch.log(target_probs) / T, dim=-1)
+
+    # Model distribution
+    log_q = F.log_softmax(logits, dim=-1)
+
+    # KL(p || q)
+    loss = F.kl_div(log_q, p_normalized, reduction="none", log_target=False)
+    return (loss * positions_to_count).sum()

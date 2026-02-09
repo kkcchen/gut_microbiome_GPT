@@ -15,19 +15,19 @@ class AbundanceDecoder(nn.Module):
         self,
         d_model: int,
         num_special_tokens: int = 1,
-        distribution: Optional[str] = "zinb",
+        output_format: Optional[str] = "zinb",
         dropout: float = 0.1,
     ):
         """
         Args:
             d_model: Dimension of transformer hidden states
             num_special_tokens: Number of special tokens to skip at sequence start (default: 1 for sample embedding)
-            distribution: Distribution type - "zinb" for Zero-Inflated Negative Binomial, None for direct count prediction
+            output_format: output_format - "zinb" for Zero-Inflated Negative Binomial, None for direct count prediction, "logits" for unnormalized logits, "dm" for Dirichlet-Multinomial
             dropout: Dropout rate for regularization
         """
         super().__init__()
         self.num_special_tokens = num_special_tokens
-        self.distribution = distribution
+        self.output_format = output_format
         
         # Shared MLP backbone (512-512 style from scPRINT)
         self.decoder_mlp = nn.Sequential(
@@ -42,10 +42,10 @@ class AbundanceDecoder(nn.Module):
         )
         
         # Distribution-specific prediction heads
-        if self.distribution == "zinb":
+        if self.output_format == "zinb":
             # Predict 3 ZINB parameters: mean, dispersion, zero-inflation probability
             self.pred_head = nn.Linear(d_model, 3)
-        elif self.distribution == 'dm':
+        elif self.output_format == 'dm':
             self.pred_head = nn.Linear(d_model, 1)  # Predict logits for Dirichlet-Multinomial
         else:
             # Direct count prediction
@@ -71,7 +71,7 @@ class AbundanceDecoder(nn.Module):
         # Predict distribution parameters
         pred = self.pred_head(h)  # (batch, num_taxa, 3) or (batch, num_taxa, 1)
         
-        if self.distribution == "zinb":
+        if self.output_format == "zinb":
             # Split into ZINB parameters
             mean_logits, disp_logits, pi_logits = pred.split(1, dim=-1)
             
@@ -80,10 +80,14 @@ class AbundanceDecoder(nn.Module):
                 "disp": torch.exp(torch.clamp(disp_logits.squeeze(-1), max=15)),  # Positive dispersion, clamp for stability
                 "pi": torch.sigmoid(pi_logits.squeeze(-1)),  # Zero-inflation probability in [0, 1]
             }
-        elif self.distribution == 'dm':
+        elif self.output_format == 'dm':
             # For Dirichlet-Multinomial, we can interpret the output as logits for each taxon
              return {
                 "mean_logits": pred.squeeze(-1)  # (batch, num_taxa)
+             }
+        elif self.output_format == "logits":
+            return {
+                "logits": pred.squeeze(-1)  # (batch, num_taxa)
             }
         else:
             # Direct count prediction (non-negative)

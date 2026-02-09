@@ -24,6 +24,7 @@ training:
   notes: "Experimenting with new architecture"
   tasks: ["denoising"]
   contrastive_temperature: 0.2
+  masking_prob: 0.15
 
 validation:
   batch_size: 64

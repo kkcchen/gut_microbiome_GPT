@@ -47,6 +47,7 @@ class hgmGPT(nn.Module):
         num_gnn_nodes: Optional[int] = None,
         tasks: List[str] = [],
         model_distribution: Optional[str] = None,
+        masking_prob: Optional[str] = None,
     ):
         """
         The base model for the human gut microbiome. This initializes the transformer based architecture for encoding abundance tables. 
@@ -132,6 +133,11 @@ class hgmGPT(nn.Module):
         # sample token embedding, learned
         self.sample_token_emb = nn.Parameter(torch.randn(1, self.d_model))  # (1, d_model)
 
+        if "masking" in self.tasks:
+            # mask token embedding, learned
+            self.masking_prob = masking_prob
+            self.mask_token_emb = nn.Parameter(torch.randn(1, self.d_model))  # (1, d_model)
+        
         # TODO: potentially try cross attention
         encoder_layers = TransformerEncoderLayer(
             d_model, nhead, d_hid, self.dropout, batch_first=True
@@ -149,7 +155,7 @@ class hgmGPT(nn.Module):
             self.abundance_decoder = AbundanceDecoder(
                 d_model=d_model,
                 num_special_tokens=2 if use_batch_labels else 1,
-                distribution=self.model_distribution,
+                output_format=self.model_distribution,
                 dropout=self.dropout
             )
         # TODO: make this into bottleneck
@@ -172,6 +178,15 @@ class hgmGPT(nn.Module):
         if "contrastive" in tasks:
             self.contrastive_projection_head = SampleProjection(d_model = d_model,
                                                                 projection_dim = self.d_proj)
+            
+        # 4. masking
+        if "masking" in tasks:
+            self.masking_decoder = AbundanceDecoder(
+                d_model=d_model,
+                num_special_tokens=2 if use_batch_labels else 1,
+                output_format="logits",
+                dropout=self.dropout
+            )
             
 
         # ================================================================================
@@ -205,6 +220,7 @@ class hgmGPT(nn.Module):
         taxa_abundances: Tensor,
         batch_ids: Optional[Tensor] = None,
         graph_data: Optional[Data] = None,
+        do_mask: Optional[Tensor] = None,
     ) -> Tensor:
         """
         This is the function that runs the encoder part of the model. Includes taxa/value encoding and transformer encoding. 
@@ -213,6 +229,7 @@ class hgmGPT(nn.Module):
             taxa_values (Tensor): The taxa values tensor of shape (batch, seq_len).
             batch_ids (Optional[Tensor]): The batch ids tensor of shape (batch,).
             graph_data (Optional[Data]): The graph data for GNN encoding, if applicable.
+            do_mask (Optional[Tensor]): Boolean tensor indicating which positions to mask, shape (batch, seq_len). Only used if "masking" in tasks.
         Output: 
             tensor of shape (batch, seq_len, d_model)
         """
@@ -240,6 +257,16 @@ class hgmGPT(nn.Module):
         if self.use_batch_labels:
             batch_emb = self.batch_encoder(batch_ids)  # (batch, d_model)
         
+        # 2. mask labels
+        if 'masking' in self.tasks:
+            mask_emb = self.mask_token_emb.unsqueeze(0)  # (1, 1, d_model)
+            # Apply masking to taxa_ids_embeds
+            total_embs = torch.where(
+                do_mask.unsqueeze(2),  # (batch, seq_len, 1)
+                mask_emb,  # (1, 1, d_model)
+                total_embs  # (batch, seq_len, d_model)
+            )  # (batch, seq_len, d_model)
+        
         # concat all special tokens, sample token first
         sample_token_emb = self.sample_token_emb.unsqueeze(0).expand(B, -1, -1)
         if self.use_batch_labels:
@@ -261,6 +288,7 @@ class hgmGPT(nn.Module):
     def decode(
         self,
         transformer_output: Tensor,
+        do_mask: Optional[Tensor] = None,
     ) -> Dict[str, Tensor]:
         """
         Runs the decoder part of the model. Returns a dictionary of outputs depending on tasks.
@@ -271,6 +299,7 @@ class hgmGPT(nn.Module):
         
         Args:
             transformer_output: Output from transformer encoder, shape (batch, num_special_tokens + num_taxa, d_model)
+            do_mask: Optional boolean tensor indicating which positions were masked during encoding. Only used if "masking" is in tasks, shape (batch, seq_len)
         
         Returns:
             Dictionary containing task-specific predictions:
@@ -329,6 +358,11 @@ class hgmGPT(nn.Module):
             # Get sample embedding
             sample_embedding = self._get_sample_embedding(transformer_output)
             output["contrastive_projected"] = self.contrastive_projection_head(sample_embedding)
+        
+        if "masking" in self.tasks:
+            masking_output = self.masking_decoder(transformer_output)
+            output["masking_logits"] = masking_output["logits"]
+            output["masking_mask"] = do_mask
         
         return output
 
@@ -404,11 +438,13 @@ class hgmGPT(nn.Module):
         depth: Tensor,
         batch_ids: Optional[Tensor] = None,
         graph_data: Optional[Data] = None,
+        expressed_mask: Optional[Tensor] = None,
     ) -> Mapping[str, Tensor]:
         """
         Forward pass of the model.
             taxa_ids (:obj:`Tensor`): Token IDs representing taxa, shape [batch_size, seq_len].
             abundance_values (:obj:`Tensor`): Token values corresponding to taxa, shape [batch_size, seq_len].
+            abundance_values_original (:obj:`Optional[Tensor]`): Original token values for denoising from token task, shape [batch_size, seq_len]. Only used if "denoising_from_token" in tasks.
             depth (:obj:`Tensor`): Depth information, shape [batch_size].
             batch_ids (:obj:`Optional[Tensor]`): Batch IDs for encoding, shape [batch_size]. 
                 Required if `use_batch_labels` is True.
@@ -420,18 +456,24 @@ class hgmGPT(nn.Module):
         
         if self.use_gnn:
             assert graph_data is not None, "graph_data should not be None when use_gnn is True"
+        
+        if 'masking' in self.tasks:
+            do_mask = (torch.rand_like(taxa_ids.float()) < self.masking_prob)
+        else:
+            do_mask = None
 
         # 1. encode
         transformer_output = self.encode(
             taxa_ids,
             abundance_values,
             batch_ids,
-            graph_data
+            graph_data,
+            do_mask=do_mask
         )  # (batch, seq_len + number of special tokens, d_model)
 
         assert not torch.isnan(transformer_output).any(), "NaN in transformer output"
         # 2. decode
-        output = self.decode(transformer_output)
+        output = self.decode(transformer_output, do_mask=do_mask)
         return output
 
     def inference(
@@ -467,8 +509,8 @@ class hgmGPT(nn.Module):
         )  # (batch, seq_len + number of special tokens, d_model)
 
         assert not torch.isnan(transformer_output).any(), "NaN in transformer output"
-        # 2. decode
-        output = self.decode(transformer_output)
+        # 2. decode not needed for inference
+        # output = self.decode(transformer_output)
         # 3. get sample embeddings
         sample_embeddings = self._get_sample_embedding(transformer_output)
         return sample_embeddings

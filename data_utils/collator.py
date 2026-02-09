@@ -93,7 +93,7 @@ class MicrobiomeCollator:
             counts_perturbed, depths_perturbed = self._perturb_batch(counts_full)
             print(f"After perturbation: {np.sum(counts_perturbed == 0)} zeros out of {counts_perturbed.size} total entries")
         # apply normalization
-        counts_perturbed_norm = self._apply_normalization(counts_perturbed) 
+        counts_perturbed_norm = apply_normalization(self.norm_strategy, counts_perturbed) 
         
         # convert to tensors
         batched = {
@@ -109,7 +109,7 @@ class MicrobiomeCollator:
         if self.do_contrastive:
             # create a second perturbed view for contrastive learning
             counts_perturbed_2, depths_perturbed_2 = self._perturb_batch(counts_full)
-            counts_perturbed_norm_2 = self._apply_normalization(counts_perturbed_2)
+            counts_perturbed_norm_2 = apply_normalization(self.norm_strategy, counts_perturbed_2)
             batched['perturbed_counts_2'] = torch.from_numpy(counts_perturbed_norm_2).float()
             batched['depth_2'] = torch.from_numpy(depths_perturbed_2).float()
         
@@ -134,56 +134,6 @@ class MicrobiomeCollator:
                 batched[key] = metadata_values
         
         return batched
-    
-    ## TODO: Are these functions fast?? Shouldn't this be done in torch?
-    def _apply_normalization(self,
-                             counts: np.ndarray) -> np.ndarray:
-        """
-        Apply normalization strategy to perturbed counts.
-        :param counts: Perturbed count matrix (batch_size, n_taxa).
-        :return: Normalized count matrix (batch_size, n_taxa).
-        """
-        if self.norm_strategy == 'clr':
-            # Add pseudocount to avoid log(0)
-            counts_pc = counts + 1e-8 # TODO pseudo-count could be a parameter or in config
-            counts_closed = closure(counts_pc)
-            clr_counts = clr(counts_closed)
-            return clr_counts.astype(np.float32)
-        elif self.norm_strategy == 'none':
-            return counts.astype(np.float32)
-        elif self.norm_strategy == 'rel_abundance':
-            counts_pc = counts + 1e-8
-            counts_closed = closure(counts_pc)
-            return counts_closed.astype(np.float32)
-        elif self.norm_strategy == 'log_rel_abundance':
-            counts_pc = counts + 1e-8
-            counts_closed = closure(counts_pc)
-            log_rel_abundance = np.log(counts_closed)
-            return log_rel_abundance.astype(np.float32)
-        elif self.norm_strategy == 'log_counts':
-            counts_pc = counts + 1e-8
-            log_counts = np.log(counts_pc)
-            return log_counts.astype(np.float32)
-        elif self.norm_strategy == 'binning': # TODO: Test this
-            # bin the counts into N quantile bins, but all zeros go in bin 0
-            N = 50 # TODO: make N a parameter
-            bins = np.zeros_like(counts, dtype=int)
-            nz = counts > 0
-            x = np.where(nz, counts, np.nan).astype(np.float32)
-            cut = np.nanquantile(x, np.linspace(0, 1, N + 1), axis=1).transpose(1, 0)[:, 1:-1]  # (B, N-1)
-            bins = (counts[..., None] >= cut[:, None, :]).sum(axis=-1).astype(np.int32)
-            bins[~nz] = 0
-            bins[nz] += 1  # reserve 0 for absence -> bins 1..N for nonzero
-            # edges = np.quantile(counts[nz], np.linspace(0, 1, N + 1))
-            # bins[nz] = np.digitize(counts[nz],edges[1:-1]) + 1
-            return bins.astype(np.float32)
-        elif self.norm_strategy == 'arcsine':
-            counts_pc = counts + 1e-8
-            counts_closed = closure(counts_pc)
-            arcsine_transformed = np.arcsin(np.sqrt(counts_closed))
-            return arcsine_transformed.astype(np.float32) 
-        else:
-            raise ValueError(f"Unknown normalization strategy: {self.norm_strategy}")
 
     def _perturb_batch(
         self,
@@ -284,3 +234,53 @@ class MicrobiomeCollator:
         perturbed_totals = perturbed_counts.sum(axis=1).astype(np.int64)
 
         return perturbed_counts, perturbed_totals
+
+## TODO: Are these functions fast?? Shouldn't this be done in torch?
+def apply_normalization(norm_strategy,
+                        counts: np.ndarray) -> np.ndarray:
+    """
+    Apply normalization strategy to perturbed counts.
+    :param counts: Perturbed count matrix (batch_size, n_taxa).
+    :return: Normalized count matrix (batch_size, n_taxa).
+    """
+    if norm_strategy == 'clr':
+        # Add pseudocount to avoid log(0)
+        counts_pc = counts + 1e-8 # TODO pseudo-count could be a parameter or in config
+        counts_closed = closure(counts_pc)
+        clr_counts = clr(counts_closed)
+        return clr_counts.astype(np.float32)
+    elif norm_strategy == 'none':
+        return counts.astype(np.float32)
+    elif norm_strategy == 'rel_abundance':
+        counts_pc = counts + 1e-8
+        counts_closed = closure(counts_pc)
+        return counts_closed.astype(np.float32)
+    elif norm_strategy == 'log_rel_abundance':
+        counts_pc = counts + 1e-8
+        counts_closed = closure(counts_pc)
+        log_rel_abundance = np.log(counts_closed)
+        return log_rel_abundance.astype(np.float32)
+    elif norm_strategy == 'log_counts':
+        counts_pc = counts + 1e-8
+        log_counts = np.log(counts_pc)
+        return log_counts.astype(np.float32)
+    elif norm_strategy == 'binning': # TODO: Test this
+        # bin the counts into N quantile bins, but all zeros go in bin 0
+        N = 50 # TODO: make N a parameter
+        bins = np.zeros_like(counts, dtype=int)
+        nz = counts > 0
+        x = np.where(nz, counts, np.nan).astype(np.float32)
+        cut = np.nanquantile(x, np.linspace(0, 1, N + 1), axis=1).transpose(1, 0)[:, 1:-1]  # (B, N-1)
+        bins = (counts[..., None] >= cut[:, None, :]).sum(axis=-1).astype(np.int32)
+        bins[~nz] = 0
+        bins[nz] += 1  # reserve 0 for absence -> bins 1..N for nonzero
+        # edges = np.quantile(counts[nz], np.linspace(0, 1, N + 1))
+        # bins[nz] = np.digitize(counts[nz],edges[1:-1]) + 1
+        return bins.astype(np.float32)
+    elif norm_strategy == 'arcsine':
+        counts_pc = counts + 1e-8
+        counts_closed = closure(counts_pc)
+        arcsine_transformed = np.arcsin(np.sqrt(counts_closed))
+        return arcsine_transformed.astype(np.float32) 
+    else:
+        raise ValueError(f"Unknown normalization strategy: {norm_strategy}")
