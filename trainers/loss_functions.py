@@ -139,8 +139,10 @@ def dm_nll_loss(
     # per count instead of per sample
     return -logp.mean()
 
-def xe_smoothed_loss(logits, target_probs, positions_to_count, T=2.0, eps=1e-8):
+def xe_smoothed_loss(logits, target_probs, positions_to_count=None, T=2.0, eps=1e-8):
     # Smooth target with temperature
+    if not positions_to_count:
+        positions_to_count = torch.ones_like(logits)
     out_probs = F.softmax(logits, dim=-1)
     log_out_probs = torch.log(out_probs) - torch.log((out_probs * positions_to_count).sum(dim=-1, keepdim=True).clamp_min(1e-8))
     

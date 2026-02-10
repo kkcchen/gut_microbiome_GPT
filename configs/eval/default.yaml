@@ -3,8 +3,8 @@ paths:
   pretrained_model_dir: "outputs/pretrain"
   checkpoint_path: "/home/tiantian/projects/aip-rahulgk/tiantian/gut_microbiome_GPT/outputs/pretrain/intermediate/epoch_10/model.safetensors"
   eval_files: 
-    - "/home/tiantian/projects/aip-rahulgk/gutmodel/hmc_final/downstream_train.h5ad"
-    - "/home/tiantian/projects/aip-rahulgk/gutmodel/hmc_final/downstream_test.h5ad"
+    - "/project/aip-rahulgk/gutmodel/hmc_final/downstream_train.h5ad"
+    - "/project/aip-rahulgk/gutmodel/hmc_final/downstream_test.h5ad"
 
 eval:
   seed: 42
