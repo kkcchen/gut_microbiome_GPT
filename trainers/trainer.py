@@ -534,7 +534,7 @@ class MicrobiomeTrainer:
 ################
             # masking_loss = masked_mse_loss(masking_logits, targets['original_counts'], masking_mask)
 ################            
-            masking_loss = xe_smoothed_loss(masking_logits, targets['original_counts'], masking_mask)
+            masking_loss = xe_smoothed_loss(masking_logits, targets['original_counts'])
             metrics['masking_loss'] = masking_loss.item()
             loss += masking_loss
         return loss, metrics
