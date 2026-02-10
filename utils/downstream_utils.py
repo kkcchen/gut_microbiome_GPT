@@ -13,6 +13,7 @@ from sklearn.utils.class_weight import compute_class_weight
 
 from trainers import logger
 from .downstream_eval_utils import evaluate_multiclass_and_save, evaluate_regression_and_save
+from .downstream_data_utils import handle_normalization_and_thresholding
 
 # Import model training functions
 from .downstream_models_utils import (
@@ -38,9 +39,6 @@ def validate_config(cfg: DictConfig) -> bool:
     Returns:
         True if config is valid, False otherwise
     """
-    if not cfg.eval.get('eval_on_downstream_tasks', False):
-        logger.info("Downstream task evaluation disabled (eval_on_downstream_tasks=False)")
-        return False
     
     if 'downstream_tasks_config' not in cfg:
         logger.warning("No 'downstream_tasks_config' found in configuration")
@@ -52,10 +50,6 @@ def validate_config(cfg: DictConfig) -> bool:
     
     if not cfg.downstream_tasks_config.get('methods'):
         logger.warning("No methods defined in 'downstream_tasks_config.methods'")
-        return False
-    
-    if len(cfg.paths.eval_files) != 2:
-        logger.error(f"Expected 2 eval_files (train, test), got {len(cfg.paths.eval_files)}")
         return False
     
     return True
@@ -83,8 +77,8 @@ def get_embedding_paths(cfg: DictConfig) -> Tuple[Path, Path]:
     train_file_name = Path(eval_files[0]).stem
     test_file_name = Path(eval_files[1]).stem
     
-    train_embed_path = output_dir / f"{train_file_name}_embedded.h5ad"
-    test_embed_path = output_dir / f"{test_file_name}_embedded.h5ad"
+    train_embed_path = output_dir / f"{train_file_name}.h5ad"
+    test_embed_path = output_dir / f"{test_file_name}.h5ad"
     
     return train_embed_path, test_embed_path
 
@@ -327,7 +321,7 @@ def process_single_task(
         X_train = train_task.X
         y_train = train_task.obs[label_type]
         X_test = test_task.X
-        y_test = test_task.obs[label_type]
+        y_test = test_task.obs[label_type]        
         
         logger.info(f"  Train: {X_train.shape}, Test: {X_test.shape}")
         
@@ -371,7 +365,6 @@ def process_single_task(
         logger.error(traceback.format_exc())
         return False
 
-
 # ==============================================================================
 # MAIN ENTRY POINT
 # ==============================================================================
@@ -409,7 +402,16 @@ def run_downstream_evaluation(
     
     # Get embedding paths
     try:
-        train_embed_path, test_embed_path = get_embedding_paths(cfg)
+        if cfg.eval.with_model:
+            train_embed_path, test_embed_path = get_embedding_paths(cfg)
+        else:
+            logger.info("Skipping embedding loading (with_model=False), using raw data for downstream tasks")
+            train_embed_path, test_embed_path = None, None
+            train_embed_path = Path(cfg.paths.train_path)
+            test_embed_path = Path(cfg.paths.test_path)
+            if not train_embed_path.exists() or not test_embed_path.exists():
+                logger.error(f"Raw data files not found at {train_embed_path} and {test_embed_path}")
+                return
     except ValueError as e:
         logger.error(str(e))
         return
@@ -438,6 +440,9 @@ def run_downstream_evaluation(
     logger.info(f"Loading test embeddings from {test_embed_path}")
     adata_test = ad.read_h5ad(test_embed_path)
     logger.info(f"  Test: {adata_test.shape[0]} samples")
+
+    # handle normalization and thresholding
+    adata_train, adata_test = handle_normalization_and_thresholding(adata_train, adata_test, cfg)
     
     # Create output directory
     output_dir = Path(cfg.paths.output_dir) / "downstream_tasks"

@@ -50,7 +50,7 @@ def main(cfg):
     logger.info("=" * 80)
 
     logger.info("Running downstream tasks with extracted embeddings...")
-    run_downstream_evaluation(cfg, accelerator, skip_if_exists=True)
+    run_downstream_evaluation(cfg, accelerator, skip_if_exists=False)
 
 
 if __name__ == "__main__":

@@ -8,6 +8,9 @@ eval:
   with_model: False
 
 downstream_tasks_config:
+  normalization: "clr" # choice of normalization method for downstream tasks (e.g. "clr", "log", "none")
+  prevalence_threshold: 0.01 # minimum prevalence threshold for including features in downstream tasks (e.g. 0.01 for 1% prevalence)
+  abundance_threshold: 0.05 # minimum abundance threshold for including features in downstream tasks (e.g. 0.001 for 0.1% abundance)
   methods:
     xgboost:
       search_type: "none"
