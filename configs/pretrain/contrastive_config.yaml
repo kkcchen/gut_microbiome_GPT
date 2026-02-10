@@ -1,5 +1,5 @@
 paths:
-  output_dir: "./outputs/pretrain/denoising_dm_nll_binomial_raw_large"
+  output_dir: "./outputs/pretrain/contrastive_denoising_raw_wd100_3layers"
   model_config_path: "${paths.output_dir}/model_config.json"
   ann_table_path: "/project/aip-rahulgk/gutmodel/hmc_final/pretrain.h5ad"
   # vocab_path: null
@@ -13,14 +13,14 @@ wandb:
   enabled: true
   entity: "haoze-deng-university-of-toronto"
   project: "microbiome-foundation"
-  run_name: denoising_dm_nll_binomial_raw_large
+  run_name: contrastive_denoising_raw_wd100_3layers
   run_notes: null
 
 training:
   seed: 423985693
   init_lr: 1e-4
   batch_size: 64
-  max_epochs: 500 # for testing
+  max_epochs: 200 # for testing
   cosine_warmup_ratio_or_step: 0.1
   log_interval: 10
   patience: 20
@@ -28,8 +28,9 @@ training:
   enable_fp16: false
   train_mask_ratio: 0.15
   notes: "Testing denoising after refactor"
-  tasks: ["denoising"] # contrastive, denoising, denoising_from_token, denoising_dm, denoising_lnm
+  tasks: ["denoising", "contrastive"] # contrastive, denoising, denoising_from_token, denoising_dm, denoising_lnm
   contrastive_temperature: 0.2
+  w_denoising: 100
 
 validation:
   batch_size: 128
@@ -51,7 +52,7 @@ model:
   tasks:
     do_mvc: false
     do_taxa_decoder: false
-    do_contrastive: false
+    do_contrastive: true
 
   # === FLEXIBLE ARCHITECTURE SECTION ===
   # Any key added here is automatically passed to the model config dict
@@ -61,7 +62,7 @@ model:
     seq_len: 500
     nhead: 8
     d_hid: 512
-    nlayers: 7 #3
+    nlayers: 3 #3 7
     dropout: 0.1
     abundance_emb_style: "continuous" # choices: scaling, continuous, category
     # freeze_vocab: false

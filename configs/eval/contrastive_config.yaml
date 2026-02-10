@@ -1,0 +1,43 @@
+paths:
+  output_dir: "./outputs/eval/contrastive_denoising_raw_wd100_7layers/"
+  save_name: "downstream_test.h5ad"
+  pretrained_model_dir: "./outputs/pretrain/contrastive_denoising_raw_wd100_7layers/"
+  checkpoint_path: "./outputs/pretrain/contrastive_denoising_raw_wd100_7layers/best_model/best_model/model.safetensors"
+  data_path: "/project/aip-rahulgk/gutmodel/hmc_final/downstream_test.h5ad"
+
+eval:
+  seed: 423985693
+  overwrite_output_dir: false
+  embedding_type: "cls" # choices: cls, mean, sum
+  return_full_output: false # whether to return the full output of the model (e.g. for probing) or just the embeddings (for downstream tasks)
+  save_embeddings: true
+  save_metadata: true
+  tasks: ['contrastive', 'denoising']
+
+data:
+  batch_size: 128
+  norm_strategy: "none" # choices: clr, none
+  split_key: "study_id" # we probably want to split train/val by entire studies, so it resembles close to real-world/test scenario
+  use_batch_labels: false
+  max_seq_len: 500
+  num_workers: 4
+  downsample_distribution: "binomial"
+
+model:
+
+  # === FLEXIBLE ARCHITECTURE SECTION ===
+  # Any key added here is automatically passed to the model config dict
+  params:
+    d_model: 128
+    nhead: 8
+    d_proj: 128
+    seq_len: 500
+    d_hid: 512
+    nlayers: 7
+    dropout: 0.1
+    abundance_emb_style: "continuous" # choices: scaling, continuous, category
+    # Example: If you change architecture, just add new keys here
+    # activation: "gelu" 
+    # use_flash_attn: true
+    model_distribution: "dm" # choices: zinb,...
+    use_gnn: false
