@@ -1,49 +1,12 @@
 paths:
-  output_dir: "outputs/eval"
-  pretrained_model_dir: "outputs/pretrain"
-  checkpoint_path: "/home/tiantian/projects/aip-rahulgk/tiantian/gut_microbiome_GPT/outputs/pretrain/intermediate/epoch_10/model.safetensors"
-  eval_files: 
-    - "/project/aip-rahulgk/gutmodel/hmc_final/downstream_train.h5ad"
-    - "/project/aip-rahulgk/gutmodel/hmc_final/downstream_test.h5ad"
+  output_dir: "outputs/eval_2"
+  train_path: "/project/aip-rahulgk/gutmodel/hmc_final/downstream_train.h5ad"
+  test_path: "/project/aip-rahulgk/gutmodel/hmc_final/downstream_test.h5ad"
 
 eval:
   seed: 42
-  overwrite_output_dir: true
-  embedding_type: "cls" # choices: cls, mean, sum
-  return_full_output: false # whether to return the full output of the model (e.g. for probing) or just the embeddings (for downstream tasks)
-  save_embeddings: true
-  save_metadata: true
-  tasks: ['denoising']
-  eval_on_downstream_tasks: true  
-  with_model: True
+  with_model: False
 
-data:
-  batch_size: 64
-  norm_strategy: "clr" # choices: clr, none
-  split_key: "study_id" # we probably want to split train/val by entire studies, so it resembles close to real-world/test scenario
-  use_batch_labels: true
-  max_seq_len: 200
-  num_workers: 4
-  downsample_distribution: "zinb"
-
-model:
-  use_gnn: false
-
-  # === FLEXIBLE ARCHITECTURE SECTION ===
-  # Any key added here is automatically passed to the model config dict
-  params:
-    d_model: 128
-    nhead: 8
-    d_hid: 512
-    nlayers: 3
-    dropout: 0.1
-    abundance_emb_style: "continuous" # choices: scaling, continuous, category
-    # Example: If you change architecture, just add new keys here
-    # activation: "gelu" 
-    # use_flash_attn: true
-    model_distribution: "zinb" # choices: zinb,...
-
-# optional, if you want to specify downstream tasks
 downstream_tasks_config:
   methods:
     xgboost:

@@ -114,13 +114,13 @@ def main(cfg):
             # Save embeddings
             if cfg.eval.save_embeddings:
                 logger.info(f"Saving embeddings to inside {cfg.paths.output_dir}")
-                save_path = output_dir / f"{input_file_name}_embedded.h5ad"
+                save_path = output_dir / f"{input_file_name}.h5ad"
                 save_embeddings(
                     embeddings_dict=results,
                     original_adata=inference_data_artifacts['adata'],
                     save_path=save_path,
                 )
-                eval_files.append(str(output_dir / f"{input_file_name}.h5ad"))
+                eval_files.append(str(save_path))
             
             # Save metadata
             if cfg.eval.save_metadata:
@@ -132,7 +132,7 @@ def main(cfg):
                     'config': OmegaConf.to_container(cfg, resolve=True)
                 }
                 
-                metadata_path = Path(cfg.paths.output_dir) / f"{input_file_name}_embedded_metadata.yaml"
+                metadata_path = Path(cfg.paths.output_dir) / f"{input_file_name}_metadata.yaml"
                 logger.info(f"Saving metadata to {metadata_path}")
                 OmegaConf.save(metadata, metadata_path)
         
