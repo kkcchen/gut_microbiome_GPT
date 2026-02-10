@@ -152,9 +152,10 @@ def main(cfg):
     del inference_loader
     del inference_data_artifacts
     logger.info("Inference artifacts deleted")
-    cfg.paths.eval_files = eval_files
-    logger.info("Running downstream tasks with extracted embeddings...")
-    run_downstream_evaluation(cfg, accelerator, skip_if_exists=True)
+    if cfg.eval.eval_on_downstream_tasks:
+        cfg.paths.eval_files = eval_files
+        logger.info("Running downstream tasks with extracted embeddings...")
+        run_downstream_evaluation(cfg, accelerator, skip_if_exists=True)
 
 
 if __name__ == "__main__":

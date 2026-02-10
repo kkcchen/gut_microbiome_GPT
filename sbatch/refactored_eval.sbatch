@@ -3,7 +3,7 @@
 #SBATCH -A aip-rahulgk
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=30
-#SBATCH --time=10:00
+#SBATCH --time=10:00:00
 #SBATCH --output=logs/refactored/eval/%j.out
 #SBATCH --error=logs/refactored/eval/%j.err
 #SBATCH --gres=gpu:1

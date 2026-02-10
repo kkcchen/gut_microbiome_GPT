@@ -218,6 +218,7 @@ def load_trained_model(cfg, model_config, accelerator):
     elif checkpoint_path.endswith('.safetensors'):
         from safetensors.torch import load_file
         loaded_state = load_file(checkpoint_path)
+        
     model.load_state_dict(loaded_state)
     model.to(accelerator.device)
     model.eval()

@@ -14,8 +14,10 @@ def masked_mse_loss(
     """
     Compute the masked MSE loss between input and target.
     """
+    # take the log of the raw counts
+    ltarget = torch.log(target + 1e-6)
     mask = mask.float()
-    loss = F.mse_loss(input * mask, target * mask, reduction="sum")
+    loss = F.mse_loss(input * mask, ltarget * mask, reduction="sum")
     return loss / (mask.sum() + 1e-4)
 
 def masked_relative_error(

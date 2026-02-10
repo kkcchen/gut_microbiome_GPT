@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=pretrain_contrastive_refactored
+#SBATCH --job-name=pretrain_masking_experiments
 #SBATCH -A aip-rahulgk
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=16

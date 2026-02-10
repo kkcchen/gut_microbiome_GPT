@@ -1,5 +1,5 @@
 paths:
-  output_dir: "./outputs/pretrain/contrastive_denoising_raw_wd100_3layers"
+  output_dir: "./outputs/pretrain/masking_log_rel_ab_len200_7layers_ratio_30_lr_001"
   model_config_path: "${paths.output_dir}/model_config.json"
   ann_table_path: "/project/aip-rahulgk/gutmodel/hmc_final/pretrain.h5ad"
   # vocab_path: null
@@ -13,12 +13,12 @@ wandb:
   enabled: true
   entity: "haoze-deng-university-of-toronto"
   project: "microbiome-foundation"
-  run_name: contrastive_denoising_raw_wd100_3layers
+  run_name: masking_log_rel_ab_len200_7layers_ratio_30_lr_001
   run_notes: null
 
 training:
   seed: 423985693
-  init_lr: 1e-4
+  init_lr: 1e-3
   batch_size: 64
   max_epochs: 200 # for testing
   cosine_warmup_ratio_or_step: 0.1
@@ -26,22 +26,22 @@ training:
   patience: 20
   grad_accumulation_steps: 1
   enable_fp16: false
-  train_mask_ratio: 0.15
+  masking_prob: 0.30
   notes: "Testing denoising after refactor"
-  tasks: ["denoising", "contrastive"] # contrastive, denoising, denoising_from_token, denoising_dm, denoising_lnm
+  tasks: ["masking"] # contrastive, denoising, denoising_from_token, denoising_dm, denoising_lnm
   contrastive_temperature: 0.2
-  w_denoising: 100
+  # w_denoising: 100
 
 validation:
   batch_size: 128
   eval_interval_epochs: 1
 
 data:
-  norm_strategy: "none" # choices: clr, none, rel_abundance, log_rel_abundance, log_counts, binning, arcsine
+  norm_strategy: "log_rel_abundance" # choices: clr, none, rel_abundance, log_rel_abundance, log_counts, binning, arcsine
   split_key: "study_id" # we probably want to split train/val by entire studies, so it resembles close to real-world/test scenario
   val_size: 0.1
   use_batch_labels: false
-  max_seq_len: 500
+  max_seq_len: 200
   num_workers: 4
   downsample_distribution: "binomial"
   downsample_ratio_range: [0.2, 0.8]
@@ -52,17 +52,17 @@ model:
   tasks:
     do_mvc: false
     do_taxa_decoder: false
-    do_contrastive: true
+    do_contrastive: false
 
   # === FLEXIBLE ARCHITECTURE SECTION ===
   # Any key added here is automatically passed to the model config dict
   params:
     d_model: 128
     d_proj: 128
-    seq_len: 500
+    seq_len: 200
     nhead: 8
     d_hid: 512
-    nlayers: 3 #3 7
+    nlayers: 7 #3 7
     dropout: 0.1
     abundance_emb_style: "continuous" # choices: scaling, continuous, category
     # freeze_vocab: false
