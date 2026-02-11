@@ -1,5 +1,5 @@
 paths:
-  output_dir: "./outputs/pretrain/masking_log_rel_ab_len200_7layers_ratio_30_lr_001"
+  output_dir: "./outputs/pretrain/masking_clr_len200_3layers_ratio_30_updated"
   model_config_path: "${paths.output_dir}/model_config.json"
   ann_table_path: "/project/aip-rahulgk/gutmodel/hmc_final/pretrain.h5ad"
   # vocab_path: null
@@ -13,12 +13,12 @@ wandb:
   enabled: true
   entity: "haoze-deng-university-of-toronto"
   project: "microbiome-foundation"
-  run_name: masking_log_rel_ab_len200_7layers_ratio_30_lr_001
+  run_name: masking_clr_len200_3layers_ratio_30_updated
   run_notes: null
 
 training:
   seed: 423985693
-  init_lr: 1e-3
+  init_lr: 1e-4
   batch_size: 64
   max_epochs: 200 # for testing
   cosine_warmup_ratio_or_step: 0.1
@@ -37,7 +37,7 @@ validation:
   eval_interval_epochs: 1
 
 data:
-  norm_strategy: "log_rel_abundance" # choices: clr, none, rel_abundance, log_rel_abundance, log_counts, binning, arcsine
+  norm_strategy: "clr" # choices: clr, none, rel_abundance, log_rel_abundance, log_counts, binning, arcsine
   split_key: "study_id" # we probably want to split train/val by entire studies, so it resembles close to real-world/test scenario
   val_size: 0.1
   use_batch_labels: false
@@ -62,7 +62,7 @@ model:
     seq_len: 200
     nhead: 8
     d_hid: 512
-    nlayers: 7 #3 7
+    nlayers: 3 #3 7
     dropout: 0.1
     abundance_emb_style: "continuous" # choices: scaling, continuous, category
     # freeze_vocab: false

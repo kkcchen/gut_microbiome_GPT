@@ -326,7 +326,8 @@ class hgmGPT(nn.Module):
             batch_emb = self.batch_encoder(batch_ids)  # (batch, d_model)
         
         # 2. mask labels
-        if 'masking' in self.tasks:
+        if 'masking' in self.tasks and do_mask is not None: 
+            # do_mask ^ hack to get this to work in eval mode. TODO: Fix this properly
             mask_emb = self.mask_token_emb.unsqueeze(0)  # (1, 1, d_model)
             # Apply masking to taxa_ids_embeds
             total_embs = torch.where(

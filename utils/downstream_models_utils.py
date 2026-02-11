@@ -17,7 +17,7 @@ from sklearn.linear_model import LogisticRegression, Lasso
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
-from scipy.stats import randint, uniform
+from scipy.stats import randint, uniform, loguniform
 from sklearn.preprocessing import LabelEncoder
 
 from trainers import logger
@@ -201,7 +201,7 @@ def train_xgboost(
         best_params = search.best_params_
     elif search_type == "random":
         param_distributions = {
-            "learning_rate": uniform(0.01, 0.3),
+            "learning_rate": loguniform(1e-3, 3e-1),
             "max_depth": randint(3, 12),
             "n_estimators": randint(100, 1000),
             "subsample": uniform(0.5, 0.5),
@@ -210,7 +210,7 @@ def train_xgboost(
         search = RandomizedSearchCV(
             estimator=model,
             param_distributions=param_distributions,
-            n_iter=20,
+            n_iter=100,
             scoring=search_scoring,
             cv=5,
             n_jobs=-1,
