@@ -2,7 +2,7 @@ paths:
   taxonomic_table_path: "/home/tiantian/projects/aip-rahulgk/tiantian/gut_microbiome_GPT/data/taxonomic_table.csv"
   metadata_path: "/home/tiantian/projects/aip-rahulgk/tiantian/gut_microbiome_GPT/data/sample_metadata.tsv"
   tags_path: "/home/tiantian/projects/aip-rahulgk/tiantian/gut_microbiome_GPT/data/tags.tsv"
-  save_path: "/home/tiantian/projects/aip-rahulgk/gutmodel/hmc_final"
+  save_path: "/home/tiantian/projects/aip-rahulgk/gutmodel/hmc_final_fixed"
 
 general_config:
   seed: 42
@@ -139,3 +139,59 @@ downstream_tasks:
       is_train: True
       tag_column: gastrointest_disord
     prediction_type: classification
+
+location: # different config due to region being obs column rather than tag
+  # Europe and Northern America - TRAIN
+  PRJNA729511: 
+    is_train: True
+  PRJNA428736:
+    is_train: True
+  PRJEB5729:
+    is_train: True
+  PRJNA516932:
+    is_train: True
+  PRJEB6702:
+    is_train: True
+  # Europe and Northern America - TEST
+  PRJNA485316: 
+    is_train: False
+  PRJNA559143:
+    is_train: False
+  # Eastern and South-Eastern Asia - TRAIN
+  PRJNA481413:
+    is_train: True
+  PRJNA382861:
+    is_train: True
+  # Eastern and South-Eastern Asia - TEST
+  PRJNA313391:
+    is_train: False
+  # Latin America and the Caribbean - TRAIN
+  PRJNA486009:
+    is_train: True
+  # Latin America and the Caribbean - TEST
+  PRJEB36585:
+    is_train: False
+  # Northern Africa and Western Asia - TRAIN
+  PRJNA450540:
+    is_train: True
+  # Northern Africa and Western Asia - TEST
+  PRJNA445932:
+    is_train: False
+  # Central and Southern Asia - TRAIN
+  PRJNA559803:
+    is_train: True
+  # Central and Southern Asia - TEST
+  PRJEB5482:
+    is_train: False
+  # Australia/New Zealand - TRAIN
+  PRJNA414683:
+    is_train: True
+  # Australia/New Zealand - TEST
+  PRJNA650259:
+    is_train: False
+  # SUB SAHARAN AFRICA - TRAIN
+  PRJDB10485:
+    is_train: True
+    
+    
+

@@ -384,37 +384,43 @@ def preprocess(config_path: Path):
     )
 
     # 3.2 add location as a downstream task if specified
-    if final_train_adata is not None:
-        unique_mask = ~final_train_adata.obs.index.duplicated(keep='first')
-        location_train = final_train_adata[unique_mask].copy()
-
-        if 'region' in location_train.obs:
-            location_train = location_train[location_train.obs['region'].notna()].copy()
-            
-            location_train.obs['downstream_task'] = 'location'
-            location_train.obs['categorical_label'] = location_train.obs['region'].astype(str)
-            location_train.obs['continuous_label'] = np.nan
-            
-            print(f"Adding {location_train.n_obs} unique samples to Train for 'location' task.")
-            final_train_adata = ad.concat([final_train_adata, location_train], join='outer')
+    if 'location' in config:
+        print("\nAdding 'location' downstream task based on 'region' metadata...")
+        location_config = config['location']
+        train_studies = [study for study, cfg in location_config.items() 
+                    if cfg.get('is_train') == True]
+        test_studies = [study for study, cfg in location_config.items() 
+                    if cfg.get('is_train') == False]
+        print("Checking for multi-region studies in location config...")
+        for study in train_studies + test_studies:
+            study_data = adata[adata.obs['study_id'] == study]
+            regions = study_data.obs['region'].unique()
+            if len(regions) > 1:
+                print(f"\n{study} has MULTIPLE regions:")
+                print(study_data.obs['region'].value_counts())
+        train_location = adata[adata.obs['study_id'].isin(train_studies)].copy()
+        test_location = adata[adata.obs['study_id'].isin(test_studies)].copy()
+        train_location.obs['downstream_task'] = 'location'
+        train_location.obs['categorical_label'] = train_location.obs['region']
+        train_location.obs['continuous_label'] = None
+        
+        test_location.obs['downstream_task'] = 'location'
+        test_location.obs['categorical_label'] = test_location.obs['region']
+        test_location.obs['continuous_label'] = None
+        
+        # Verify no overlap
+        train_study_set = set(train_location.obs['study_id'].unique())
+        test_study_set = set(test_location.obs['study_id'].unique())
+        overlap = train_study_set & test_study_set
+        
+        if overlap:
+            print(f"WARNING: Studies in both train and test: {overlap}")
         else:
-            print("Warning: 'region' column missing in Train data.")
+            print(f"No study overlap between train and test")
+        final_train_adata = ad.concat([final_train_adata, train_location], join='outer')
+        final_test_adata = ad.concat([final_test_adata, test_location], join='outer')
 
-    if final_test_adata is not None:
-        unique_mask = ~final_test_adata.obs.index.duplicated(keep='first')
-        location_test = final_test_adata[unique_mask].copy()
-
-        if 'region' in location_test.obs:
-            location_test = location_test[location_test.obs['region'].notna()].copy()
-            
-            location_test.obs['downstream_task'] = 'location'
-            location_test.obs['categorical_label'] = location_test.obs['region'].astype(str)
-            location_test.obs['continuous_label'] = np.nan
-            
-            print(f"Adding {location_test.n_obs} unique samples to Test for 'location' task.")
-            final_test_adata = ad.concat([final_test_adata, location_test], join='outer')
-        else:
-            print("Warning: 'region' column missing in Test data.")
+    
     # 3.3 remove any unique samples in final_train and final_test from the original adata to avoid data leakage
     used_indices = set()
     if final_train_adata is not None:
