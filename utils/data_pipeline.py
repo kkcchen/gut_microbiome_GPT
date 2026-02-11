@@ -5,13 +5,14 @@ import torch
 import anndata as ad
 import numpy as np
 import torch
+from sklearn.preprocessing import LabelEncoder
 from pathlib import Path
 from typing import Dict, Tuple, Optional
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 from trainers import logger
 from sklearn.model_selection import train_test_split
-from data_utils import MicrobiomeDataset, MicrobiomeCollator, TaxaVocabulary, BatchVocabulary, build_tg_data_from_taxon_df
+from data_utils import MicrobiomeDataset, MicrobiomeCollator, TaxaVocabulary, BatchVocabulary, FinetuningDataset, build_tg_data_from_taxon_df
 
 
 def prepare_microbiome_data(cfg, accelerator) -> Dict:
@@ -478,3 +479,119 @@ def save_embeddings(
 
         embedding_adata.write_h5ad(embedding_file)
         logger.info(f"Embeddings saved to {embedding_file}")
+
+def prepare_finetune_data(cfg, accelerator):
+    """
+    Prepare finetuning data loaders with train/val split.
+    
+    :param cfg: Configuration object.
+    :param accelerator: Accelerator instance.
+    :return: Dictionary with data loaders and vocabularies.
+    """
+    logger.info(f"Loading data from: {cfg.paths.finetuning_file}")
+    
+    # Load anndata
+    adata = ad.read_h5ad(cfg.paths.finetuning_file)
+    logger.info(f"Loaded {adata.shape[0]} samples with {adata.shape[1]} taxa")
+    
+    # make copy and get the relevant chunk
+    adata = adata[adata.obs['downstream_task'] == cfg.data.finetune_task_name].copy()
+    # Extract and process labels
+    label_column = cfg.data.label_column
+    if label_column not in adata.obs.columns:
+        raise ValueError(f"Label column '{label_column}' not found in adata.obs")
+    
+    labels = adata.obs[label_column].values
+    
+    # Handle classification vs regression
+    if cfg.training.finetune_task == 'classification':
+        # Encode categorical labels
+        le = LabelEncoder()
+        labels_encoded = le.fit_transform(labels)
+        adata.obs[label_column] = labels_encoded
+        num_classes = len(le.classes_)
+        logger.info(f"Classification task with {num_classes} classes: {le.classes_}")
+    else:
+        # Regression - ensure numeric
+        labels_encoded = labels.astype(np.float32)
+        adata.obs[label_column] = labels_encoded
+        num_classes = None
+        logger.info(f"Regression task - label range: [{labels.min():.3f}, {labels.max():.3f}]")
+    
+    # Train/validation split
+    train_idx, val_idx = train_test_split(
+        np.arange(len(adata)),
+        test_size=cfg.data.val_split,
+        random_state=cfg.training.seed,
+        stratify=labels_encoded if cfg.training.finetune_task == 'classification' else None
+    )
+    
+    logger.info(f"Train samples: {len(train_idx)}, Validation samples: {len(val_idx)}")
+    
+    # Create vocabularies
+    logger.info("Building vocabularies...")
+    taxa_vocab = TaxaVocabulary()
+    taxa_vocab.build_vocab(adata.var_names.tolist())
+    logger.info(f"Taxa vocabulary size: {len(taxa_vocab)}")
+    
+    batch_vocab = None
+    if cfg.data.use_batch_labels:
+        batch_vocab = BatchVocabulary()
+        batch_vocab.build_vocab(adata.obs['study_id'].tolist())
+        logger.info(f"Batch vocabulary size: {len(batch_vocab)}")
+    
+    # Create datasets
+    train_dataset = FinetuningDataset(
+        adata=adata[train_idx],
+        taxa_vocab=taxa_vocab,
+        batch_vocab=batch_vocab,
+        label_column=label_column,
+        max_seq_len=cfg.data.max_seq_len,
+        metadata_fields=cfg.data.get('metadata_fields', None)
+    )
+    
+    val_dataset = FinetuningDataset(
+        adata=adata[val_idx],
+        taxa_vocab=taxa_vocab,
+        batch_vocab=batch_vocab,
+        label_column=label_column,
+        max_seq_len=cfg.data.max_seq_len,
+        metadata_fields=cfg.data.get('metadata_fields', None)
+    )
+    
+    # Create collator
+    collator = MicrobiomeCollator(
+        max_seq_len=cfg.data.max_seq_len,
+        norm_strategy=cfg.data.norm_strategy,
+        is_finetuning=True,  # Skip perturbation
+        do_contrastive=False,
+        eval_mode=False
+    )
+    
+    # Create data loaders
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=cfg.training.batch_size,
+        shuffle=True,
+        collate_fn=collator,
+        num_workers=cfg.data.get('num_workers', 0),
+        pin_memory=True
+    )
+    
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=cfg.training.batch_size,
+        shuffle=False,
+        collate_fn=collator,
+        num_workers=cfg.data.get('num_workers', 0),
+        pin_memory=True
+    )
+    
+    return {
+        'train_loader': train_loader,
+        'valid_loader': val_loader,
+        'taxa_vocab': taxa_vocab,
+        'batch_vocab': batch_vocab,
+        'num_classes': num_classes,
+        'graph_data': None  # TODO: Add graph support if needed
+    }

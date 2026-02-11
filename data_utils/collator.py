@@ -28,6 +28,7 @@ class MicrobiomeCollator:
         norm_strategy: str = 'clr',
         do_contrastive: bool = False,
         eval_mode: bool = False,
+        finetune_mode: bool = False,
     ):
         """
         Initialize collator with perturbation and selection parameters.
@@ -47,6 +48,7 @@ class MicrobiomeCollator:
         self.norm_strategy = norm_strategy
         self.do_contrastive = do_contrastive
         self.eval_mode = eval_mode
+        self.finetune_mode = finetune_mode
         self.rng = np.random.default_rng()
     
     def __call__(self, batch: List[Dict]) -> Dict[str, torch.Tensor]:
@@ -83,7 +85,7 @@ class MicrobiomeCollator:
         batch_ids = np.array([s['batch_id'] for s in batch]) if 'batch_id' in batch[0] else None
 
         # perturbation on full count vectors
-        if self.eval_mode:
+        if self.eval_mode or self.finetune_mode: # TODO: right now, finetune doesnt do perturbation, but we might want to add that in the future, so we can just reuse the eval_mode flag for now
             counts_perturbed = counts_full.copy()
             depths_perturbed = depths_original.copy()
         else:

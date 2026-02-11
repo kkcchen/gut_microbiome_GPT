@@ -48,6 +48,9 @@ class hgmGPT(nn.Module):
         tasks: List[str] = [],
         model_distribution: Optional[str] = None,
         masking_prob: Optional[str] = None,
+        finetune_mode: str = "none",
+        finetune_task: str = "classification",
+        finetune_num_classes: Optional[int] = None,
     ):
         """
         The base model for the human gut microbiome. This initializes the transformer based architecture for encoding abundance tables. 
@@ -78,6 +81,12 @@ class hgmGPT(nn.Module):
         :type tasks: List[str]
         :param model_distribution: The distribution model to use, e.g., "zinb"
         :type model_distribution: Optional[str]
+        :param finetune_mode: The finetuning mode to use, e.g., "none", "full", "partial"
+        :type finetune_mode: str
+        :param finetune_task: The downstream task for finetuning, e.g., "classification", "regression"
+        :type finetune_task: str
+        :param finetune_num_classes: The number of classes for classification finetuning, required if finetune_task is "classification"
+        :type finetune_num_classes: Optional[int]
         """
         super().__init__()
         self.model_type = "Transformer"
@@ -92,6 +101,9 @@ class hgmGPT(nn.Module):
         self.sample_emb_style = sample_emb_style
         self.dropout = dropout
         self.d_proj = d_proj
+        self.finetune_mode = finetune_mode
+        self.finetune_task = finetune_task
+        self.finetune_num_classes = finetune_num_classes
         if self.abundance_emb_style not in ["category", "continuous", "scaling"]:
             raise ValueError(
                 f"abundance_emb_style should be one of category, continuous, scaling, "
@@ -188,8 +200,28 @@ class hgmGPT(nn.Module):
                 output_format="logits",
                 dropout=self.dropout
             )
-            
-
+        
+        # if finetune, add heads
+        if self.finetune_mode != "none":
+            logger.info("finetune mode enabled! adding finetuning head...")
+            if self.finetune_task == "classification":
+                assert self.finetune_num_classes is not None, "finetune_num_classes must be provided for classification finetuning"
+                self.finetune_head = nn.Sequential(
+                    nn.Linear(d_model, d_model // 2),
+                    nn.ReLU(),
+                    nn.Dropout(dropout),
+                    nn.Linear(d_model // 2, self.finetune_num_classes)
+                )
+            elif self.finetune_task == "regression":
+                self.finetune_head = nn.Sequential(
+                    nn.Linear(d_model, d_model // 2),
+                    nn.ReLU(),
+                    nn.Dropout(dropout),
+                    nn.Linear(d_model // 2, 1)  # Single output for regression
+                )
+            else:
+                raise ValueError(f"Unsupported finetune_task: {self.finetune_task}")
+        self._configure_finetuning(self.finetune_mode)
         # ================================================================================
         # =============================== PRINT MODEL INFO ===============================
         logger.info(f"Initialized hgmGPT model with {sum(p.numel() for p in self.parameters() if p.requires_grad)} trainable parameters")
@@ -213,6 +245,39 @@ class hgmGPT(nn.Module):
         logger.info(f"\t use_gnn: {self.use_gnn}")
         if self.use_gnn:
             logger.info(f"\t num_taxa (vocab size): {self.num_taxa}")
+    
+    def _configure_finetuning(self, finetune_mode: str):
+        """
+        Configures the model for finetuning based on the specified mode. This involves freezing or unfreezing certain layers of the model depending on whether we are doing full finetuning, partial finetuning, or no finetuning.
+
+        Args:
+            finetune_mode (str): The finetuning mode to use. Should be one of "none", "full", "partial".
+                - "none": No finetuning, all layers are frozen.
+                - "full": Full finetuning, all layers are trainable.
+                - "partial": Partial finetuning, only the transformer encoder and finetuning head are trainable, all other layers are frozen.
+        """
+        if finetune_mode == "none":
+            # Freeze all layers
+            for param in self.parameters():
+                param.requires_grad = False
+            logger.info("Finetuning mode: NONE. All layers frozen.")
+        
+        elif finetune_mode == "full":
+            # Unfreeze all layers
+            for param in self.parameters():
+                param.requires_grad = True
+            logger.info("Finetuning mode: FULL. All layers trainable.")
+        elif finetune_mode == "partial":
+            # Freeze encoders and decoders, unfreeze transformer encoder and finetuning head
+            for name, param in self.named_parameters():
+                if 'finetune_head' not in name:
+                    param.requires_grad = False
+                else:
+                    param.requires_grad = True
+            logger.info("Finetuning mode: PARTIAL. Transformer encoder and finetuning head are trainable, all other layers frozen.")
+        
+        else:
+            raise ValueError(f"Unsupported finetune_mode: {finetune_mode}")
         
 
     def encode(
@@ -518,3 +583,63 @@ class hgmGPT(nn.Module):
         # 3. get sample embeddings
         sample_embeddings = self._get_sample_embedding(transformer_output)
         return sample_embeddings
+
+    def finetune_forward(
+        self,
+        taxa_ids: Tensor,
+        abundance_values: Tensor,
+        depth: Tensor,
+        batch_ids: Optional[Tensor] = None,
+        graph_data: Optional[Data] = None,
+    ) -> Tensor:
+        """
+        Forward pass specifically for finetuning. Returns predictions from the finetuning head.
+        
+        :param taxa_ids: Token IDs representing taxa, shape [batch_size, seq_len].
+        :param abundance_values: Token values corresponding to taxa, shape [batch_size, seq_len].
+        :param depth: Depth information, shape [batch_size].
+        :param batch_ids: Batch IDs for encoding, shape [batch_size].
+            Required if `use_batch_labels` is True.
+        :param graph_data: Graph data for GNN encoding, if applicable.
+        :return: Predictions tensor.
+            - For classification: logits of shape [batch_size, num_classes]
+            - For regression: values of shape [batch_size]
+        """
+        if self.finetune_mode == "none":
+            raise RuntimeError("Model not in finetune mode. Set finetune_mode to 'full' or 'partial' during initialization.")
+        
+        if not hasattr(self, 'finetune_head'):
+            raise RuntimeError("Finetuning head not initialized.")
+        
+        # Validate inputs
+        if self.use_batch_labels:
+            assert batch_ids is not None, "batch_ids should not be None when use_batch_labels is True"
+        else:
+            assert batch_ids is None, "batch_ids should be None when use_batch_labels is False"
+        
+        if self.use_gnn:
+            assert graph_data is not None, "graph_data should not be None when use_gnn is True"
+        
+        # 1. Encode through transformer
+        transformer_output = self.encode(
+            taxa_ids,
+            abundance_values,
+            batch_ids=None, # TODO: pass in None for now, until we figure out what to do
+            graph_data=graph_data,
+            do_mask=None  # No masking during finetuning
+        )  # (batch, seq_len + number of special tokens, d_model)
+        
+        assert not torch.isnan(transformer_output).any(), "NaN in transformer output"
+        
+        # 2. Extract sample embedding
+        sample_embedding = self._get_sample_embedding(transformer_output)  # (batch, d_model)
+        
+        # 3. Pass through finetuning head
+        predictions = self.finetune_head(sample_embedding)
+        
+        # 4. Format output based on task
+        if self.finetune_task == "regression":
+            predictions = predictions.squeeze(-1)  # (batch,)
+        # For classification, return logits as-is: (batch, num_classes)
+        
+        return predictions

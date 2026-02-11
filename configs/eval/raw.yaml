@@ -1,7 +1,7 @@
 paths:
-  output_dir: "outputs/eval_2"
-  train_path: "/project/aip-rahulgk/gutmodel/hmc_final/downstream_train.h5ad"
-  test_path: "/project/aip-rahulgk/gutmodel/hmc_final/downstream_test.h5ad"
+  output_dir: "outputs/eval_raw"
+  train_path: "/project/aip-rahulgk/gutmodel/hmc_final_fixed/downstream_train.h5ad"
+  test_path: "/project/aip-rahulgk/gutmodel/hmc_final_fixed/downstream_test.h5ad"
 
 eval:
   seed: 42

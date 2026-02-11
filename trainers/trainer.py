@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Dict, Optional
 from trainers import logger
 from trainers.loss_functions import *
+import torch.nn.functional as F
 
 
 class MicrobiomeTrainer:
@@ -358,8 +359,43 @@ class MicrobiomeTrainer:
             t = batch[k]
             if not torch.isfinite(t).all():
                 raise ValueError(f"Non-finite in batch[{k}]")
-        # print("max perturbed:", batch["perturbed_counts"].max().item(),
-        #     "max depth:", batch["depth"].max().item())  
+        
+        # ============= chunk for finetuning =============
+        if self.cfg.training.get('finetune_mode', 'none') != 'none':
+            # Use dedicated finetune_forward method
+            predictions = model.finetune_forward(
+                taxa_ids=taxa_ids,
+                abundance_values=perturbed_counts,  # Use actual data (no perturbation)
+                depth=depth,
+                batch_ids=batch_ids,
+                graph_data=self.graph_data
+            )
+            
+            # Get labels from batch
+            labels = batch['labels']
+            
+            # Compute finetuning loss
+            if model.finetune_task == 'classification':
+                loss = F.cross_entropy(predictions, labels.long())
+                metrics = {'finetune_loss': loss.item()}
+                
+                # Add accuracy metric
+                with torch.no_grad():
+                    preds_class = predictions.argmax(dim=-1)
+                    accuracy = (preds_class == labels).float().mean()
+                    metrics['accuracy'] = accuracy.item()
+            
+            elif model.finetune_task == 'regression':
+                loss = F.mse_loss(predictions, labels.float())
+                metrics = {'finetune_loss': loss.item()}
+                
+                # Add MAE metric
+                with torch.no_grad():
+                    mae = torch.abs(predictions - labels).mean()
+                    metrics['mae'] = mae.item()
+            
+            return loss, metrics
+        # ============= END FINETUNING BRANCH =============
         
         # Forward pass through model
         # Adjust based on your model's forward signature

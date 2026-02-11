@@ -314,47 +314,94 @@ def inference(
         return results
     
 
+def load_pretrained_model_for_finetune(cfg, model_config, accelerator):
+    """
+    Load pretrained model weights and configure for finetuning.
+    
+    :param cfg: Configuration object.
+    :param model_config: Model configuration dictionary.
+    :param accelerator: Accelerator instance.
+    :return: Model with loaded pretrained weights.
+    """
+    logger.info("=" * 80)
+    logger.info("LOADING PRETRAINED MODEL")
+    logger.info("=" * 80)
+    
+    # Initialize model with finetuning configuration
+    model = hgmGPT(**model_config)
+    
+    # Load pretrained weights
+    checkpoint_path = cfg.paths.checkpoint_path
+    if checkpoint_path:
+        logger.info(f"Loading pretrained weights from: {checkpoint_path}")
+        
+        # Handle different checkpoint formats
+        checkpoint = torch.load(checkpoint_path, map_location='cpu')
+        
+        if 'model_state_dict' in checkpoint:
+            state_dict = checkpoint['model_state_dict']
+        elif 'state_dict' in checkpoint:
+            state_dict = checkpoint['state_dict']
+        else:
+            state_dict = checkpoint
+        
+        # Load weights (strict=False to allow new finetuning head)
+        missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+        
+        if missing_keys:
+            logger.info(f"Missing keys (expected for new finetuning head): {missing_keys}")
+        if unexpected_keys:
+            logger.warning(f"Unexpected keys: {unexpected_keys}")
+        
+        logger.info("✓ Loaded pretrained weights successfully")
+    else:
+        logger.warning("No pretrained checkpoint specified - training from scratch!")
+    
+    # Configure parameter freezing based on finetune_mode
+    finetune_mode = cfg.finetuning.finetune_mode
+    logger.info(f"Finetuning mode: {finetune_mode}")
+    
+    # Log trainable parameters
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in model.parameters())
+    logger.info(f"Trainable parameters: {trainable_params:,} / {total_params:,} "
+               f"({100 * trainable_params / total_params:.2f}%)")
+    
+    return model
 
-
-
-# def restore_or_initialize_state(cfg, model_config, train_loader, accelerator):
-#     """
-#     Restore from checkpoint or initialize fresh training state.
+def initialize_finetuning_components(model, cfg, total_steps):
+    """
+    Initialize optimizer and scheduler for finetuning.
     
-#     :param cfg: Configuration object.
-#     :param model_config: Model configuration dictionary.
-#     :param train_loader: Training data loader (for computing total steps).
-#     :param accelerator: Accelerator instance.
-#     :return: Dictionary containing training state components.
-#     """
-#     from utils.config_utils import get_wandb_config
+    :param model: Model to optimize.
+    :param cfg: Configuration object.
+    :param total_steps: Total training steps.
+    :return: Dictionary with optimizer and scheduler.
+    """
+    # Create optimizer (only for trainable parameters)
+    trainable_params = filter(lambda p: p.requires_grad, model.parameters())
     
-#     total_steps = len(train_loader) * cfg.training.max_epochs
+    optimizer = torch.optim.AdamW(
+        trainable_params,
+        lr=cfg.training.learning_rate,
+        weight_decay=cfg.training.weight_decay,
+        betas=(cfg.training.get('adam_beta1', 0.9), 
+               cfg.training.get('adam_beta2', 0.999))
+    )
     
-#     model, optimizer, scheduler, epoch, best_val_loss, patience_counter, extra_state = \
-#         create_or_restore_training_state_wandb(
-#             model_config=model_config,
-#             init_lr=cfg.training.init_lr,
-#             warmup_ratio_or_step=cfg.training.cosine_warmup_ratio_or_step,
-#             total_steps=total_steps,
-#             checkpoint_dir=cfg.paths.checkpoint_dir,
-#             use_wandb=cfg.wandb.enabled,
-#             wandb_entity=cfg.wandb.get('entity', None),
-#             wandb_project=cfg.wandb.get('project', 'microbiome-pretrain'),
-#             wandb_config=get_wandb_config(cfg),
-#             accelerator=accelerator,
-#             wandb_run_name=cfg.wandb.get('run_name', None),
-#             wandb_run_notes=cfg.wandb.get('run_notes', None)
-#         )
+    # Create scheduler
+    from transformers import get_linear_schedule_with_warmup
     
-#     return {
-#         'model': model,
-#         'optimizer': optimizer,
-#         'scheduler': scheduler,
-#         'epoch': epoch,
-#         'best_val_loss': best_val_loss,
-#         'patience_counter': patience_counter,
-#         'extra_state': extra_state,
-#         'train_loader': None,  # Will be filled by caller
-#         'valid_loader': None,  # Will be filled by caller
-#     }
+    scheduler = get_linear_schedule_with_warmup(
+        optimizer,
+        num_warmup_steps=cfg.training.warmup_steps,
+        num_training_steps=total_steps
+    )
+    
+    logger.info(f"Optimizer: AdamW (lr={cfg.training.learning_rate})")
+    logger.info(f"Scheduler: Linear warmup ({cfg.training.warmup_steps} steps) + decay")
+    
+    return {
+        'optimizer': optimizer,
+        'scheduler': scheduler
+    }
