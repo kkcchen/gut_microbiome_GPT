@@ -401,7 +401,7 @@ def initialize_finetuning_components(model, cfg, total_steps):
     
     scheduler = get_linear_schedule_with_warmup(
         optimizer,
-        num_warmup_steps=cfg.training.warmup_steps,
+        num_warmup_steps=cfg.training.cosine_warmup_ratio_or_step,
         num_training_steps=total_steps
     )
     
