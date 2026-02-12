@@ -48,7 +48,7 @@ class hgmGPT(nn.Module):
         tasks: List[str] = [],
         model_distribution: Optional[str] = None,
         masking_prob: Optional[str] = None,
-        finetune_mode: str = "none",
+        finetune_mode: Optional[str] = None,
         finetune_task: str = "classification",
         finetune_num_classes: Optional[int] = None,
     ):
@@ -202,7 +202,7 @@ class hgmGPT(nn.Module):
             )
         
         # if finetune, add heads
-        if self.finetune_mode != "none":
+        if self.finetune_mode is not None:
             logger.info("finetune mode enabled! adding finetuning head...")
             if self.finetune_task == "classification":
                 assert self.finetune_num_classes is not None, "finetune_num_classes must be provided for classification finetuning"
@@ -221,7 +221,7 @@ class hgmGPT(nn.Module):
                 )
             else:
                 raise ValueError(f"Unsupported finetune_task: {self.finetune_task}")
-        self._configure_finetuning(self.finetune_mode)
+            self._configure_finetuning(self.finetune_mode)
         # ================================================================================
         # =============================== PRINT MODEL INFO ===============================
         logger.info(f"Initialized hgmGPT model with {sum(p.numel() for p in self.parameters() if p.requires_grad)} trainable parameters")
