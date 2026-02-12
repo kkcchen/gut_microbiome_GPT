@@ -556,7 +556,6 @@ class MicrobiomeTrainer:
             loss += denoising_loss
             
         if 'contrastive' in tasks:
-            # Placeholder for contrastive loss computation
             contrastive_loss = nt_xent_loss(
                 outputs_1["contrastive_projected"],
                 outputs_2["contrastive_projected"],   
@@ -566,7 +565,6 @@ class MicrobiomeTrainer:
             loss += contrastive_loss
         
         if 'masking' in tasks:
-            # Placeholder for masking loss computation
             masking_logits = original["masking_logits"]
             masking_mask = original["masking_mask"].bool()
 ################
