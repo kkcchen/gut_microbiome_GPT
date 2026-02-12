@@ -521,7 +521,7 @@ def prepare_finetune_data(cfg, accelerator):
     # Train/validation split
     train_idx, val_idx = train_test_split(
         np.arange(len(adata)),
-        test_size=cfg.data.val_split,
+        test_size=cfg.data.val_size,
         random_state=cfg.training.seed,
         stratify=labels_encoded if cfg.training.finetune_task == 'classification' else None
     )
@@ -530,8 +530,9 @@ def prepare_finetune_data(cfg, accelerator):
     
     # Create vocabularies
     logger.info("Building vocabularies...")
-    taxa_vocab = TaxaVocabulary()
-    taxa_vocab.build_vocab(adata.var_names.tolist())
+    taxa_vocab = TaxaVocabulary.from_adata(adata)
+    # taxa_vocab = TaxaVocabulary()
+    # taxa_vocab.build_vocab(adata.var_names.tolist())
     logger.info(f"Taxa vocabulary size: {len(taxa_vocab)}")
     
     batch_vocab = None
@@ -563,7 +564,7 @@ def prepare_finetune_data(cfg, accelerator):
     collator = MicrobiomeCollator(
         max_seq_len=cfg.data.max_seq_len,
         norm_strategy=cfg.data.norm_strategy,
-        is_finetuning=True,  # Skip perturbation
+        finetune_mode=True,  # Skip perturbation
         do_contrastive=False,
         eval_mode=False
     )

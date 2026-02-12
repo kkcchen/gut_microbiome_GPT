@@ -336,7 +336,12 @@ def load_pretrained_model_for_finetune(cfg, model_config, accelerator):
         logger.info(f"Loading pretrained weights from: {checkpoint_path}")
         
         # Handle different checkpoint formats
-        checkpoint = torch.load(checkpoint_path, map_location='cpu')
+        # checkpoint = torch.load(checkpoint_path, map_location='cpu')
+        if checkpoint_path.endswith('.pt') or checkpoint_path.endswith('.pth'):
+            checkpoint = torch.load(checkpoint_path, map_location='cpu')
+        elif checkpoint_path.endswith('.safetensors'):
+            from safetensors.torch import load_file
+            checkpoint = load_file(checkpoint_path)
         
         if 'model_state_dict' in checkpoint:
             state_dict = checkpoint['model_state_dict']
@@ -358,7 +363,7 @@ def load_pretrained_model_for_finetune(cfg, model_config, accelerator):
         logger.warning("No pretrained checkpoint specified - training from scratch!")
     
     # Configure parameter freezing based on finetune_mode
-    finetune_mode = cfg.finetuning.finetune_mode
+    finetune_mode = cfg.training.finetune_mode
     logger.info(f"Finetuning mode: {finetune_mode}")
     
     # Log trainable parameters
@@ -381,13 +386,15 @@ def initialize_finetuning_components(model, cfg, total_steps):
     # Create optimizer (only for trainable parameters)
     trainable_params = filter(lambda p: p.requires_grad, model.parameters())
     
-    optimizer = torch.optim.AdamW(
-        trainable_params,
-        lr=cfg.training.learning_rate,
-        weight_decay=cfg.training.weight_decay,
-        betas=(cfg.training.get('adam_beta1', 0.9), 
-               cfg.training.get('adam_beta2', 0.999))
-    )
+    # optimizer = torch.optim.AdamW(
+    #     trainable_params,
+    #     lr=cfg.training.init_lr,
+    #     weight_decay=cfg.training.weight_decay,
+    #     betas=(cfg.training.get('adam_beta1', 0.9), 
+    #            cfg.training.get('adam_beta2', 0.999))
+    # )
+    
+    optimizer = initialize_optimizer(parameters=trainable_params,config=cfg)
     
     # Create scheduler
     from transformers import get_linear_schedule_with_warmup
@@ -398,8 +405,8 @@ def initialize_finetuning_components(model, cfg, total_steps):
         num_training_steps=total_steps
     )
     
-    logger.info(f"Optimizer: AdamW (lr={cfg.training.learning_rate})")
-    logger.info(f"Scheduler: Linear warmup ({cfg.training.warmup_steps} steps) + decay")
+    logger.info(f"Optimizer: AdamW (lr={cfg.training.init_lr})")
+    logger.info(f"Scheduler: Linear warmup ({cfg.training.cosine_warmup_ratio_or_step} steps) + decay")
     
     return {
         'optimizer': optimizer,

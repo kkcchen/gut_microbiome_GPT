@@ -5,7 +5,7 @@ paths:
   taxa_vocab_path: "./outputs/pretrain/masking_log_rel_abundance_len200_7layers_ratio_70_updated/taxa_vocab.pkl"
   # batch_vocab_path: "./results/pretraining/batch_vocab.json"
   checkpoint_path: "./outputs/pretrain/masking_log_rel_abundance_len200_7layers_ratio_70_updated/best_model/best_model/model.safetensors"
-
+  model_config_path: "${paths.output_dir}/model_config.json"
 wandb:
   enabled: true
   entity: "haoze-deng-university-of-toronto"
@@ -41,6 +41,7 @@ training:
   
   # Finetuning-specific settings
   finetune_mode: "partial" 
+  finetune_task: "classification"  # choices: classification, regression
   tasks: []  # Empty for finetuning (not used, model uses finetune_forward)
   
   # Not used in finetuning but kept for compatibility
@@ -65,4 +66,8 @@ model:
     abundance_emb_style: "continuous"
     sample_emb_style: "cls"
     use_gnn: false
+
+debug:
+  # nrows: null
+  start_over: false
 
