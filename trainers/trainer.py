@@ -11,7 +11,9 @@ from typing import Dict, Optional
 from trainers import logger
 from trainers.loss_functions import *
 import torch.nn.functional as F
-
+from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, mean_squared_error, r2_score, roc_auc_score
+from omegaconf import OmegaConf
+import numpy as np
 
 class MicrobiomeTrainer:
     """
@@ -625,3 +627,147 @@ class MicrobiomeTrainer:
         #     )
         
         return denoising_loss
+
+    def evaluate_on_test_set(
+        self,
+        model,
+        test_loader,
+        load_best_checkpoint: bool = True,
+        best_model_path: Optional[Path] = None
+    ) -> Dict[str, float]:
+        """
+        Evaluate finetuned model on test set with detailed metrics.
+        
+        :param model: Model to evaluate (prepared by accelerator).
+        :param test_loader: Test dataloader (prepared by accelerator).
+        :param load_best_checkpoint: Whether to load best checkpoint before evaluation.
+        :param best_model_path: Path to best model checkpoint directory.
+        :return: Dictionary of test metrics.
+        """
+        # load checkpoint if requested
+        if load_best_checkpoint:
+            if best_model_path is None:
+                best_model_path = Path(self.best_dir) / "best_model"
+            
+            if not best_model_path.exists():
+                logger.error(f"Best model not found at {best_model_path}")
+                raise FileNotFoundError(f"Best model checkpoint not found at {best_model_path}")
+            
+            logger.info(f"Loading best model from {best_model_path}")
+            unwrapped_model = self.accelerator.unwrap_model(model)
+            
+            # Load state dict
+            state_dict_path = best_model_path / "pytorch_model.bin"
+            if not state_dict_path.exists():
+                state_dict_path = best_model_path / "model.pt"
+            
+            state_dict = torch.load(state_dict_path, map_location="cpu")
+            unwrapped_model.load_state_dict(state_dict)
+            model = self.accelerator.prepare(unwrapped_model)
+            logger.info("Best model loaded successfully")
+        
+        logger.info("=" * 80)
+        logger.info("EVALUATING ON TEST SET")
+        logger.info("=" * 80)
+        
+        # Reuse _validate_epoch for basic evaluation
+        test_metrics = self._validate_epoch(model, test_loader, epoch=-1)
+        
+        # Collect predictions and labels for detailed metrics
+        model.eval()
+        all_predictions = []
+        all_probabilities = []
+        all_labels = []
+        
+        with torch.no_grad():
+            for batch in test_loader:
+                taxa_ids = batch['taxa_ids']
+                perturbed_counts = batch['perturbed_counts']
+                depth = batch['depth']
+                batch_ids = batch.get('batch_ids', None)
+                labels = batch['labels']
+                
+                # Forward pass
+                predictions = model.finetune_forward(
+                    taxa_ids=taxa_ids,
+                    abundance_values=perturbed_counts,
+                    depth=depth,
+                    batch_ids=batch_ids,
+                    graph_data=self.graph_data
+                )
+                
+                # Get predictions
+                if model.finetune_task == 'classification':
+                    preds = predictions.argmax(dim=-1)
+                else:
+                    preds = predictions.squeeze()
+                
+                all_predictions.append(self.accelerator.gather(preds).cpu().numpy())
+                if model.finetune_task == 'classification':
+                    all_probabilities.append(self.accelerator.gather(predictions).cpu().numpy())
+                all_labels.append(self.accelerator.gather(labels).cpu().numpy())
+        
+        all_predictions = np.concatenate(all_predictions)
+        all_labels = np.concatenate(all_labels)
+        if model.finetune_task == 'classification':
+            all_probabilities = np.concatenate(all_probabilities)
+        
+        metrics = {
+            'test_loss': test_metrics['total_loss'],
+            'test_finetune_loss': test_metrics.get('finetune_loss', test_metrics['total_loss'])
+        }
+        
+        if model.finetune_task == 'classification':
+            metrics['test_accuracy'] = accuracy_score(all_labels, all_predictions)
+            
+            unique_labels = np.unique(all_labels)
+            if len(unique_labels) == 2:
+                metrics['test_f1'] = f1_score(all_labels, all_predictions, average='binary')
+                metrics['test_auroc'] = roc_auc_score(all_labels, all_probabilities[:, 1])
+            else:
+                metrics['test_f1_macro'] = f1_score(all_labels, all_predictions, average='macro')
+                metrics['test_f1_weighted'] = f1_score(all_labels, all_predictions, average='weighted')
+                metrics['test_auroc'] = roc_auc_score(
+                    all_labels, 
+                    all_probabilities, 
+                    multi_class='ovr',
+                    average='macro'
+                )
+            
+            # Log results
+            logger.info("=" * 80)
+            logger.info("TEST SET RESULTS")
+            logger.info("=" * 80)
+            logger.info(f"Test Loss: {metrics['test_loss']:.4f}")
+            logger.info(f"Test Accuracy: {metrics['test_accuracy']:.4f}")
+            if 'test_f1' in metrics:
+                logger.info(f"Test F1: {metrics['test_f1']:.4f}")
+            else:
+                logger.info(f"Test F1 (macro): {metrics['test_f1_macro']:.4f}")
+                logger.info(f"Test F1 (weighted): {metrics['test_f1_weighted']:.4f}")
+                logger.info(f"Test AUROC: {metrics['test_auroc']:.4f}")
+        elif model.finetune_task == 'regression':
+            metrics['test_mae'] = mean_absolute_error(all_labels, all_predictions)
+            metrics['test_mse'] = mean_squared_error(all_labels, all_predictions)
+            metrics['test_rmse'] = np.sqrt(metrics['test_mse'])
+            metrics['test_r2'] = r2_score(all_labels, all_predictions)
+            
+            # Log results
+            logger.info("=" * 80)
+            logger.info("TEST SET RESULTS")
+            logger.info("=" * 80)
+            logger.info(f"Test Loss: {metrics['test_loss']:.4f}")
+            logger.info(f"Test MAE: {metrics['test_mae']:.4f}")
+            logger.info(f"Test RMSE: {metrics['test_rmse']:.4f}")
+            logger.info(f"Test R²: {metrics['test_r2']:.4f}")
+        
+        logger.info("=" * 80)
+        
+        # Save metrics
+        if self.accelerator.is_main_process:
+            test_metrics_path = Path(self.best_dir) / "test_metrics.yaml"
+            OmegaConf.save(OmegaConf.create(metrics), test_metrics_path)
+            logger.info(f"Saved test metrics to {test_metrics_path}")
+        
+        return metrics
+

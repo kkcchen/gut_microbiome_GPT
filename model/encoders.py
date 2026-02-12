@@ -6,6 +6,7 @@ from typing import Optional
 from torch_geometric.nn import GCN, GAT
 from torch_geometric.data import Data
 from sklearn.preprocessing import normalize
+from trainers import logger
 
 class TaxaEncoder(nn.Module):
     """
@@ -19,30 +20,54 @@ class TaxaEncoder(nn.Module):
         num_taxa: int,
         embedding_dim: int,
         init_taxa_embedding_path: Optional[str] = None,
-        freeze_taxa_encoder: bool = False,
+        freeze_preinitialized: Optional[bool] = False,
+        preinitialized_embedding_projection: Optional[str] = "linear",
     ):
         super().__init__()
-        self.freeze_taxa_encoder = freeze_taxa_encoder
+        self.init_taxa_embedding_path = init_taxa_embedding_path
+        self.freeze_preinitialized = freeze_preinitialized
+        self.preinitialized_embedding_projection = preinitialized_embedding_projection
+
         if init_taxa_embedding_path is not None:
             # load pretrained embeddings
             assert init_taxa_embedding_path.endswith('.npy'), "init_taxa_embedding_path must be a .npy file"
-            print("Loading initial taxa embeddings from ", init_taxa_embedding_path)
+            logger.info("[TaxaEncoder] Loading initial taxa embeddings from " + init_taxa_embedding_path)
             taxa_embeddings = np.load(init_taxa_embedding_path)
             n, d_taxa = taxa_embeddings.shape
-            print(f"Loaded taxa embeddings of shape {taxa_embeddings.shape}")
-            # normalize the initialized embeddings 
-            # TODO: why is this being done?
+            logger.info(f"[TaxaEncoder] Loaded taxa embeddings of shape {taxa_embeddings.shape}")
+            # normalize the initialized embeddings to prevent scale issues with the rest of the model, especially if using linear projection
             taxa_embeddings_normalized = normalize(taxa_embeddings, norm='l2', axis=1)
             # Now create embedding matrix of shape (n, d_taxa)
             self.embedding = nn.Embedding(num_taxa, d_taxa)
             # load into embedding layer
             with torch.no_grad():
                 self.embedding.weight.copy_(torch.from_numpy(taxa_embeddings_normalized))
-            self.proj = nn.Sequential(
-                nn.Linear(d_taxa, embedding_dim),  # expand hidden layer width
-                nn.ReLU(),
-                nn.Linear(embedding_dim, embedding_dim)
-            )
+            # determine freeze
+            if self.freeze_preinitialized:
+                self.embedding.weight.requires_grad = False
+                logger.info(f"[TaxaEncoder] Frozen pretrained embeddings (d={d_taxa})")
+            else:
+                logger.info(f"[TaxaEncoder] Pretrained embeddings are trainable (d={d_taxa})")
+
+            # projection layer(s) if needed
+            if d_taxa == embedding_dim:
+                # No projection needed
+                self.proj = None
+                logger.info("[TaxaEncoder] Embedding dimension matches d_model, no projection needed")
+            elif preinitialized_embedding_projection == "linear":
+                self.proj = nn.Linear(d_taxa, embedding_dim)
+                logger.info(f"[TaxaEncoder] Using linear projection: {d_taxa} -> {embedding_dim}")
+            elif preinitialized_embedding_projection == "mlp":
+                self.proj = nn.Sequential(
+                    nn.Linear(d_taxa, embedding_dim),
+                    nn.LayerNorm(embedding_dim),  # Added LayerNorm for stability
+                    nn.ReLU(),
+                    nn.Dropout(0.1),  # Added dropout for regularization
+                    nn.Linear(embedding_dim, embedding_dim)
+                )
+                logger.info(f"[TaxaEncoder] Using MLP projection: {d_taxa} -> {embedding_dim}")
+            else:
+                raise ValueError(f"[TaxaEncoder] Unknown projection type: {preinitialized_embedding_projection}")
         else:
             self.embedding = nn.Embedding(
                 num_taxa, embedding_dim

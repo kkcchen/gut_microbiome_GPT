@@ -43,6 +43,9 @@ class hgmGPT(nn.Module):
         dropout: float = 0.5,
         abundance_emb_style: str = "continuous",
         sample_emb_style: str = "cls",
+        preinitialized_taxa_embedding_path: Optional[str] = None,
+        freeze_preinitialized_embeddings: bool = False,
+        preinitialized_embedding_projection: str = "linear",  # "linear" or "mlp"
         use_gnn: bool = False,
         num_gnn_nodes: Optional[int] = None,
         tasks: List[str] = [],
@@ -104,6 +107,10 @@ class hgmGPT(nn.Module):
         self.finetune_mode = finetune_mode
         self.finetune_task = finetune_task
         self.finetune_num_classes = finetune_num_classes
+        self.preinitialized_taxa_embedding_path = preinitialized_taxa_embedding_path
+        self.freeze_preinitialized_embeddings = freeze_preinitialized_embeddings
+        self.preinitialized_embedding_projection = preinitialized_embedding_projection
+        self.use_gnn = use_gnn
         if self.abundance_emb_style not in ["category", "continuous", "scaling"]:
             raise ValueError(
                 f"abundance_emb_style should be one of category, continuous, scaling, "
@@ -123,7 +130,9 @@ class hgmGPT(nn.Module):
         else:
             self.taxa_encoder = TaxaEncoder(num_taxa=self.num_taxa, 
                                             embedding_dim=d_model, 
-                                            init_taxa_embedding_path=None, # TODO: add option later
+                                            init_taxa_embedding_path=preinitialized_taxa_embedding_path,
+                                            freeze_preinitialized=freeze_preinitialized_embeddings,
+                                            preinitialized_embedding_projection=preinitialized_embedding_projection
                                             )
 
         if self.abundance_emb_style == "continuous":

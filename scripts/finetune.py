@@ -65,6 +65,7 @@ def main(cfg):
     
     train_loader = data_artifacts['train_loader']
     valid_loader = data_artifacts['valid_loader']
+    test_loader = data_artifacts.get('test_loader', None)  # Optional
     taxa_vocab = data_artifacts['taxa_vocab']
     batch_vocab = data_artifacts['batch_vocab']
     graph_data = data_artifacts['graph_data']
@@ -108,6 +109,14 @@ def main(cfg):
         optimizer,
         scheduler
     )
+    # Prepare test loader if exists
+    if test_loader is not None:
+        prepared_test_loader = accelerator.prepare(test_loader)
+    else:
+        prepared_test_loader = None
+    
+    if graph_data is not None:
+        graph_data = graph_data.to(accelerator.device)
     
     if graph_data is not None:
         graph_data = graph_data.to(accelerator.device)
@@ -140,6 +149,23 @@ def main(cfg):
     logger.info("\n" + "=" * 80)
     logger.info("FINETUNING COMPLETE!")
     logger.info("=" * 80)
+
+    # Evaluate on test set if available
+    if test_loader is not None and prepared_test_loader is not None:
+        logger.info("Evaluating on test set...")
+        test_metrics = trainer.evaluate_on_test_set(
+            model=prepared_model,
+            test_loader=prepared_test_loader,
+            load_best_checkpoint=True,
+            best_model_path=None  # Will use default from trainer config
+        )
+        
+        # Log to wandb if enabled
+        if cfg.wandb.enabled and accelerator.is_main_process:
+            accelerator.log(test_metrics, step=trainer.global_step)
+    else:
+        logger.warning("No test loader provided, skipping test evaluation")
+
     
     accelerator.end_training()
 
