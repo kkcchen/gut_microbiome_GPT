@@ -658,8 +658,29 @@ class MicrobiomeTrainer:
             state_dict_path = best_model_path / "pytorch_model.bin"
             if not state_dict_path.exists():
                 state_dict_path = best_model_path / "model.pt"
+            if not state_dict_path.exists():
+                state_dict_path = best_model_path / "model.safetensors"
+
+            if not state_dict_path.exists():
+                raise FileNotFoundError(
+                    f"No state dict found in {best_model_path}. "
+                    f"Looked for pytorch_model.bin, model.pt, model.safetensors."
+            )
+    
             
-            state_dict = torch.load(state_dict_path, map_location="cpu")
+            if state_dict_path.suffix == ".safetensors":
+                from safetensors.torch import load_file as safetensors_load_file
+                state_dict = safetensors_load_file(str(state_dict_path))  # returns a plain state_dict
+            else:
+                # PyTorch 2.6: weights_only defaults to True; add a safe fallback for trusted local files
+                try:
+                    state_dict = torch.load(state_dict_path, map_location="cpu")
+                except Exception as e:
+                    logger.warning(
+                        f"torch.load(weights_only=True default) failed for {state_dict_path} "
+                        f"({type(e).__name__}: {e}). Retrying with weights_only=False."
+                    )
+                    state_dict = torch.load(state_dict_path, map_location="cpu", weights_only=False)
             unwrapped_model.load_state_dict(state_dict)
             model = self.accelerator.prepare(unwrapped_model)
             logger.info("Best model loaded successfully")
@@ -702,7 +723,8 @@ class MicrobiomeTrainer:
                 
                 all_predictions.append(self.accelerator.gather(preds).cpu().numpy())
                 if model.finetune_task == 'classification':
-                    all_probabilities.append(self.accelerator.gather(predictions).cpu().numpy())
+                    probs = F.softmax(predictions, dim=-1)
+                    all_probabilities.append(self.accelerator.gather(probs).cpu().numpy())
                 all_labels.append(self.accelerator.gather(labels).cpu().numpy())
         
         all_predictions = np.concatenate(all_predictions)
