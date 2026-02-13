@@ -12,6 +12,5 @@
 source ~/hmbenv/bin/activate
 cd /project/aip-rahulgk/dpellow/gut_microbiome_GPT
 
-
 accelerate launch --main_process_port 0 -m scripts.finetune \
     --config configs/finetune/david_finetune.yaml
