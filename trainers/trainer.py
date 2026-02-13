@@ -799,8 +799,25 @@ class MicrobiomeTrainer:
         
         # Save metrics
         if self.accelerator.is_main_process:
+            
+            def to_primitive(x):
+                if isinstance(x, (np.floating, np.integer)):
+                    return x.item()
+                if isinstance(x, np.ndarray):
+                    return x.tolist()
+                if torch.is_tensor(x):
+                    return x.detach().cpu().tolist() if x.ndim > 0 else x.item()
+                if isinstance(x, dict):
+                    return {k: to_primitive(v) for k, v in x.items()}
+                if isinstance(x, (list, tuple)):
+                    return [to_primitive(v) for v in x]
+                return x
+
+            metrics_primitive = to_primitive(metrics)
+            
+            
             test_metrics_path = Path(self.best_dir) / "test_metrics.yaml"
-            OmegaConf.save(OmegaConf.create(metrics), test_metrics_path)
+            OmegaConf.save(OmegaConf.create(metrics_primitive), test_metrics_path)
             logger.info(f"Saved test metrics to {test_metrics_path}")
         
         return metrics
