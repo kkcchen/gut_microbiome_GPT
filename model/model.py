@@ -466,16 +466,20 @@ class hgmGPT(nn.Module):
         Returns:
             :obj:`Tensor`: shape (batch, embsize)
         """
+        n_special = 1 # number of special tokens at the beginning of the sequence
+        if self.use_batch_labels:
+            n_special += int(self.num_batch_labels)
+            
         if self.sample_emb_style == "cls":
             sample_emb = transformer_output[:, 0, :]  # (batch, embsize)
         elif self.sample_emb_style == "avg-pool":
-            sample_emb = torch.mean(transformer_output, dim=1)
+            sample_emb = torch.mean(transformer_output[:, n_special:, :], dim=1)
         elif self.sample_emb_style == "w-pool":
             if weights is None:
                 raise ValueError("weights is required when sample_emb_style is w-pool")
             if weights.dim() != 2:
                 raise ValueError("weights should be 2D")
-            sample_emb = torch.sum(transformer_output * weights.unsqueeze(2), dim=1)
+            sample_emb = torch.sum((transformer_output * weights.unsqueeze(2))[:, n_special:, :], dim=1)
             sample_emb = F.normalize(sample_emb, p=2, dim=1)  # (batch, embsize)
 
         return sample_emb

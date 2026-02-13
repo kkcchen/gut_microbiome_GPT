@@ -747,11 +747,23 @@ class MicrobiomeTrainer:
             else:
                 metrics['test_f1_macro'] = f1_score(all_labels, all_predictions, average='macro')
                 metrics['test_f1_weighted'] = f1_score(all_labels, all_predictions, average='weighted')
-                metrics['test_auroc'] = roc_auc_score(
+                metrics['test_auroc_macro'] = roc_auc_score(
                     all_labels, 
                     all_probabilities, 
                     multi_class='ovr',
                     average='macro'
+                )
+                metrics['test_auroc_weighted'] = roc_auc_score(
+                    all_labels, 
+                    all_probabilities, 
+                    multi_class='ovr',
+                    average='weighted'
+                )
+                metrics['test_auroc_all'] = roc_auc_score(
+                    all_labels, 
+                    all_probabilities, 
+                    multi_class='ovr',
+                    average=None
                 )
             
             # Log results
@@ -765,7 +777,9 @@ class MicrobiomeTrainer:
             else:
                 logger.info(f"Test F1 (macro): {metrics['test_f1_macro']:.4f}")
                 logger.info(f"Test F1 (weighted): {metrics['test_f1_weighted']:.4f}")
-                logger.info(f"Test AUROC: {metrics['test_auroc']:.4f}")
+                logger.info(f"Test AUROC (macro): {metrics['test_auroc_macro']:.4f}")
+                logger.info(f"Test AUROC (weighted): {metrics['test_auroc_weighted']:.4f}")
+                logger.info(f"Test AUROC (all classes): {metrics['test_auroc_all']}")
         elif model.finetune_task == 'regression':
             metrics['test_mae'] = mean_absolute_error(all_labels, all_predictions)
             metrics['test_mse'] = mean_squared_error(all_labels, all_predictions)

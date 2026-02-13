@@ -2,20 +2,20 @@
 paths:
   downstream_train: "/project/aip-rahulgk/gutmodel/hmc_final_fixed/downstream_train.h5ad"
   downstream_test: "/project/aip-rahulgk/gutmodel/hmc_final_fixed/downstream_test.h5ad"
-  output_dir: "./outputs/finetune/masking_clr_len200_3layers_ratio_30_lr001_updated_cls_full/"
-  taxa_vocab_path: "./outputs/pretrain/final/masking_clr_len200_3layers_ratio_30_lr001_updated/taxa_vocab.pkl"
+  output_dir: "./outputs/finetune/masking_log_rel_ab_len200_3layers_ratio_50_updated_full_pool/"
+  taxa_vocab_path: "./outputs/pretrain/final/masking_log_rel_ab_len200_3layers_ratio_50_updated/taxa_vocab.pkl"
   # batch_vocab_path: "./results/pretraining/batch_vocab.json"
-  checkpoint_path: "./outputs/pretrain/final/masking_clr_len200_3layers_ratio_30_lr001_updated/best_model/best_model/model.safetensors"
+  checkpoint_path: "./outputs/pretrain/final/masking_log_rel_ab_len200_3layers_ratio_50_updated/best_model/best_model/model.safetensors"
   model_config_path: "${paths.output_dir}/model_config.json"
 wandb:
   enabled: true
   entity: "haoze-deng-university-of-toronto"
   project: "microbiome-finetuning"
-  run_name: masking_clr_len200_3layers_ratio_30_lr001_updated_finetune_cls_full
+  run_name: masking_log_rel_ab_len200_3layers_ratio_50_updated_full_pool
   run_notes: "Finetuning on location classification task"
 
 data:
-  norm_strategy: "clr"  # Should match pretraining
+  norm_strategy: "log_rel_abundance"  # Should match pretraining
   split_key: null
   val_size: 0.2
   use_batch_labels: false
@@ -65,7 +65,7 @@ model:
     nlayers: 3
     dropout: 0.1
     abundance_emb_style: "continuous"
-    sample_emb_style: "cls"
+    sample_emb_style: "avg-pool"
     use_gnn: false
 
 debug:
