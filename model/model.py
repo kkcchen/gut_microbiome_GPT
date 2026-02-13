@@ -583,7 +583,7 @@ class hgmGPT(nn.Module):
         # output = self.decode(transformer_output)
         # 3. get sample embeddings
         sample_embeddings = self._get_sample_embedding(transformer_output)
-        return sample_embeddings
+        return sample_embeddings, transformer_output
 
     def finetune_forward(
         self,

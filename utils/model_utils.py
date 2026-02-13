@@ -219,7 +219,17 @@ def load_trained_model(cfg, model_config, accelerator):
         from safetensors.torch import load_file
         loaded_state = load_file(checkpoint_path)
         
-    model.load_state_dict(loaded_state)
+    missing, unexpected = model.load_state_dict(loaded_state, strict=False)
+
+    if missing:
+        logger.warning(f"Missing keys when loading state_dict:\n{missing}")
+
+    if unexpected:
+        logger.warning(f"Unexpected keys in state_dict:\n{unexpected}")
+
+    if not missing and not unexpected:
+        logger.info("State dict loaded cleanly with no mismatches.")    
+    
     model.to(accelerator.device)
     model.eval()
     
@@ -272,7 +282,7 @@ def inference(
                 sample_ids = batch.get('sample_id', None)  # List of sample IDs
                 
                 # model inference
-                sample_embeddings = model.inference(
+                sample_embeddings, transformer_output = model.inference(
                     taxa_ids=taxa_ids,
                     abundance_values=original_counts,
                     depth=depth,
@@ -307,7 +317,7 @@ def inference(
             results['sample_ids'] = all_sample_ids
         
         if return_outputs:
-            results['outputs'] = all_outputs
+            results['outputs'] = transformer_output
         
         logger.info(f"Inference complete! Extracted {embeddings.shape[0]} embeddings of dimension {embeddings.shape[-1]}")
         

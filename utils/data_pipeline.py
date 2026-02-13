@@ -316,13 +316,13 @@ def prepare_inference_data(cfg, input_file, accelerator) -> Dict:
     
     # 3. Load taxonomic graph (if using GNN)
     graph_data = None
-    if cfg.model.get('use_gnn', False):
+    if cfg.model.params.get('use_gnn', False):
         if cfg.paths.get('graph_path') and Path(cfg.paths.graph_path).exists():
             logger.info(f"Loading taxonomic graph from {cfg.paths.graph_path}")
             graph_data = torch.load(cfg.paths.graph_path)
         else:
             logger.warning("GNN enabled but graph_path not found. Building graph from data...")
-            graph_data = build_tg_data_from_taxon_df(adata.varm['taxonomy'], taxa_vocab.vocab_list)
+            graph_data = build_tg_data_from_taxon_df(adata.varm['taxonomy'], taxa_vocab.id_to_token)
     
     # 4. Create dataset (no augmentation for inference)
     logger.info("Creating inference dataset...")
@@ -479,6 +479,32 @@ def save_embeddings(
 
         embedding_adata.write_h5ad(embedding_file)
         logger.info(f"Embeddings saved to {embedding_file}")
+
+def save_embeddings_dict(
+    embeddings_dict: Dict[str, torch.Tensor],
+    save_path: str,
+):
+    """
+    Save full embeddings dictionary to disk using torch serialization.
+
+    :param embeddings_dict: Dictionary returned from inference().
+    :param save_path: Path to save file (.pt recommended).
+    """
+    save_path = Path(save_path)
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Move tensors to CPU before saving (safer)
+    cpu_dict = {}
+    for k, v in embeddings_dict.items():
+        if torch.is_tensor(v):
+            cpu_dict[k] = v.detach().cpu()
+        else:
+            cpu_dict[k] = v
+
+    torch.save(cpu_dict, save_path)
+
+    print(f"Saved full embeddings_dict to {save_path}")
+        
 
 def prepare_finetune_data(cfg, accelerator):
     """

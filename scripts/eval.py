@@ -12,7 +12,7 @@ from accelerate import Accelerator
 
 from utils.config_utils import load_and_validate_config
 from utils.model_utils import build_model_config, load_trained_model, inference
-from utils.data_pipeline import prepare_inference_data, save_embeddings
+from utils.data_pipeline import prepare_inference_data, save_embeddings, save_embeddings_dict
 from trainers.trainer import MicrobiomeTrainer
 from trainers import logger
 from data_utils.vocabs import TaxaVocabulary, BatchVocabulary
@@ -118,6 +118,15 @@ def main(cfg):
                 save_embeddings(
                     embeddings_dict=results,
                     original_adata=inference_data_artifacts['adata'],
+                    save_path=save_path,
+                )
+                eval_files.append(str(save_path))
+            
+            if cfg.eval.get('return_full_output', False):
+                logger.info(f"Saving embeddings to inside {cfg.paths.output_dir}")
+                save_path = output_dir / f"{input_file_name}_dict.pt"
+                save_embeddings_dict(
+                    embeddings_dict=results,
                     save_path=save_path,
                 )
                 eval_files.append(str(save_path))
