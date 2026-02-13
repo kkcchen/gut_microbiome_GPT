@@ -327,12 +327,13 @@ class hgmGPT(nn.Module):
         
         # 2. mask labels
         if 'masking' in self.tasks and do_mask is not None: 
+            assert torch.isfinite(taxa_abundances_embeds).all(), "NaN/inf in total embeddings"
             # do_mask ^ hack to get this to work in eval mode. TODO: Fix this properly
             mask_emb = self.mask_token_emb.unsqueeze(0)  # (1, 1, d_model)
             # Apply masking to taxa_ids_embeds
             total_embs = torch.where(
                 do_mask.unsqueeze(2),  # (batch, seq_len, 1)
-                mask_emb,  # (1, 1, d_model)
+                mask_emb + taxa_ids_embeds,  # (1, 1, d_model)
                 total_embs  # (batch, seq_len, d_model)
             )  # (batch, seq_len, d_model)
         
