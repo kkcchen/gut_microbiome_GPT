@@ -759,12 +759,12 @@ class MicrobiomeTrainer:
                     multi_class='ovr',
                     average='weighted'
                 )
-                metrics['test_auroc_all'] = roc_auc_score(
+                metrics['test_auroc_all'] = list(roc_auc_score(
                     all_labels, 
                     all_probabilities, 
                     multi_class='ovr',
                     average=None
-                )
+                ))
             
             # Log results
             logger.info("=" * 80)
