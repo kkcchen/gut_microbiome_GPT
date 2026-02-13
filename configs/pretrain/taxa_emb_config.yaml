@@ -1,7 +1,8 @@
 paths:
-  output_dir: "./outputs/pretrain/gnn/masking_log_rel_ab_len200_7layers_ratio_70_updated"
+  output_dir: "./outputs/pretrain/qwen/masking_clr_len200_3layers_ratio_50_qwen_mlp"
   model_config_path: "${paths.output_dir}/model_config.json"
-  ann_table_path: "/project/aip-rahulgk/gutmodel/hmc_final_fixed_gnn/pretrain.h5ad"
+  ann_table_path: "/project/aip-rahulgk/gutmodel/hmc_final_fixed/pretrain.h5ad"
+
   # vocab_path: null
   # best_dir: "${paths.output_top_level}/best_model/"
   # checkpoint_dir: "${paths.output_top_level}/checkpoints/"
@@ -13,7 +14,7 @@ wandb:
   enabled: true
   entity: "haoze-deng-university-of-toronto"
   project: "microbiome-foundation"
-  run_name: masking_log_rel_ab_len200_7layers_ratio_70_gnn
+  run_name: masking_clr_len200_3layers_ratio_50_qwen_mlp
   run_notes: null
 
 training:
@@ -26,7 +27,7 @@ training:
   patience: 20
   grad_accumulation_steps: 1
   enable_fp16: false
-  masking_prob: 0.70
+  masking_prob: 0.50
   notes: "Testing denoising after refactor"
   tasks: ["masking"] # contrastive, denoising, denoising_from_token, denoising_dm, denoising_lnm
   contrastive_temperature: 0.2
@@ -62,7 +63,7 @@ model:
     seq_len: 200
     nhead: 8
     d_hid: 512
-    nlayers: 7 #3 7
+    nlayers: 3 #3 7
     dropout: 0.1
     abundance_emb_style: "continuous" # choices: scaling, continuous, category
     # freeze_vocab: false
@@ -71,8 +72,13 @@ model:
     # Example: If you change architecture, just add new keys here
     # activation: "gelu" 
     # use_flash_attn: true
-    use_gnn: true
+    use_gnn: false
     model_distribution: "dm"
+
+    # For fixed taxa embeddings:
+    preinitialized_taxa_embedding_path: "/project/aip-rahulgk/gutmodel/hmc_final_fixed/qwen3_taxa_embeddings.npy"
+    freeze_preinitialized_embeddings: true # frozen during pretraining
+    preinitialized_embedding_projection: "mlp" # choices: mlp, linear
 
 
 debug:

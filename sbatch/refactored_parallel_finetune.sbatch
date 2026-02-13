@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=finetune_parallel
+#SBATCH --job-name=finetune_parallel_evo
 #SBATCH -A aip-rahulgk
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=16
 #SBATCH --time=1:00:00
-#SBATCH --array=0-139%10
+#SBATCH --array=0-111%10
 #SBATCH --gres=gpu:1
 #SBATCH --output=logs/refactored/finetune/%a_%j.out
 #SBATCH --error=logs/refactored/finetune/%a_%j.err
@@ -16,7 +16,7 @@ source ~/hmbenv/bin/activate
 cd /project/aip-rahulgk/dpellow/gut_microbiome_GPT
 
 
-CONFIG_LIST="/project/aip-rahulgk/dpellow/gut_microbiome_GPT/configs/finetune/task_configs/config_list.txt"
+CONFIG_LIST="/project/aip-rahulgk/dpellow/gut_microbiome_GPT/configs/finetune/evo/task_configs/config_list.txt"
 CONFIG=$(sed -n "$((SLURM_ARRAY_TASK_ID+1))p" "$CONFIG_LIST")
 
 echo "SLURM_JOB_ID=${SLURM_JOB_ID} SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"

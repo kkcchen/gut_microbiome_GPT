@@ -2,16 +2,16 @@
 paths:
   downstream_train: "/project/aip-rahulgk/gutmodel/hmc_final_fixed/downstream_train.h5ad"
   downstream_test: "/project/aip-rahulgk/gutmodel/hmc_final_fixed/downstream_test.h5ad"
-  output_dir: "./outputs/finetune/masking_log_rel_ab_len200_3layers_ratio_50_updated_full_pool/"
-  taxa_vocab_path: "./outputs/pretrain/final/masking_log_rel_ab_len200_3layers_ratio_50_updated/taxa_vocab.pkl"
+  output_dir: "./outputs/finetune/masking_MSE_LOSS_log_rel_ab_len200_3layers_ratio_50_updated_full_pool/"
+  taxa_vocab_path: "./outputs/pretrain/final/masking_MSE_LOSS_log_rel_ab_len200_3layers_ratio_50_updated/taxa_vocab.pkl"
   # batch_vocab_path: "./results/pretraining/batch_vocab.json"
-  checkpoint_path: "./outputs/pretrain/final/masking_log_rel_ab_len200_3layers_ratio_50_updated/best_model/best_model/model.safetensors"
+  checkpoint_path: "./outputs/pretrain/final/masking_MSE_LOSS_log_rel_ab_len200_3layers_ratio_50_updated/best_model/best_model/model.safetensors"
   model_config_path: "${paths.output_dir}/model_config.json"
 wandb:
   enabled: true
   entity: "haoze-deng-university-of-toronto"
   project: "microbiome-finetuning"
-  run_name: masking_log_rel_ab_len200_3layers_ratio_50_updated_full_pool
+  run_name: masking_MSE_LOSS_log_rel_ab_len200_3layers_ratio_50_updated_full_pool
   run_notes: "Finetuning on location classification task"
 
 data:
