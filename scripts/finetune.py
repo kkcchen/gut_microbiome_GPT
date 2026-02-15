@@ -39,7 +39,7 @@ def setup_finetuning_environment(cfg):
     )
     
     # Setup directories
-    cfg = setup_directories(cfg, accelerator)
+    cfg = setup_directories(cfg, accelerator,finetune=True)
     
     return cfg, accelerator
 
