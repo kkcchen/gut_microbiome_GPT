@@ -1,7 +1,7 @@
 paths:
-  output_dir: "./outputs/pretrain/final/masking_clr_len200_7layers_ratio_30_lr001_updated"
+  output_dir: "./outputs/pretrain/gnn/masking_log_rel_ab_len200_7layers_ratio_70_updated"
   model_config_path: "${paths.output_dir}/model_config.json"
-  ann_table_path: "/project/aip-rahulgk/gutmodel/hmc_final/pretrain.h5ad"
+  ann_table_path: "/project/aip-rahulgk/gutmodel/hmc_final_fixed_gnn/pretrain.h5ad"
   # vocab_path: null
   # best_dir: "${paths.output_top_level}/best_model/"
   # checkpoint_dir: "${paths.output_top_level}/checkpoints/"
@@ -13,7 +13,7 @@ wandb:
   enabled: true
   entity: "haoze-deng-university-of-toronto"
   project: "microbiome-foundation"
-  run_name: masking_clr_len200_7layers_ratio_30_updated
+  run_name: masking_log_rel_ab_len200_7layers_ratio_70_gnn
   run_notes: null
 
 training:
@@ -26,7 +26,7 @@ training:
   patience: 20
   grad_accumulation_steps: 1
   enable_fp16: false
-  masking_prob: 0.30
+  masking_prob: 0.70
   notes: "Testing denoising after refactor"
   tasks: ["masking"] # contrastive, denoising, denoising_from_token, denoising_dm, denoising_lnm
   contrastive_temperature: 0.2
@@ -71,7 +71,7 @@ model:
     # Example: If you change architecture, just add new keys here
     # activation: "gelu" 
     # use_flash_attn: true
-    use_gnn: false
+    use_gnn: true
     model_distribution: "dm"
 
 

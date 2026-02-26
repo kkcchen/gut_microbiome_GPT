@@ -7,7 +7,7 @@ from pathlib import Path
 from trainers import logger
 
 
-def setup_directories(cfg, accelerator):
+def setup_directories(cfg, accelerator,finetune=False):
     """
     Create necessary directories and handle start_over flag.
     
@@ -19,9 +19,10 @@ def setup_directories(cfg, accelerator):
     cfg.paths.checkpoint_dir = os.path.join(cfg.paths.output_dir, "checkpoints")
     cfg.paths.intermediate_dir = os.path.join(cfg.paths.output_dir, "intermediate")
     cfg.paths.data_restore_dir = os.path.join(cfg.paths.output_dir, "data_cache")
-    cfg.paths.taxa_vocab_path = os.path.join(cfg.paths.output_dir, "taxa_vocab.pkl")
-    cfg.paths.batch_vocab_path = os.path.join(cfg.paths.output_dir, "batch_vocab.pkl")
-    cfg.paths.graph_path = os.path.join(cfg.paths.output_dir, "taxonomic_graph.pt")
+    if not finetune:
+        cfg.paths.taxa_vocab_path = os.path.join(cfg.paths.output_dir, "taxa_vocab.pkl")
+        cfg.paths.batch_vocab_path = os.path.join(cfg.paths.output_dir, "batch_vocab.pkl")
+        cfg.paths.graph_path = os.path.join(cfg.paths.output_dir, "taxonomic_graph.pt")
 
     # Handle start_over flag - delete existing checkpoints
     if accelerator.is_main_process:

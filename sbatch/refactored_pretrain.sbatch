@@ -16,4 +16,4 @@ cd /project/aip-rahulgk/dpellow/gut_microbiome_GPT
 python -m wandb login 7559085cf6a63fa75982fe12e737bdd576c4fc62
 
 accelerate launch --main_process_port 0 -m scripts.train \
-    --config configs/pretrain/contrastive_config.yaml
+    --config configs/pretrain/taxa_emb_config.yaml

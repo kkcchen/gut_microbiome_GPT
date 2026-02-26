@@ -556,7 +556,6 @@ class MicrobiomeTrainer:
             loss += denoising_loss
             
         if 'contrastive' in tasks:
-            # Placeholder for contrastive loss computation
             contrastive_loss = nt_xent_loss(
                 outputs_1["contrastive_projected"],
                 outputs_2["contrastive_projected"],   
@@ -566,7 +565,6 @@ class MicrobiomeTrainer:
             loss += contrastive_loss
         
         if 'masking' in tasks:
-            # Placeholder for masking loss computation
             masking_logits = original["masking_logits"]
             masking_mask = original["masking_mask"].bool()
 ################
@@ -660,8 +658,29 @@ class MicrobiomeTrainer:
             state_dict_path = best_model_path / "pytorch_model.bin"
             if not state_dict_path.exists():
                 state_dict_path = best_model_path / "model.pt"
+            if not state_dict_path.exists():
+                state_dict_path = best_model_path / "model.safetensors"
+
+            if not state_dict_path.exists():
+                raise FileNotFoundError(
+                    f"No state dict found in {best_model_path}. "
+                    f"Looked for pytorch_model.bin, model.pt, model.safetensors."
+            )
+    
             
-            state_dict = torch.load(state_dict_path, map_location="cpu")
+            if state_dict_path.suffix == ".safetensors":
+                from safetensors.torch import load_file as safetensors_load_file
+                state_dict = safetensors_load_file(str(state_dict_path))  # returns a plain state_dict
+            else:
+                # PyTorch 2.6: weights_only defaults to True; add a safe fallback for trusted local files
+                try:
+                    state_dict = torch.load(state_dict_path, map_location="cpu")
+                except Exception as e:
+                    logger.warning(
+                        f"torch.load(weights_only=True default) failed for {state_dict_path} "
+                        f"({type(e).__name__}: {e}). Retrying with weights_only=False."
+                    )
+                    state_dict = torch.load(state_dict_path, map_location="cpu", weights_only=False)
             unwrapped_model.load_state_dict(state_dict)
             model = self.accelerator.prepare(unwrapped_model)
             logger.info("Best model loaded successfully")
@@ -704,7 +723,8 @@ class MicrobiomeTrainer:
                 
                 all_predictions.append(self.accelerator.gather(preds).cpu().numpy())
                 if model.finetune_task == 'classification':
-                    all_probabilities.append(self.accelerator.gather(predictions).cpu().numpy())
+                    probs = F.softmax(predictions, dim=-1)
+                    all_probabilities.append(self.accelerator.gather(probs).cpu().numpy())
                 all_labels.append(self.accelerator.gather(labels).cpu().numpy())
         
         all_predictions = np.concatenate(all_predictions)
@@ -727,12 +747,24 @@ class MicrobiomeTrainer:
             else:
                 metrics['test_f1_macro'] = f1_score(all_labels, all_predictions, average='macro')
                 metrics['test_f1_weighted'] = f1_score(all_labels, all_predictions, average='weighted')
-                metrics['test_auroc'] = roc_auc_score(
+                metrics['test_auroc_macro'] = roc_auc_score(
                     all_labels, 
                     all_probabilities, 
                     multi_class='ovr',
                     average='macro'
                 )
+                metrics['test_auroc_weighted'] = roc_auc_score(
+                    all_labels, 
+                    all_probabilities, 
+                    multi_class='ovr',
+                    average='weighted'
+                )
+                metrics['test_auroc_all'] = list(roc_auc_score(
+                    all_labels, 
+                    all_probabilities, 
+                    multi_class='ovr',
+                    average=None
+                ))
             
             # Log results
             logger.info("=" * 80)
@@ -745,7 +777,9 @@ class MicrobiomeTrainer:
             else:
                 logger.info(f"Test F1 (macro): {metrics['test_f1_macro']:.4f}")
                 logger.info(f"Test F1 (weighted): {metrics['test_f1_weighted']:.4f}")
-                logger.info(f"Test AUROC: {metrics['test_auroc']:.4f}")
+                logger.info(f"Test AUROC (macro): {metrics['test_auroc_macro']:.4f}")
+                logger.info(f"Test AUROC (weighted): {metrics['test_auroc_weighted']:.4f}")
+                logger.info(f"Test AUROC (all classes): {metrics['test_auroc_all']}")
         elif model.finetune_task == 'regression':
             metrics['test_mae'] = mean_absolute_error(all_labels, all_predictions)
             metrics['test_mse'] = mean_squared_error(all_labels, all_predictions)
@@ -765,8 +799,25 @@ class MicrobiomeTrainer:
         
         # Save metrics
         if self.accelerator.is_main_process:
+            
+            def to_primitive(x):
+                if isinstance(x, (np.floating, np.integer)):
+                    return x.item()
+                if isinstance(x, np.ndarray):
+                    return x.tolist()
+                if torch.is_tensor(x):
+                    return x.detach().cpu().tolist() if x.ndim > 0 else x.item()
+                if isinstance(x, dict):
+                    return {k: to_primitive(v) for k, v in x.items()}
+                if isinstance(x, (list, tuple)):
+                    return [to_primitive(v) for v in x]
+                return x
+
+            metrics_primitive = to_primitive(metrics)
+            
+            
             test_metrics_path = Path(self.best_dir) / "test_metrics.yaml"
-            OmegaConf.save(OmegaConf.create(metrics), test_metrics_path)
+            OmegaConf.save(OmegaConf.create(metrics_primitive), test_metrics_path)
             logger.info(f"Saved test metrics to {test_metrics_path}")
         
         return metrics

@@ -501,7 +501,7 @@ def prepare_finetune_data(cfg, accelerator):
         logger.info(f"[Data Preparation] Loaded {adata_test.shape[0]} test samples")
     else:
         logger.warning("[Data Preparation] No test file provided, skipping test evaluation")
-        adata_test = None
+        adata_test = None       
     
     # make copy and get the relevant chunk
     adata_train_task = adata_train[adata_train.obs['downstream_task'] == cfg.data.finetune_task_name].copy()
@@ -512,7 +512,41 @@ def prepare_finetune_data(cfg, accelerator):
         raise ValueError(f"Label column '{label_column}' not found in adata_train_task.obs")
     
     labels = adata_train_task.obs[label_column].values
+
+    # 2. Load vocabularies (must exist from training)
+    logger.info("Loading vocabularies from training...")
     
+    if not Path(cfg.paths.taxa_vocab_path).exists():
+        raise FileNotFoundError(
+            f"Taxa vocabulary not found at {cfg.paths.taxa_vocab_path}. "
+            "Please run training first to generate vocabularies."
+        )
+    
+    taxa_vocab = TaxaVocabulary.load(cfg.paths.taxa_vocab_path)
+    logger.info(f"Loaded taxa vocabulary: {len(taxa_vocab)} taxa")
+
+
+    # # Create vocabularies
+    # logger.info("[Data Preparation] Building vocabularies...")
+    # taxa_vocab = TaxaVocabulary.from_adata(adata_train_task)
+    # logger.info(f"[Data Preparation] Taxa vocabulary size: {len(taxa_vocab)}")
+    
+    batch_vocab = None
+    if cfg.data.use_batch_labels:
+        batch_vocab = BatchVocabulary()
+        batch_vocab.build_vocab(adata_train_task.obs['study_id'].tolist())
+        logger.info(f"[Data Preparation] Batch vocabulary size: {len(batch_vocab)}")
+
+    # GNN data (optional)
+    graph_data = None
+    if cfg.model.params.get('use_gnn', False):
+        if cfg.paths.get('graph_path') and Path(cfg.paths.graph_path).exists():
+            logger.info(f"Loading taxonomic graph from {cfg.paths.graph_path}")
+            graph_data = torch.load(cfg.paths.graph_path)
+        else:
+            logger.warning("GNN enabled but graph_path not found. Building graph from data...")
+            graph_data = build_tg_data_from_taxon_df(adata_train.varm['taxonomy'], taxa_vocab.id_to_token)
+
     # Handle classification vs regression
     if cfg.training.finetune_task == 'classification':
         # Encode categorical labels
@@ -542,16 +576,7 @@ def prepare_finetune_data(cfg, accelerator):
     
     logger.info(f"[Data Preparation] Train samples: {len(train_idx)}, Validation samples: {len(val_idx)}")
     
-    # Create vocabularies
-    logger.info("[Data Preparation] Building vocabularies...")
-    taxa_vocab = TaxaVocabulary.from_adata(adata_train_task)
-    logger.info(f"[Data Preparation] Taxa vocabulary size: {len(taxa_vocab)}")
-    
-    batch_vocab = None
-    if cfg.data.use_batch_labels:
-        batch_vocab = BatchVocabulary()
-        batch_vocab.build_vocab(adata_train_task.obs['study_id'].tolist())
-        logger.info(f"[Data Preparation] Batch vocabulary size: {len(batch_vocab)}")
+
     
     # Create datasets
     train_dataset = FinetuningDataset(
@@ -637,5 +662,5 @@ def prepare_finetune_data(cfg, accelerator):
         'taxa_vocab': taxa_vocab,
         'batch_vocab': batch_vocab,
         'num_classes': num_classes,
-        'graph_data': None  # TODO: Add graph support if needed
+        'graph_data': graph_data  # TODO: Add graph support if needed
     }
