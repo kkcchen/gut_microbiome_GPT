@@ -57,6 +57,18 @@ class TaxaVocabulary:
         """
         return [self.id_to_token[int(idx)] for idx in taxa_ids]
     
+    def add_taxa(self, new_taxa_name: str, new_idx: int):
+        """
+        Add new taxa to the vocabulary.
+        
+        :param new_taxa_name: List of new taxa names to add.
+        """
+        assert new_taxa_name not in self.token_to_id, f"Taxa '{new_taxa_name}' already exists in the vocabulary"
+        assert new_idx not in self.id_to_token, f"Index '{new_idx}' already exists in the vocabulary"
+        self.taxa_names.append(new_taxa_name)
+        self.token_to_id[new_taxa_name] = new_idx
+        self.id_to_token[new_idx] = new_taxa_name
+    
     def get_taxa_name(self, idx: int) -> str:
         """Get taxa name by index."""
         return self.id_to_token[idx]

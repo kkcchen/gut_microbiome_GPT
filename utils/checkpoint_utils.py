@@ -53,7 +53,7 @@ def setup_directories_eval(cfg, accelerator):
     # given cfg.paths.output_dir, set up subdirectories
     cfg.paths.taxa_vocab_path = os.path.join(cfg.paths.pretrained_model_dir, "taxa_vocab.pkl")
     cfg.paths.batch_vocab_path = os.path.join(cfg.paths.pretrained_model_dir, "batch_vocab.pkl")
-    cfg.paths.model_config_path = os.path.join(cfg.paths.output_dir, "model_config.json")
+    cfg.paths.model_config_path = os.path.join(cfg.paths.pretrained_model_dir, "model_config.json")
 
     if cfg.eval.get('overwrite_output_dir', False):
         logger.info("Overwrite output directory is enabled, deleting existing inference outputs.")
