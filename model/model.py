@@ -173,7 +173,7 @@ class hgmGPT(nn.Module):
         # output shape: B, num_tokens (max_seq_len + sample_token + batch_id_token + ...), d_model
         # 1. denoising
         # expression decoder, this operates on all the taxa tokens
-        if "denoising" in tasks:
+        if "denoising" in self.tasks:
             self.abundance_decoder = AbundanceDecoder(
                 d_model=d_model,
                 num_special_tokens=2 if use_batch_labels else 1,
@@ -181,12 +181,12 @@ class hgmGPT(nn.Module):
                 dropout=self.dropout
             )
         # TODO: make this into bottleneck
-        if "denoising_from_token" in tasks:
+        if "denoising_from_token" in self.tasks:
             # should project to the sequence length of the input to the whole model
             # note, this is not num_taxa, which is the vocab size, but the actual input sequence length
             self.sample_level_denoising_head = SampleProjection(d_model=d_model, 
                                                                 projection_dim=self.seq_len)
-        if "denoising" in tasks and self.model_distribution == "dm":
+        if "denoising" in self.tasks and self.model_distribution == "dm":
             # project the scale parameter from the sample embedding
             self.dirichlet_scale_head = SampleProjection(d_model=d_model,
                                                                 projection_dim=1)
@@ -395,11 +395,11 @@ class hgmGPT(nn.Module):
             denoising_output = self.abundance_decoder(transformer_output)
             
             # Add predictions with task prefix
-            if self.abundance_decoder.distribution == "zinb":
+            if self.abundance_decoder.output_format == "zinb":
                 output["denoising_mean"] = denoising_output["mean"]
                 output["denoising_disp"] = denoising_output["disp"]
                 output["denoising_pi"] = denoising_output["pi"]
-            elif self.abundance_decoder.distribution == "dm":
+            elif self.abundance_decoder.output_format == "dm":
                 output["denoising_mean"] = denoising_output["mean_logits"]
             else:
                 output["denoising_pred"] = denoising_output["pred"]
@@ -424,12 +424,11 @@ class hgmGPT(nn.Module):
             sample_embedding = self._get_sample_embedding(transformer_output)
             output["denoising_projected"] = self.sample_level_denoising_head(sample_embedding)
         # if "denoising" in self.tasks and hasattr(self, 'dirichlet_scale_head'):
-        if self.model_distribution == "dm":
-            if hasattr(self, 'dirichlet_scale_head'):
-                # Get sample embedding
-                sample_embedding = self._get_sample_embedding(transformer_output)
-                raw_scale = self.dirichlet_scale_head(sample_embedding).squeeze(-1)
-                output["dirichlet_scale"] = F.softplus(raw_scale) + 1e-4
+        if 'denoising' in self.tasks and hasattr(self, 'dirichlet_scale_head'):
+            # Get sample embedding
+            sample_embedding = self._get_sample_embedding(transformer_output)
+            raw_scale = self.dirichlet_scale_head(sample_embedding).squeeze(-1)
+            output["dirichlet_scale"] = F.softplus(raw_scale) + 1e-4
         # if "denoising_dm" in self.tasks and hasattr(self, 'sample_level_denoising_head'):
         #     sample_embedding = self._get_sample_embedding(transformer_output)
         #     output["denoising_projected"] = self.sample_level_denoising_head(sample_embedding)

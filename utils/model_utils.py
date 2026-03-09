@@ -331,7 +331,7 @@ def load_pretrained_model_for_finetune(cfg, model_config, accelerator):
     model = hgmGPT(**model_config)
     
     # Load pretrained weights
-    checkpoint_path = cfg.paths.checkpoint_path
+    checkpoint_path = cfg.paths.get('checkpoint_path', None)
     if checkpoint_path:
         logger.info(f"Loading pretrained weights from: {checkpoint_path}")
         

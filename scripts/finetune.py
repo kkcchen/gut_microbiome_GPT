@@ -57,7 +57,8 @@ def main(cfg):
     logger.info("=" * 80)
     logger.info(f"Task type: {cfg.training.finetune_task}")
     logger.info(f"Finetune mode: {cfg.training.finetune_mode}")
-    logger.info(f"Pretrained checkpoint: {cfg.paths.checkpoint_path}")
+    if "checkpoint_path" in cfg.paths and cfg.paths.checkpoint_path is not None:
+        logger.info(f"Pretrained checkpoint: {cfg.paths.checkpoint_path}")
     
     # Prepare data
     logger.info("\nPreparing finetuning data...")

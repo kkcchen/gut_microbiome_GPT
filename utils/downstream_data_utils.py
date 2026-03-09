@@ -32,10 +32,14 @@ def normalize_embeddings(adata: ad.AnnData, method: str = "clr") -> np.ndarray:
     elif method == "log":
         # Log transformation
         pseudocount = 1.0
-        X_norm = np.log1p(X + pseudocount)  # log(1 + x)   
+        X_norm = np.log1p(X)# + pseudocount)  # log(1 + x)   
     elif method == "none":
         # No normalization
         X_norm = X
+    elif method == "rel_ab":
+        # No normalization
+        X_norm = X + 1e-8
+        X_norm = closure(X_norm)
     else:
         raise ValueError(
             f"Unknown normalization method: '{method}'. "

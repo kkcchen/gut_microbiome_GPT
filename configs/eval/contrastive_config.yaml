@@ -1,29 +1,29 @@
 paths:
-  output_dir: "./outputs/eval/masking_log_rel_abundance_len200_7layers_ratio_70_updated/"
-  pretrained_model_dir: "./outputs/pretrain/masking_log_rel_abundance_len200_7layers_ratio_70_updated/"
-  checkpoint_path: "./outputs/pretrain/masking_log_rel_abundance_len200_7layers_ratio_70_updated/best_model/best_model/model.safetensors"
+  output_dir: "./outputs/eval/denoising_contrastive/counts_7layers_wd_200_20_80_cls_pool/"
+  pretrained_model_dir: "./outputs/pretrain/denoising_contrastive/counts_7layers_wd_200_20_80_cls/"
+  checkpoint_path: "./outputs/pretrain/denoising_contrastive/counts_7layers_wd_200_20_80_cls/best_model/best_model/model.safetensors"
   eval_files: 
-    - "/project/aip-rahulgk/gutmodel/hmc_final/downstream_train.h5ad"
-    - "/project/aip-rahulgk/gutmodel/hmc_final/downstream_test.h5ad"
+    - "/project/aip-rahulgk/gutmodel/hmc_final_fixed/downstream_train.h5ad"
+    - "/project/aip-rahulgk/gutmodel/hmc_final_fixed/downstream_test.h5ad"
 
 eval:
   seed: 423985693
   overwrite_output_dir: false
-  embedding_type: "cls" # choices: cls, mean, sum
+  embedding_type: "mean" # choices: cls, mean, sum
   return_full_output: false # whether to return the full output of the model (e.g. for probing) or just the embeddings (for downstream tasks)
   save_embeddings: true
   save_metadata: true
-  tasks: ['masking']
-  eval_on_downstream_tasks: true  
+  tasks: ['denoising', 'contrastive'] # contrastive, denoising, 
+  eval_on_downstream_tasks: false  
 
 data:
   batch_size: 128
-  norm_strategy: "log_rel_abundance" # choices: clr, none
+  norm_strategy: "none" # choices: clr, none
   split_key: "study_id" # we probably want to split train/val by entire studies, so it resembles close to real-world/test scenario
   use_batch_labels: false
   max_seq_len: 200
   num_workers: 4
-  downsample_distribution: "binomial"
+  downsample_distribution: "multinomial"
 
 model:
 
@@ -38,6 +38,7 @@ model:
     nlayers: 7
     dropout: 0.1
     abundance_emb_style: "continuous" # choices: scaling, continuous, category
+    sample_emb_style: "avg-pool" # "cls" "avg-pool"
     # Example: If you change architecture, just add new keys here
     # activation: "gelu" 
     # use_flash_attn: true
