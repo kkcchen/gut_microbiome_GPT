@@ -268,7 +268,7 @@ def apply_normalization(norm_strategy,
         return log_counts.astype(np.float32)
     elif norm_strategy == 'binning': # TODO: Test this
         # bin the counts into N quantile bins, but all zeros go in bin 0
-        N = 50 # TODO: make N a parameter
+        N = 15 # TODO: make N a parameter
         bins = np.zeros_like(counts, dtype=int)
         nz = counts > 0
         x = np.where(nz, counts, np.nan).astype(np.float32)

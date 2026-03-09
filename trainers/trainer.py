@@ -538,6 +538,7 @@ class MicrobiomeTrainer:
         :return: tuple of (loss tensor, metrics dictionary)
         '''
         tasks = self.cfg.training.tasks
+        norm_strategy = self.cfg.data.norm_strategy
         loss = 0.0
         metrics = {}
         if any(task != 'masking' for task in self.cfg.training.tasks):
@@ -564,15 +565,17 @@ class MicrobiomeTrainer:
             metrics["contrastive_loss"] = contrastive_loss.item()
             loss += contrastive_loss
         
-        if 'masking' in tasks:
+        if 'masking' in tasks or 'masking_xe' in tasks:
             masking_logits = original["masking_logits"]
             masking_mask = original["masking_mask"].bool()
-################
-            # masking_loss = masked_mse_loss(masking_logits, targets['original_counts'], masking_mask)
-################            
-            masking_loss = xe_smoothed_loss(masking_logits, targets['original_counts'])
-            metrics['masking_loss'] = masking_loss.item()
-            loss += masking_loss
+            if 'masking' in tasks:
+                log_transformed_targets = (norm_strategy == 'clr' or norm_strategy == 'log_rel_abundance' or norm_strategy == 'log_counts')
+                masking_loss = masked_mse_loss(masking_logits, targets['original_counts'], masking_mask, log_transform=log_transformed_targets)
+                loss += masking_loss
+            elif 'masking_xe' in tasks:
+                masking_loss_xe = xe_smoothed_loss(masking_logits, targets['original_counts'])
+                metrics['masking_loss'] = masking_loss.item()
+                loss += masking_loss_xe
         return loss, metrics
 
     def _compute_denoising_loss(self, outputs, targets, cfg):
