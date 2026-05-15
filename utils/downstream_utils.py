@@ -309,8 +309,8 @@ def process_single_task(
         
             
         # Filter data for this task
-        train_task = adata_train[adata_train.obs[target_col] == task_name]
-        test_task = adata_test[adata_test.obs[target_col] == task_name]
+        train_task = adata_train[adata_train.obs[target_col] == task_name].copy()
+        test_task = adata_test[adata_test.obs[target_col] == task_name].copy()
         
         # Remove ignored labels
         if len(ignored_labels) > 0:
@@ -318,10 +318,11 @@ def process_single_task(
             test_task = test_task[~test_task.obs[label_type].isin(ignored_labels)]
         
         # Extract features and labels
-        X_train = train_task.X
+        X_train = np.asarray(train_task.X, dtype=np.float32)
         y_train = train_task.obs[label_type]
-        X_test = test_task.X
-        y_test = test_task.obs[label_type]        
+        X_test = np.asarray(test_task.X, dtype=np.float32)
+        y_test = test_task.obs[label_type]
+          
         
         logger.info(f"  Train: {X_train.shape}, Test: {X_test.shape}")
         

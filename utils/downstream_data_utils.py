@@ -16,37 +16,50 @@ def normalize_embeddings(adata: ad.AnnData, method: str = "clr") -> np.ndarray:
         adata: AnnData object containing the embeddings in adata.X
         method: Normalization method to apply. Options: "l2", "clr", "log"
     """    
-    # Convert to dense if sparse
+    # Convert to dense float
     if sp.issparse(adata.X):
-        X = adata.X.toarray()
+        X = adata.X.toarray().astype(np.float32, copy=False)
     else:
-        X = adata.X.copy()
-    
+        X = np.asarray(adata.X, dtype=np.float32).copy()
+
     if method == "l2":
-        X_norm = normalize(X, norm='l2', axis=1)
+        X_norm = normalize(X, norm="l2", axis=1).astype(np.float32, copy=False)
+
     elif method == "clr":
-        # Centered log-ratio transformation - for compositional data
-        X_replaced = multi_replace(X)      # Replace zeros
-        X_closed = closure(X_replaced)     # Closure (sum to 1)
-        X_norm = clr(X_closed)
+        X_replaced = X + 1e-8
+        X_closed = closure(X_replaced)
+        X_norm = clr(X_closed).astype(np.float32, copy=False)
+
     elif method == "log":
-        # Log transformation
-        pseudocount = 1.0
-        X_norm = np.log1p(X)# + pseudocount)  # log(1 + x)   
+        X_norm = np.log1p(X).astype(np.float32, copy=False)
+
     elif method == "none":
-        # No normalization
-        X_norm = X
-    elif method == "rel_ab":
-        # No normalization
-        X_norm = X + 1e-8
-        X_norm = closure(X_norm)
+        X_norm = X.astype(np.float32, copy=False)
+
+    elif method == "rel_ab":     
+        
+        X_replaced = X + 1e-8
+        X_norm = closure(X_replaced).astype(np.float32, copy=False)
+
     else:
         raise ValueError(
             f"Unknown normalization method: '{method}'. "
-            f"Available methods: 'l2', 'clr', 'log', 'none'"
+            f"Available methods: 'l2', 'clr', 'log', 'none', 'rel_ab'"
         )
-    adata.X = X_norm
-    return adata
+
+    new_adata = ad.AnnData(
+        X=X_norm,
+        obs=adata.obs.copy(),
+        var=adata.var.copy(),
+        uns=adata.uns.copy(),
+        obsm=adata.obsm.copy(),
+        varm=adata.varm.copy(),
+        obsp=adata.obsp.copy(),
+        layers=adata.layers.copy(),
+    )
+    return new_adata
+    
+    # return adata
 
 def apply_thresholding(adata_train, adata_test, prevalence_threshold, abundance_threshold):
     """
@@ -92,14 +105,16 @@ def handle_normalization_and_thresholding(adata_train: ad.AnnData, adata_test: a
     Returns:
         Tuple of (normalized_train_adata, normalized_test_adata)
     """
+    logger.info(f"Before thresholding: {np.asarray(adata_train.X).mean()}")
     # apply thresholding if specified
-    if cfg.downstream_tasks_config.get("prevalence_threshold", None) is not None and cfg.downstream_tasks_config.get("abundance_threshold", None):
+    if cfg.downstream_tasks_config.get("prevalence_threshold", None) is not None and cfg.downstream_tasks_config.get("abundance_threshold", None) is not None:
         prevalence_threshold = cfg.downstream_tasks_config.prevalence_threshold
         abundance_threshold = cfg.downstream_tasks_config.abundance_threshold
         logger.info(f"Applying prevalence thresholding: {prevalence_threshold}, abundance threshold: {abundance_threshold}")
         adata_train, adata_test = apply_thresholding(adata_train, adata_test, prevalence_threshold, abundance_threshold)
     else:
         logger.warning("No thresholding specified, using all features")
+    logger.info(f"After thresholding: {np.asarray(adata_train.X).mean()}")
 
     # check if normalization is specified in config
     if cfg.downstream_tasks_config.get('normalization', None) is not None:
@@ -111,5 +126,5 @@ def handle_normalization_and_thresholding(adata_train: ad.AnnData, adata_test: a
         logger.warning("No normalization specified, using raw embeddings")
 
     logger.info(f"After normalization and thresholding: Train shape: {adata_train.shape}, Test shape: {adata_test.shape}")
-
+   
     return adata_train.copy(), adata_test.copy()

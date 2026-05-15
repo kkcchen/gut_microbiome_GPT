@@ -320,6 +320,19 @@ class hgmGPT(nn.Module):
         assert torch.isfinite(taxa_ids_embeds).all(), "NaN/inf in taxa id embeddings"
 
         taxa_abundances_embeds = self.value_encoder(taxa_abundances)  # (batch, seq_len, d_model)
+
+####################        
+        # mask labels, replacing taxa_abundance_embeds
+        if 'masking' in self.tasks and do_mask is not None: 
+            mask_emb = self.mask_token_emb.unsqueeze(0)  # (1, 1, d_model)
+            # Apply masking to taxa_ids_embeds
+            taxa_abundances_embeds = torch.where(
+                do_mask.unsqueeze(2),  # (batch, seq_len, 1)
+                mask_emb,  # (1, 1, d_model)
+                taxa_abundances_embeds  # (batch, seq_len, d_model)
+            )  # (batch, seq_len, d_model)
+####################        
+            
         if self.abundance_emb_style == "scaling":
             taxa_abundances_embeds = taxa_abundances_embeds.unsqueeze(2)
             total_embs = taxa_ids_embeds * taxa_abundances_embeds
@@ -334,16 +347,16 @@ class hgmGPT(nn.Module):
                 batch_ids = torch.zeros(B, dtype=torch.long, device=taxa_ids.device)
             batch_emb = self.batch_encoder(batch_ids)  # (batch, d_model)
         
-        # 2. mask labels
-        if 'masking' in self.tasks and do_mask is not None: 
-            # do_mask ^ hack to get this to work in eval mode. TODO: Fix this properly
-            mask_emb = self.mask_token_emb.unsqueeze(0)  # (1, 1, d_model)
-            # Apply masking to taxa_ids_embeds
-            total_embs = torch.where(
-                do_mask.unsqueeze(2),  # (batch, seq_len, 1)
-                mask_emb,  # (1, 1, d_model)
-                total_embs  # (batch, seq_len, d_model)
-            )  # (batch, seq_len, d_model)
+        # # 2. mask labels
+        # if 'masking' in self.tasks and do_mask is not None: 
+        #     # do_mask ^ hack to get this to work in eval mode. TODO: Fix this properly
+        #     mask_emb = self.mask_token_emb.unsqueeze(0)  # (1, 1, d_model)
+        #     # Apply masking to taxa_ids_embeds
+        #     total_embs = torch.where(
+        #         do_mask.unsqueeze(2),  # (batch, seq_len, 1)
+        #         mask_emb,  # (1, 1, d_model)
+        #         total_embs  # (batch, seq_len, d_model)
+        #     )  # (batch, seq_len, d_model)
         
         # concat all special tokens, sample token first
         sample_token_emb = self.sample_token_emb.unsqueeze(0).expand(B, -1, -1)
