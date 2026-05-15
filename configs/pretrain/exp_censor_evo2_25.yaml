@@ -1,0 +1,79 @@
+paths:
+  output_dir: "/scratch/tiantian/hmc/outputs/exp_censor/evo2_censored_25_mse"
+  model_config_path: "${paths.output_dir}/model_config.json"
+  ann_table_path: "/scratch/tiantian/hmc/censored_data/pretrain_censored_25.h5ad"
+#   # vocab_path: null
+#   # best_dir: "${paths.output_top_level}/best_model/"
+#   # checkpoint_dir: "${paths.output_top_level}/checkpoints/"
+#   # data_restore_dir: "${paths.output_top_level}/data_cache/"
+#   # intermediate_dir: "${paths.output_top_level}/intermediate/"
+#   # taxa_vocab_path: "${paths.output_top_level}/taxa_vocab.json"
+
+wandb:
+  enabled: true
+  entity: "haoze-deng-university-of-toronto"
+  project: "microbiome-foundation"
+  run_name: censor_evo2_25_mse
+  run_notes: null
+
+training:
+  seed: 423985693
+  init_lr: 1e-4
+  batch_size: 64
+  max_epochs: 100 # for testing
+  cosine_warmup_ratio_or_step: 0.1
+  log_interval: 10
+  patience: 250
+  grad_accumulation_steps: 1
+  enable_fp16: false
+  masking_prob: 0.50
+  notes: "EXPERIMENT: censoring 25%, evo2 initialization"
+  tasks: ["masking"] # contrastive, denoising, denoising_from_token, denoising_dm, denoising_lnm
+# contrastive_temperature: 0.2
+# w_denoising: 100
+
+validation:
+  batch_size: 128
+  eval_interval_epochs: 1
+
+data:
+  norm_strategy: "log_rel_abundance" # choices: clr, none, rel_abundance, log_rel_abundance, log_counts, binning, arcsine
+  split_key: "study_id" # we probably want to split train/val by entire studies, so it resembles close to real-world/test scenario
+  val_size: 0.1
+  use_batch_labels: false
+  max_seq_len: 200
+  num_workers: 4
+# downsample_distribution: "multinomial"
+# downsample_ratio_range: [0.2, 0.8]
+
+model:
+  tasks:
+    do_mvc: false
+    do_taxa_decoder: false
+    do_contrastive: false
+
+# === FLEXIBLE ARCHITECTURE SECTION ===
+# Any key added here is automatically passed to the model config dict
+  params:
+    d_model: 128
+    d_proj: 128
+    seq_len: 200
+    nhead: 8
+    d_hid: 512
+    nlayers: 3 #3 7
+    dropout: 0.1
+    abundance_emb_style: "continuous" # choices: scaling, continuous, category
+    sample_emb_style: "avg-pool" # "cls"
+    preinitialized_taxa_embedding_path: "/scratch/tiantian/hmc/censored_data/evo2_embeds_censored_25.npy"
+    freeze_preinitialized_embeddings: true
+    # freeze_value_encoder: false
+    # do_attn_mask: false
+    # Example: If you change architecture, just add new keys here
+    # activation: "gelu"
+    # use_flash_attn: true
+    use_gnn: false
+    # model_distribution: "dm"
+
+debug:
+#   nrows: 20000
+  start_over: true
