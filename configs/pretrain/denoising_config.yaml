@@ -1,5 +1,5 @@
 paths:
-  output_dir: "./outputs/pretrain/contrastive/log_rel_ab_7layers_multinomial_20_80_pool_emb"
+  output_dir: "./outputs/pretrain/denoising/clr_3layers_multinomial_1_70"
   model_config_path: "${paths.output_dir}/model_config.json"
   ann_table_path: "/project/aip-rahulgk/gutmodel/hmc_final_fixed/pretrain.h5ad"
   # vocab_path: null
@@ -13,7 +13,7 @@ wandb:
   enabled: true
   entity: "haoze-deng-university-of-toronto"
   project: "microbiome-foundation"
-  run_name: contrastive_log_rel_ab_7layers_multinomial_20_80_pool_emb
+  run_name: denoising_clr_3layers_multinomial_1_70
   run_notes: null
 
 training:
@@ -28,7 +28,7 @@ training:
   enable_fp16: false
   # masking_prob: 0.70
   notes: "Testing contrastive after refactor"
-  tasks: ["contrastive"] # contrastive, denoising, denoising_from_token, denoising_dm, denoising_lnm
+  tasks: ["denoising"] # contrastive, denoising, denoising_from_token, denoising_dm, denoising_lnm
   contrastive_temperature: 0.2
   # w_denoising: 100
 
@@ -37,14 +37,14 @@ validation:
   eval_interval_epochs: 1
 
 data:
-  norm_strategy: "log_rel_abundance" # choices: clr, none, rel_abundance, log_rel_abundance, log_counts, binning, arcsine
+  norm_strategy: "clr" # choices: clr, none, rel_abundance, log_rel_abundance, log_counts, binning, arcsine
   split_key: "study_id" # we probably want to split train/val by entire studies, so it resembles close to real-world/test scenario
   val_size: 0.1
   use_batch_labels: false
   max_seq_len: 200
   num_workers: 4
   downsample_distribution: "multinomial"
-  downsample_ratio_range: [0.2, 0.8]
+  downsample_ratio_range: [0.01, 0.7]
   
 
 model:
@@ -52,7 +52,7 @@ model:
   tasks:
     do_mvc: false
     do_taxa_decoder: false
-    do_contrastive: true
+    do_contrastive: false
 
   # === FLEXIBLE ARCHITECTURE SECTION ===
   # Any key added here is automatically passed to the model config dict
@@ -62,10 +62,10 @@ model:
     seq_len: 200
     nhead: 8
     d_hid: 512
-    nlayers: 7 #3 7
+    nlayers: 3 #3 7
     dropout: 0.1
     abundance_emb_style: "continuous" # choices: scaling, continuous, category
-    sample_emb_style: "avg-pool" # "cls"
+    sample_emb_style: "cls" # "cls" "avg-pool"
     # freeze_vocab: false
     # freeze_value_encoder: false
     # do_attn_mask: false

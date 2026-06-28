@@ -551,7 +551,7 @@ class MicrobiomeTrainer:
         # Expression reconstruction loss 
         if 'denoising' in tasks:
             w = cfg.training.get('w_denoising', 1.0)
-            denoising_loss = w*self._compute_denoising_loss(outputs, targets, cfg)
+            denoising_loss = w*self._compute_denoising_loss(outputs_1, targets, cfg)
             
             metrics["denoising_loss"] = denoising_loss.item()
             loss += denoising_loss

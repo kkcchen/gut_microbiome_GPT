@@ -33,9 +33,7 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
     logger.info(f"Loading preprocessed data from {cfg.paths.ann_table_path}")
     adata = load_anndata(cfg.paths.ann_table_path)
     
-    if cfg.debug.get('nrows', None) is not None:
-        adata = adata[:cfg.debug.nrows].copy()
-        logger.warning(f"Debug mode: using only {cfg.debug.nrows} rows")
+
     
     # 2. Split train/validation
     logger.info("Splitting train/validation...")
@@ -45,6 +43,14 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
         val_size=cfg.data.get('val_size', 0.1),
         seed=cfg.training.seed
     )
+
+    # moved this below the validation split so that the validation set is the same for subsets during scaling runs
+    if cfg.debug.get('nrows', None) is not None:
+        # randomly select nrows from adata
+        train_adata = train_adata[np.random.choice(train_adata.n_obs, cfg.debug.nrows, replace=False)].copy()
+        # adata = adata[:cfg.debug.nrows].copy()
+        logger.warning(f"Debug mode: using only {cfg.debug.nrows} rows")
+
     
     # 3. Build vocabularies from training data
     logger.info("Building vocabularies...")

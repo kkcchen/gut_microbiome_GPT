@@ -176,7 +176,7 @@ def train_xgboost(
             use_label_encoder=False,
             eval_metric="auc" if n_classes == 2 else "mlogloss"
         )
-        search_scoring = 'roc_auc' if n_classes == 2 else 'f1_weighted'
+        search_scoring = 'roc_auc' if n_classes == 2 else 'roc_auc_ovr_weighted'
 
     if search_type == "grid":
         param_grid = {
@@ -205,12 +205,17 @@ def train_xgboost(
             "max_depth": randint(3, 12),
             "n_estimators": randint(100, 1000),
             "subsample": uniform(0.5, 0.5),
-            "colsample_bytree": uniform(0.5, 0.5)
+            "colsample_bytree": uniform(0.5, 0.5),
+            "min_child_weight": loguniform(1e-1, 1e2),
+            "gamma": loguniform(1e-8, 1e1),
+            "reg_alpha": loguniform(1e-8, 1e1),
+            "reg_lambda": loguniform(1e-3, 1e2),
         }
+        
         search = RandomizedSearchCV(
             estimator=model,
             param_distributions=param_distributions,
-            n_iter=100,
+            n_iter=200,
             scoring=search_scoring,
             cv=5,
             n_jobs=-1,

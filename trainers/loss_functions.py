@@ -8,8 +8,8 @@ import torch.nn.functional as F
 from skbio.stats.composition import closure
 
 
-def masked_mse_loss(
-    input: torch.Tensor, target: torch.Tensor, mask: torch.Tensor, log_transform: bool = True
+def masked_mse_loss_counts(
+    input: torch.Tensor, target: torch.Tensor, mask: torch.Tensor
 ) -> torch.Tensor:
     """
     Compute the masked MSE loss between input and target.
@@ -20,6 +20,18 @@ def masked_mse_loss(
     mask = mask.float()
     loss = F.mse_loss(input * mask, target * mask, reduction="sum")
     return loss / (mask.sum() + 1e-4)
+
+def masked_mse_loss(
+    input: torch.Tensor, target: torch.Tensor, mask: torch.Tensor
+) -> torch.Tensor:
+    """
+    Compute the masked MSE loss between input and target.
+    """
+    # convert counts to relative abundance
+    target_rel = target / (target.sum(dim=-1, keepdim=True))
+    mask = mask.float()
+    loss = F.mse_loss(input * mask, target_rel * mask, reduction="sum")
+    return loss / (mask.sum() + 1e-6)
 
 def masked_relative_error(
     input: torch.Tensor, target: torch.Tensor, mask: torch.LongTensor

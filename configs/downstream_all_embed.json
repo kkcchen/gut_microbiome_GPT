@@ -1,0 +1,134 @@
+{
+  "age": {
+    "label_type": "continuous_label",
+    "ignored_labels": [],
+    "embed_name": ["embedding"],
+    "target_colname": "downstream_task",
+    "methods": {
+      "xgboost": {
+        "search_type": "random",
+        "task_type": "regression"
+      }
+    }
+  },
+  "bmi": {
+    "label_type": "continuous_label",
+    "ignored_labels": [],
+    "embed_name": ["embedding"],
+    "target_colname": "downstream_task",
+    "methods": {
+      "xgboost": {
+        "search_type": "random",
+        "task_type": "regression"
+      }
+    }
+  },
+  "sex": {
+    "label_type": "categorical_label",
+    "ignored_labels": ["other"],
+    "embed_name": ["embedding"],
+    "target_colname": "downstream_task",
+    "methods": {
+      "xgboost": {
+        "search_type": "random",
+        "task_type": "classification"
+      }
+    }
+  },
+  "location": {
+    "label_type": "categorical_label",
+    "ignored_labels": [],
+    "embed_name": ["embedding"],
+    "target_colname": "downstream_task",
+    "methods": {
+      "xgboost": {
+        "search_type": "random",
+        "task_type": "classification"
+      }
+    }
+  },
+  "supplement": {
+    "label_type": "categorical_label",
+    "ignored_labels": [],
+    "embed_name": ["embedding"],
+    "target_colname": "downstream_task",
+    "methods": {
+      "xgboost": {
+        "search_type": "random",
+        "task_type": "classification"
+      }
+    }
+  },
+  "helicobacter_pylori_infection": {
+    "label_type": "categorical_label",
+    "ignored_labels": [],
+    "embed_name": ["embedding"],
+    "target_colname": "downstream_task",
+    "methods": {
+      "xgboost": {
+        "search_type": "random",
+        "task_type": "classification"
+      }
+    }
+  },
+  "hbv_infection": {
+    "label_type": "categorical_label",
+    "ignored_labels": [],
+    "embed_name": ["embedding"],
+    "target_colname": "downstream_task",
+    "methods": {
+      "xgboost": {
+        "search_type": "random",
+        "task_type": "classification"
+      }
+    }
+  },
+  "sunflower_seed_oil_emollient_therapy": {
+    "label_type": "categorical_label",
+    "ignored_labels": [],
+    "embed_name": ["embedding"],
+    "target_colname": "downstream_task",
+    "methods": {
+      "xgboost": {
+        "search_type": "random",
+        "task_type": "classification"
+      }
+    }
+  },
+  "crohns_disease": {
+    "label_type": "categorical_label",
+    "ignored_labels": [],
+    "embed_name": ["embedding"],
+    "target_colname": "downstream_task",
+    "methods": {
+      "xgboost": {
+        "search_type": "random",
+        "task_type": "classification"
+      }
+    }
+  },
+  "diarrhea": {
+    "label_type": "categorical_label",
+    "ignored_labels": [],
+    "embed_name": ["embedding"],
+    "target_colname": "downstream_task",
+    "methods": {
+      "xgboost": {
+        "search_type": "random",
+        "task_type": "classification"
+      }
+    }
+  },
+  "type_1_diabetes": {
+    "label_type": "categorical_label",
+    "ignored_labels": [],
+    "embed_name": ["embedding"],
+    "target_colname": "downstream_task",
+    "methods": {
+      "xgboost": {
+        "search_type": "random",
+        "task_type": "classification"
+      }
+    }
+  }
+}
