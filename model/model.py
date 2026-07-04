@@ -296,6 +296,7 @@ class hgmGPT(nn.Module):
         batch_ids: Optional[Tensor] = None,
         graph_data: Optional[Data] = None,
         do_mask: Optional[Tensor] = None,
+        attention_mask: Optional[Tensor] = None,
     ) -> Tensor:
         """
         This is the function that runs the encoder part of the model. Includes taxa/value encoding and transformer encoding. 
@@ -305,8 +306,9 @@ class hgmGPT(nn.Module):
             batch_ids (Optional[Tensor]): The batch ids tensor of shape (batch,).
             graph_data (Optional[Data]): The graph data for GNN encoding, if applicable.
             do_mask (Optional[Tensor]): Boolean tensor indicating which positions to mask, shape (batch, seq_len). Only used if "masking" in tasks.
+            attention_mask (Optional[Tensor]): Attention mask for padding, shape (batch, num_tokens).
         Output: 
-            tensor of shape (batch, seq_len, d_model)
+            tensor of shape (batch, num_tokens, d_model)
         """
         assert torch.isfinite(taxa_ids).all()
         assert torch.isfinite(taxa_abundances).all(), f"Non-finite abundances: {taxa_abundances}"
@@ -365,10 +367,8 @@ class hgmGPT(nn.Module):
             total_embs = torch.cat(
                 [sample_token_emb, total_embs], dim=1
             )  # (batch, seq_len + 1, d_model)
-        
-        # TODO: need to build attention mask
 
-        output = self.transformer_encoder(total_embs)
+        output = self.transformer_encoder(total_embs, src_key_padding_mask=attention_mask)
         assert torch.isfinite(output).all(), "NaN/inf inside transformer"
 
         return output
@@ -405,11 +405,7 @@ class hgmGPT(nn.Module):
             denoising_output = self.abundance_decoder(transformer_output)
             
             # Add predictions with task prefix
-            if self.abundance_decoder.output_format == "zinb":
-                output["denoising_mean"] = denoising_output["mean"]
-                output["denoising_disp"] = denoising_output["disp"]
-                output["denoising_pi"] = denoising_output["pi"]
-            elif self.abundance_decoder.output_format == "dm":
+            if self.abundance_decoder.output_format == "dm":
                 output["denoising_mean"] = denoising_output["mean_logits"]
             else:
                 output["denoising_pred"] = denoising_output["pred"]
@@ -531,6 +527,7 @@ class hgmGPT(nn.Module):
         batch_ids: Optional[Tensor] = None,
         graph_data: Optional[Data] = None,
         expressed_mask: Optional[Tensor] = None,
+        attention_mask: Optional[Tensor] = None,
     ) -> Mapping[str, Tensor]:
         """
         Forward pass of the model.
@@ -540,6 +537,7 @@ class hgmGPT(nn.Module):
             depth (:obj:`Tensor`): Depth information, shape [batch_size].
             batch_ids (:obj:`Optional[Tensor]`): Batch IDs for encoding, shape [batch_size]. 
                 Required if `use_batch_labels` is True.
+            attention_mask (:obj:`Optional[Tensor]`): Attention mask for padding, shape [batch_size, seq_len].
         """
         if self.use_batch_labels:
             assert batch_ids is not None, "batch_ids should not be None when use_batch_labels is True"
@@ -548,9 +546,20 @@ class hgmGPT(nn.Module):
         
         if self.use_gnn:
             assert graph_data is not None, "graph_data should not be None when use_gnn is True"
+
+        # Update attention mask for special tokens
+        if attention_mask is not None:
+            B = taxa_ids.size(0)
+            n_special = 2 if self.use_batch_labels else 1
+            special_mask = torch.zeros((B, n_special), dtype=torch.bool, device=attention_mask.device)
+            full_attention_mask = torch.cat([special_mask, attention_mask], dim=1)
+        else:
+            full_attention_mask = None
         
         if 'masking' in self.tasks:
             do_mask = (torch.rand_like(taxa_ids.float()) < self.masking_prob)
+            if attention_mask is not None:
+                do_mask = do_mask & (~attention_mask)
         else:
             do_mask = None
 
@@ -560,7 +569,8 @@ class hgmGPT(nn.Module):
             abundance_values,
             batch_ids,
             graph_data,
-            do_mask=do_mask
+            do_mask=do_mask,
+            attention_mask=full_attention_mask
         )  # (batch, seq_len + number of special tokens, d_model)
 
         assert not torch.isnan(transformer_output).any(), "NaN in transformer output"

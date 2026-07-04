@@ -53,74 +53,66 @@ class MicrobiomeCollator:
     
     def __call__(self, batch: List[Dict]) -> Dict[str, torch.Tensor]:
         """
-        Collate with perturbation.
-        
-        Process:
-        1. Stack all full count vectors (batch_size, max_seq_len)
-        2. Apply perturbation to vectors, upsample or downsample
-        3. Convert to tensors with fixed length (batch_size, max_seq_len)
-        
-        Output:
-        {
-            'taxa_ids': (batch_size, max_seq_len) - selected taxa indices
-            'perturbed_counts': (batch_size, max_seq_len) - perturbed selected counts
-            'original_counts': (batch_size, max_seq_len) - original selected counts
-            'expressed_mask': (batch_size, max_seq_len) - mask for expressed taxa
-            'depth': (batch_size,) - total perturbed depth
-            'original_depth': (batch_size,) - total original depth
-            'batch_ids': (batch_size,) - optional batch labels
-            'metadata_fields': varies - optional metadata
-        }
-        
-        :param batch: List of sample dictionaries from dataset.
-        :return: Batched tensors.
+        Collate with padding for variable-length sequences.
         """
+        from torch.nn.utils.rnn import pad_sequence
+        
         batch_size = len(batch)
         
-        # Extract data from batch
-        taxa_ids_full = np.stack([s['taxa_ids'] for s in batch])  # (B, max_seq_len)
-        counts_full = np.stack([s['original_counts'] for s in batch])  # (B, max_seq_len)
-        expressed_mask_full = np.stack([s['expressed_mask'] for s in batch])  # (B, max_seq_len)
-        depths_original = np.array([s['original_depth'] for s in batch])  # (B,)
+        # Extracts lists of variable-length arrays
+        taxa_ids_list = [torch.from_numpy(s['taxa_ids']).long() for s in batch]
+        counts_list = [torch.from_numpy(s['original_counts']).float() for s in batch]
+        expressed_mask_list = [torch.from_numpy(s['expressed_mask']).bool() for s in batch]
+        depths_original = torch.tensor([s['original_depth'] for s in batch]).float()
         
-        # Extract batch_ids once
+        # Pad sequences
+        taxa_ids_padded = pad_sequence(taxa_ids_list, batch_first=True, padding_value=0)
+        counts_padded = pad_sequence(counts_list, batch_first=True, padding_value=0)
+        expressed_mask_padded = pad_sequence(expressed_mask_list, batch_first=True, padding_value=False)
+        
+        # Create attention mask (True for pad tokens, False for real tokens)
+        # This matches TransformerEncoder convention where True means ignored
+        attention_mask = torch.zeros(taxa_ids_padded.shape, dtype=torch.bool)
+        for i, seq in enumerate(taxa_ids_list):
+            attention_mask[i, len(seq):] = True
+
+        # Extract batch_ids
         batch_ids = None
         if 'batch_id' in batch[0]:
-            batch_ids = np.array([s['batch_id'] for s in batch])
+            batch_ids = torch.tensor([s['batch_id'] for s in batch]).long()
 
-        # perturbation on full count vectors
-        if self.eval_mode or self.finetune_mode: # TODO: right now, finetune doesnt do perturbation, but we might want to add that in the future, so we can just reuse the eval_mode flag for now
-            counts_perturbed = counts_full.copy()
-            depths_perturbed = depths_original.copy()
+        # Handle perturbation on padded tensors
+        counts_padded_np = counts_padded.numpy()
+        if self.eval_mode or self.finetune_mode:
+            counts_perturbed_np = counts_padded_np.copy()
+            depths_perturbed = depths_original.clone()
         else:
+            counts_perturbed_np, depths_perturbed_np = self._perturb_batch(counts_padded_np)
+            depths_perturbed = torch.from_numpy(depths_perturbed_np).float()
             
-            # print number of zeros before perturbation
-            # print(f"Before perturbation: {np.sum(counts_full == 0)} zeros out of {counts_full.size} total entries")
-            counts_perturbed, depths_perturbed = self._perturb_batch(counts_full)
-            # print(f"After perturbation: {np.sum(counts_perturbed == 0)} zeros out of {counts_perturbed.size} total entries")
         # apply normalization
-        counts_perturbed_norm = apply_normalization(self.norm_strategy, counts_perturbed) 
+        counts_perturbed_norm = apply_normalization(self.norm_strategy, counts_perturbed_np) 
         
         # convert to tensors
         batched = {
-            'taxa_ids': torch.from_numpy(taxa_ids_full).long(),
+            'taxa_ids': taxa_ids_padded,
             'perturbed_counts': torch.from_numpy(counts_perturbed_norm).float(),
-            'original_counts': torch.from_numpy(counts_full).float(),
-            'expressed_mask': torch.from_numpy(expressed_mask_full).bool(),
-            'depth': torch.from_numpy(depths_perturbed).float(),
-            'original_depth': torch.from_numpy(depths_original).float()
-            
+            'original_counts': counts_padded,
+            'expressed_mask': expressed_mask_padded,
+            'attention_mask': attention_mask,
+            'depth': depths_perturbed,
+            'original_depth': depths_original
         }
         
         if self.do_contrastive:
             # create a second perturbed view for contrastive learning
-            counts_perturbed_2, depths_perturbed_2 = self._perturb_batch(counts_full)
-            counts_perturbed_norm_2 = apply_normalization(self.norm_strategy, counts_perturbed_2)
+            counts_perturbed_2_np, depths_perturbed_2_np = self._perturb_batch(counts_padded_np)
+            counts_perturbed_norm_2 = apply_normalization(self.norm_strategy, counts_perturbed_2_np)
             batched['perturbed_counts_2'] = torch.from_numpy(counts_perturbed_norm_2).float()
-            batched['depth_2'] = torch.from_numpy(depths_perturbed_2).float()
+            batched['depth_2'] = torch.from_numpy(depths_perturbed_2_np).float()
         
         if batch_ids is not None:
-            batched['batch_ids'] = torch.from_numpy(batch_ids).long()
+            batched['batch_ids'] = batch_ids.long()
         
         # Add metadata fields if present
         metadata_keys = [k for k in batch[0].keys() 
@@ -222,7 +214,8 @@ class MicrobiomeCollator:
         p = ratios[:, None]
 
         # Vectorized binomial draws across the full matrix
-        perturbed_counts = self.rng.binomial(n=counts, p=p).astype(counts.dtype, copy=False)
+        # counts must be integer for binomial n parameter
+        perturbed_counts = self.rng.binomial(n=counts.astype(np.int64), p=p).astype(counts.dtype, copy=False)
 
         # Realized depths after thinning (random)
         perturbed_totals = perturbed_counts.sum(axis=1).astype(np.int64)
@@ -261,19 +254,25 @@ def apply_normalization(norm_strategy,
         counts_pc = counts + 1e-8
         log_counts = np.log(counts_pc)
         return log_counts.astype(np.float32)
-    elif norm_strategy == 'binning': # TODO: Test this
+    elif norm_strategy == 'binning':
         # bin the counts into N quantile bins, but all zeros go in bin 0
         N = 15 # TODO: make N a parameter
-        bins = np.zeros_like(counts, dtype=int)
         nz = counts > 0
-        x = np.where(nz, counts, np.nan).astype(np.float32)
-        cut = np.nanquantile(x, np.linspace(0, 1, N + 1), axis=1).transpose(1, 0)[:, 1:-1]  # (B, N-1)
-        bins = (counts[..., None] >= cut[:, None, :]).sum(axis=-1).astype(np.int32)
-        bins[~nz] = 0
+        # handle all-zero samples to avoid nanquantile errors
+        any_nz = nz.any(axis=1)
+        bins = np.zeros_like(counts, dtype=np.int32)
+        
+        if any_nz.any():
+            x = np.where(nz[any_nz], counts[any_nz], np.nan).astype(np.float32)
+            # quantiles per sample (axis 1) across taxa
+            cut = np.nanquantile(x, np.linspace(0, 1, N + 1), axis=1).T[:, 1:-1]  # (B_nz, N-1)
+            # handle cases where quantiles are all same (e.g. mostly zeros/ones)
+            bins[any_nz] = (counts[any_nz, ..., None] >= cut[:, None, :]).sum(axis=-1).astype(np.int32)
+        
         bins[nz] += 1  # reserve 0 for absence -> bins 1..N for nonzero
-        # edges = np.quantile(counts[nz], np.linspace(0, 1, N + 1))
-        # bins[nz] = np.digitize(counts[nz],edges[1:-1]) + 1
         return bins.astype(np.float32)
+    elif norm_strategy == 'binary':
+        return (counts > 0).astype(np.float32)
     elif norm_strategy == 'arcsine':
         counts_pc = counts + 1e-8
         counts_closed = closure(counts_pc)

@@ -587,17 +587,30 @@ class MicrobiomeTrainer:
             metrics["contrastive_loss"] = contrastive_loss.item()
             loss += contrastive_loss
         
-        if 'masking' in tasks or 'masking_xe' in tasks:
+        if 'masking' in tasks or 'masking_xe' in tasks or 'masking_binary' in tasks:
             masking_logits = original["masking_logits"]
             masking_mask = original["masking_mask"].bool()
             if 'masking' in tasks:
                 log_transformed_targets = (norm_strategy == 'clr' or norm_strategy == 'log_rel_abundance' or norm_strategy == 'log_counts')
                 masking_loss = masked_mse_loss(masking_logits, targets['original_counts'], masking_mask, log_transform=log_transformed_targets)
                 loss += masking_loss
+                metrics['masking_loss'] = masking_loss.item()
             elif 'masking_xe' in tasks:
                 masking_loss_xe = xe_smoothed_loss(masking_logits, targets['original_counts'])
                 metrics['masking_loss'] = masking_loss_xe.item()
                 loss += masking_loss_xe
+            elif 'masking_binary' in tasks:
+                masking_loss_binary = masked_binary_ce_loss(masking_logits, targets['original_counts'], masking_mask)
+                metrics['masking_loss'] = masking_loss_binary.item()
+                loss += masking_loss_binary
+                
+                # Accuracy metric for binary
+                with torch.no_grad():
+                    preds_binary = (masking_logits > 0).float()
+                    targets_binary = (targets['original_counts'] > 0).float()
+                    correct = ((preds_binary == targets_binary) * masking_mask).sum()
+                    accuracy = correct / (masking_mask.sum() + 1e-6)
+                    metrics['masking_binary_acc'] = accuracy.item()
         return loss, metrics
 
     def _compute_denoising_loss(self, outputs, targets, cfg):
@@ -611,18 +624,7 @@ class MicrobiomeTrainer:
         model_distr = cfg.model.params.model_distribution
         tasks = cfg.training.tasks
         # output from model will be different depending on modelling distribution
-        if model_distr == 'zinb':
-                # ZINB distribution parameters
-                outputs_mean = outputs["denoising_mean"]
-                outputs_disp = outputs["denoising_disp"]
-                outputs_pi = outputs["denoising_pi"]
-                denoising_loss = zinb_nll_loss(
-                    outputs_mean,
-                    outputs_disp,
-                    outputs_pi,
-                    targets['original_counts'],
-                )
-        elif model_distr == 'dm':
+        if model_distr == 'dm':
             scale = outputs['dirichlet_scale']
             # for now just implement this from the sample embedding token
             # but should also be able to implement from the full transformer output

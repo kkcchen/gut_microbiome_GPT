@@ -49,10 +49,10 @@ model:
   # === FLEXIBLE ARCHITECTURE SECTION ===
   # Any key added here is automatically passed to the model config dict
   params:
-    d_model: 128
-    nhead: 8
-    d_hid: 512
-    nlayers: 3
+    d_model: 16
+    nhead: 2
+    d_hid: 64
+    nlayers: 2
     dropout: 0.1
     abundance_emb_style: "continuous" # choices: scaling, continuous, category
     use_gnn: false

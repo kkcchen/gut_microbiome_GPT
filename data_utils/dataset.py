@@ -74,12 +74,12 @@ class MicrobiomeDataset(Dataset):
     
     def __getitem__(self, idx: int) -> Dict:
         """
-        Get a single sample with top-k selection.
+        Get a single sample (only expressed taxa).
                 
         Returns:
-        - taxa_ids: Selected taxa indices (max_seq_len,)
-        - original_counts: Original count values (max_seq_len,)
-        - expressed_mask: Boolean mask for truly expressed taxa (max_seq_len,)
+        - taxa_ids: Selected taxa indices
+        - original_counts: Original count values
+        - expressed_mask: Boolean mask for truly expressed taxa
         - original_depth: Original total count
         - batch_id: Batch/study ID (if using batch labels)
         - metadata: Additional metadata fields from adata.obs
@@ -89,17 +89,28 @@ class MicrobiomeDataset(Dataset):
         """
         # Get original counts for this sample (FULL vector)
         original_counts = self.counts[idx]  # (n_total_taxa,)
-        original_depth = original_counts.sum()
         
-        # sample taxa
-        selected_indices, selected_taxa_ids, selected_counts, expressed_mask, original_depth = \
-            self._select_taxa_dynamic(original_counts)
+        # Identify expressed taxa
+        expressed_mask_full = original_counts > 0
+        expressed_indices = np.where(expressed_mask_full)[0]
+        
+        # If no taxa are expressed (should be rare), we might want to still return something
+        # but the prompt implies only nonzeros.
+        if len(expressed_indices) == 0:
+            # Fallback: take the single taxon with the highest value (even if 0) 
+            # or just return empty. Given transformer needs at least one token:
+            expressed_indices = np.array([0])
+        
+        selected_taxa_ids = self.all_taxa_ids[expressed_indices]
+        selected_counts = original_counts[expressed_indices]
+        expressed_mask = np.ones(len(expressed_indices), dtype=bool)
+        original_depth = selected_counts.sum()
         
         # Build output dictionary
         sample_dict = {
-            'taxa_ids': selected_taxa_ids,  # Selected taxa IDs
-            'original_counts': selected_counts,  # Selected counts
-            'expressed_mask': expressed_mask,  # Selected mask
+            'taxa_ids': selected_taxa_ids,
+            'original_counts': selected_counts,
+            'expressed_mask': expressed_mask,
             'original_depth': original_depth,
         }
         
@@ -198,7 +209,6 @@ class FinetuningDataset(Dataset):
         taxa_vocab: TaxaVocabulary,
         batch_vocab: Optional[BatchVocabulary],
         label_column: str,
-        max_seq_len: int = 200,
         metadata_fields: Optional[List[str]] = None,
     ):
         """
@@ -208,13 +218,11 @@ class FinetuningDataset(Dataset):
         :param taxa_vocab: Taxa vocabulary.
         :param batch_vocab: Batch vocabulary (optional).
         :param label_column: Column name in adata.obs containing target labels.
-        :param max_seq_len: Fixed sequence length per sample.
         :param metadata_fields: Additional metadata fields to include.
         """
         self.adata = adata
         self.taxa_vocab = taxa_vocab
         self.batch_vocab = batch_vocab
-        self.max_seq_len = max_seq_len
 
         # Convert sparse to dense if needed
         if hasattr(adata.X, 'toarray'):
@@ -260,12 +268,12 @@ class FinetuningDataset(Dataset):
     
     def __getitem__(self, idx: int) -> Dict:
         """
-        Get a single sample with taxa selection and labels.
+        Get a single sample (nonzeros) and labels.
         
         Returns:
-        - taxa_ids: Selected taxa indices (max_seq_len,)
-        - original_counts: Original count values (max_seq_len,)
-        - expressed_mask: Boolean mask for expressed taxa (max_seq_len,)
+        - taxa_ids: Selected taxa indices
+        - original_counts: Original count values
+        - expressed_mask: Boolean mask for expressed taxa
         - original_depth: Original total count
         - labels: Target labels for supervision
         - batch_id: Batch/study ID (if using batch labels)
@@ -276,11 +284,18 @@ class FinetuningDataset(Dataset):
         """
         # Get original counts
         original_counts = self.counts[idx]
-        original_depth = original_counts.sum()
         
-        # Select taxa (same logic as pretraining)
-        selected_indices, selected_taxa_ids, selected_counts, expressed_mask, original_depth = \
-            self._select_taxa_dynamic(original_counts)
+        # Identify expressed taxa
+        expressed_mask_full = original_counts > 0
+        expressed_indices = np.where(expressed_mask_full)[0]
+        
+        if len(expressed_indices) == 0:
+            expressed_indices = np.array([0])
+            
+        selected_taxa_ids = self.all_taxa_ids[expressed_indices]
+        selected_counts = original_counts[expressed_indices]
+        expressed_mask = np.ones(len(expressed_indices), dtype=bool)
+        original_depth = selected_counts.sum()
         
         # Build output dictionary
         sample_dict = {
@@ -288,7 +303,7 @@ class FinetuningDataset(Dataset):
             'original_counts': selected_counts,
             'expressed_mask': expressed_mask,
             'original_depth': original_depth,
-            'labels': self.labels[idx],  # Add labels
+            'labels': self.labels[idx],
         }
         
         if self.use_batch_labels:

@@ -21,6 +21,19 @@ def masked_mse_loss_counts(
     loss = F.mse_loss(input * mask, target * mask, reduction="sum")
     return loss / (mask.sum() + 1e-4)
 
+def masked_binary_ce_loss(
+    input: torch.Tensor, target: torch.Tensor, mask: torch.Tensor
+) -> torch.Tensor:
+    """
+    Compute masked binary cross entropy loss.
+    Target should be continuous counts (will be binarized) or already binary.
+    """
+    target_binary = (target > 0).float()
+    mask = mask.float()
+    # input are logits
+    loss = F.binary_cross_entropy_with_logits(input * mask, target_binary * mask, reduction="sum")
+    return loss / (mask.sum() + 1e-6)
+
 def masked_mse_loss(
     input: torch.Tensor, target: torch.Tensor, mask: torch.Tensor, log_transform: bool = False
 ) -> torch.Tensor:
@@ -75,44 +88,6 @@ def nt_xent_loss(z1: torch.Tensor, z2: torch.Tensor, temperature: float = 0.2) -
 
     return F.cross_entropy(logits, labels)
 
-def zinb_nll_loss(
-    mean: torch.Tensor,
-    disp: torch.Tensor,
-    pi: torch.Tensor,
-    target: torch.Tensor,
-) -> torch.Tensor:
-    """
-    Compute the ZINB negative log-likelihood loss with numerical stability.
-    mean, disp, pi: predicted parameters from the model, shape batch_size x n_taxa
-    target: original counts
-    """
-    eps = 1e-8
-    mean = mean.clamp(min=eps)
-    disp = disp.clamp(min=eps)
-    pi = pi.clamp(min=eps, max=1.0 - eps)
-
-    # Log likelihood for NB
-    # Uses log_sum_exp for stability
-    t1 = torch.lgamma(disp + target) - torch.lgamma(disp) - torch.lgamma(target + 1)
-    t2 = disp * (torch.log(disp) - torch.log(disp + mean))
-    t3 = target * (torch.log(mean) - torch.log(disp + mean))
-    nb_case = t1 + t2 + t3
-
-    # Log likelihood for zero case: log(pi + (1-pi) * NB_zero)
-    # NB_zero = (disp / (disp + mean)) ** disp
-    log_nb_zero = disp * (torch.log(disp) - torch.log(disp + mean))
-    
-    # log_sum_exp for zero_case = log(exp(log_pi) + exp(log(1-pi) + log_nb_zero))
-    log_pi = torch.log(pi)
-    log_1_minus_pi = torch.log(1.0 - pi)
-    
-    zero_case = torch.logsumexp(torch.stack([log_pi, log_1_minus_pi + log_nb_zero]), dim=0)
-
-    # Combine cases
-    result = torch.where(target < 1e-8, zero_case, log_1_minus_pi + nb_case)
-
-    loss = -result
-    return loss.mean()  # average over all entries for better batch size scaling
 
 def mse_loss(
     input: torch.Tensor,
