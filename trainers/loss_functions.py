@@ -9,7 +9,7 @@ from skbio.stats.composition import closure
 
 
 def masked_mse_loss_counts(
-    input: torch.Tensor, target: torch.Tensor, mask: torch.Tensor
+    input: torch.Tensor, target: torch.Tensor, mask: torch.Tensor, log_transform: bool = False
 ) -> torch.Tensor:
     """
     Compute the masked MSE loss between input and target.
@@ -22,15 +22,19 @@ def masked_mse_loss_counts(
     return loss / (mask.sum() + 1e-4)
 
 def masked_mse_loss(
-    input: torch.Tensor, target: torch.Tensor, mask: torch.Tensor
+    input: torch.Tensor, target: torch.Tensor, mask: torch.Tensor, log_transform: bool = False
 ) -> torch.Tensor:
     """
     Compute the masked MSE loss between input and target.
     """
-    # convert counts to relative abundance
-    target_rel = target / (target.sum(dim=-1, keepdim=True))
+    if log_transform:
+        target = torch.log(target + 1e-6)
+    else:
+        # convert counts to relative abundance
+        target = target / (target.sum(dim=-1, keepdim=True) + 1e-8)
+    
     mask = mask.float()
-    loss = F.mse_loss(input * mask, target_rel * mask, reduction="sum")
+    loss = F.mse_loss(input * mask, target * mask, reduction="sum")
     return loss / (mask.sum() + 1e-6)
 
 def masked_relative_error(
@@ -78,29 +82,37 @@ def zinb_nll_loss(
     target: torch.Tensor,
 ) -> torch.Tensor:
     """
-    Compute the ZINB negative log-likelihood loss.
+    Compute the ZINB negative log-likelihood loss with numerical stability.
     mean, disp, pi: predicted parameters from the model, shape batch_size x n_taxa
     target: original counts
     """
     eps = 1e-8
-    mean = mean + eps
-    disp = disp + eps
+    mean = mean.clamp(min=eps)
+    disp = disp.clamp(min=eps)
+    pi = pi.clamp(min=eps, max=1.0 - eps)
 
     # Log likelihood for NB
+    # Uses log_sum_exp for stability
     t1 = torch.lgamma(disp + target) - torch.lgamma(disp) - torch.lgamma(target + 1)
     t2 = disp * (torch.log(disp) - torch.log(disp + mean))
     t3 = target * (torch.log(mean) - torch.log(disp + mean))
     nb_case = t1 + t2 + t3
 
-    # Log likelihood for zero inflation
-    zero_nb = torch.pow(disp / (disp + mean), disp)
-    zero_case = torch.log(pi + (1.0 - pi) * zero_nb + eps)
+    # Log likelihood for zero case: log(pi + (1-pi) * NB_zero)
+    # NB_zero = (disp / (disp + mean)) ** disp
+    log_nb_zero = disp * (torch.log(disp) - torch.log(disp + mean))
+    
+    # log_sum_exp for zero_case = log(exp(log_pi) + exp(log(1-pi) + log_nb_zero))
+    log_pi = torch.log(pi)
+    log_1_minus_pi = torch.log(1.0 - pi)
+    
+    zero_case = torch.logsumexp(torch.stack([log_pi, log_1_minus_pi + log_nb_zero]), dim=0)
 
     # Combine cases
-    result = torch.where(target < 1e-8, zero_case, torch.log(1.0 - pi + eps) + nb_case)
+    result = torch.where(target < 1e-8, zero_case, log_1_minus_pi + nb_case)
 
     loss = -result
-    return loss.sum() / target.shape[1]  # average over taxa
+    return loss.mean()  # average over all entries for better batch size scaling
 
 def mse_loss(
     input: torch.Tensor,
@@ -121,13 +133,14 @@ def denoising_reconstruction_loss(
     input: torch.Tensor,
     target: torch.Tensor,
     relative: bool = True
-) -> torch.tensor:
+) -> torch.Tensor:
     """
     Cross-entropy between output logits and target counts (relative abundance if relative==True).
     If relative is True, make target compositional and use softmax, otherwise raw counts (and softplus (?)).
     """
     if relative:
-        target_comp = torch.tensor(closure(target.cpu().numpy()), device=target.device)
+        # Avoid skbio.closure and round-trip to CPU/NumPy
+        target_comp = target / target.sum(dim=-1, keepdim=True).clamp_min(1e-8)
         loss = F.cross_entropy(input, target_comp)
     else:
         print("have not implemented denoising loss for raw counts yet.")
@@ -141,19 +154,29 @@ def dm_nll_loss(
 ) -> torch.Tensor:
     '''
     Negative log-likelihood of the data under dirichlet multinomial parameterized
-    by the model outputs
+    by the model outputs, optimized for numerical stability.
     '''
+    # scale is (B,), logits is (B, L)
     p = F.softmax(logits, dim=-1)
-    alpha = scale.unsqueeze(-1) * p + 1e-8  
-    N = target.sum(dim=-1)  # total counts per sample
-    alpha_0 = alpha.sum(dim=-1)
-    logp = torch.lgamma(N + 1) + torch.lgamma(alpha_0) - torch.lgamma(N + alpha_0) + \
-              torch.lgamma(target + alpha).sum(dim=-1) - torch.lgamma(target + 1).sum(dim=-1) - torch.lgamma(alpha).sum(dim=-1)
+    alpha = scale.unsqueeze(-1) * p + 1e-7  
+    N = target.sum(dim=-1, keepdim=True)  # total counts per sample
+    alpha_0 = alpha.sum(dim=-1, keepdim=True)
+    
+    # log_gamma(N+1) - sum(log_gamma(target+1)) is the multinomial coefficient part
+    # lgamma(alpha_0) - lgamma(N + alpha_0) + sum(lgamma(target + alpha) - lgamma(alpha))
+    
+    logp = torch.lgamma(alpha_0) - torch.lgamma(N + alpha_0) + \
+           (torch.lgamma(target + alpha) - torch.lgamma(alpha)).sum(dim=-1, keepdim=True)
+    
+    # The multinomial coefficient is constant wrt parameters if we are just doing ML on DM
+    # but for completeness:
+    # log_multinomial = torch.lgamma(N + 1) - torch.lgamma(target + 1).sum(dim=-1, keepdim=True)
+    # logp = logp + log_multinomial
 
-    # Weighting this by N to avoid over-emphasizing high-depth samples
-    # TODO: consider using the average log-likelihood per count instead of per sample
-    # TODO make the normalization optional
-    return (-logp/N).mean()
+    # Weighting per sample or per count? Per count (normalized by N) is often more stable.
+    # Clip N to avoid division by zero
+    N_clipped = N.clamp(min=1.0)
+    return (-logp / N_clipped).mean()
 
 def xe_smoothed_loss(logits, target_probs, positions_to_count=None, T=2.0, eps=1e-8):
     # Smooth target with temperature

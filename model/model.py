@@ -50,7 +50,7 @@ class hgmGPT(nn.Module):
         num_gnn_nodes: Optional[int] = None,
         tasks: List[str] = [],
         model_distribution: Optional[str] = None,
-        masking_prob: Optional[str] = None,
+        masking_prob: Optional[float] = None,
         finetune_mode: Optional[str] = None,
         finetune_task: str = "classification",
         finetune_num_classes: Optional[int] = None,
@@ -475,9 +475,9 @@ class hgmGPT(nn.Module):
         Returns:
             :obj:`Tensor`: shape (batch, embsize)
         """
-        n_special = 1 # number of special tokens at the beginning of the sequence
-        if self.use_batch_labels:
-            n_special += int(self.num_batch_labels)
+        # number of special tokens at the beginning of the sequence: 
+        # Sample Token always exists. Batch Token exists if use_batch_labels is True.
+        n_special = 2 if self.use_batch_labels else 1
             
         if self.sample_emb_style == "cls":
             sample_emb = transformer_output[:, 0, :]  # (batch, embsize)

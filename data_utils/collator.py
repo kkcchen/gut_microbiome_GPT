@@ -82,7 +82,11 @@ class MicrobiomeCollator:
         counts_full = np.stack([s['original_counts'] for s in batch])  # (B, max_seq_len)
         expressed_mask_full = np.stack([s['expressed_mask'] for s in batch])  # (B, max_seq_len)
         depths_original = np.array([s['original_depth'] for s in batch])  # (B,)
-        batch_ids = np.array([s['batch_id'] for s in batch]) if 'batch_id' in batch[0] else None
+        
+        # Extract batch_ids once
+        batch_ids = None
+        if 'batch_id' in batch[0]:
+            batch_ids = np.array([s['batch_id'] for s in batch])
 
         # perturbation on full count vectors
         if self.eval_mode or self.finetune_mode: # TODO: right now, finetune doesnt do perturbation, but we might want to add that in the future, so we can just reuse the eval_mode flag for now
@@ -116,7 +120,6 @@ class MicrobiomeCollator:
             batched['depth_2'] = torch.from_numpy(depths_perturbed_2).float()
         
         if batch_ids is not None:
-            batch_ids = np.array([s['batch_id'] for s in batch])
             batched['batch_ids'] = torch.from_numpy(batch_ids).long()
         
         # Add metadata fields if present
@@ -166,26 +169,15 @@ class MicrobiomeCollator:
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         From scPRINT: ZINB perturbation, this is viewed as a downsampling process of original data.
-        x_hat_i = max((x_i - p_i) * pi_i, 0)
-        where
-        x_hat_i: perturbed sample
-        x_i: original sample
-        p_i: drawn from Poisson(x_i x r x self.perturbation_scale)
-        pi_i: I(u >= r x self.perturbation_scale), binary mask indicating non dropout taxa
-        u_i: drawn from Uniform(0, 1), 
-        
-        :param counts: Count matrix (batch_size, n_total_taxa).
-        :return: Tuple of (perturbed_counts, perturbed_depths).
         """
         batch_size, n_taxa = counts.shape
-        # draw u
-        u = np.random.uniform(0, 1, size=(batch_size, n_taxa)) # B, N
-        # compute pi
+        # draw u and p vectorized
+        u = self.rng.uniform(0, 1, size=(batch_size, n_taxa)) # B, N
         pi = (u >= self.r * self.perturbation_scale).astype(np.float32)  # B, N
-        # draw p
-        lambda_param = counts * self.r * self.perturbation_scale
-        p = np.random.poisson(lam=lambda_param)  # B, N
-        # compute x_hat
+        
+        lambda_param = counts * (self.r * self.perturbation_scale)
+        p = self.rng.poisson(lam=lambda_param)  # B, N
+        
         perturbed_counts = np.maximum((counts - p) * pi, 0)  # B, N
         perturbed_depths = perturbed_counts.sum(axis=1)  # B,
         return perturbed_counts.astype(np.float32), perturbed_depths.astype(np.float32)
@@ -246,10 +238,13 @@ def apply_normalization(norm_strategy,
     :return: Normalized count matrix (batch_size, n_taxa).
     """
     if norm_strategy == 'clr':
-        # Add pseudocount to avoid log(0)
-        counts_pc = counts + 1e-8 # TODO pseudo-count could be a parameter or in config
-        counts_closed = closure(counts_pc)
-        clr_counts = clr(counts_closed)
+        # Vectorized CLR to avoid skbio overhead if possible, but keep closure
+        counts_pc = counts + 1e-8
+        # closure makes it sum to 1
+        counts_closed = counts_pc / counts_pc.sum(axis=-1, keepdims=True)
+        # log-ratio
+        log_counts = np.log(counts_closed)
+        clr_counts = log_counts - log_counts.mean(axis=-1, keepdims=True)
         return clr_counts.astype(np.float32)
     elif norm_strategy == 'none':
         return counts.astype(np.float32)

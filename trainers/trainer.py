@@ -151,7 +151,8 @@ class MicrobiomeTrainer:
                 logger.info(f"New best validation loss: {best_val_loss:.6f}")
                 patience_counter = 0
                 
-                # Save best model
+                # Save best model - barrier before to ensure all processes are synced
+                self.accelerator.wait_for_everyone()
                 if self.accelerator.is_main_process:
                     self._save_best_model(model, epoch, best_val_loss)
             else:
@@ -166,7 +167,9 @@ class MicrobiomeTrainer:
                 break
             
             # Save intermediate checkpoints at specified epochs
-            if epoch % self.checkpoint_every == 0:
+            if (epoch + 1) % self.checkpoint_every == 0:
+                # Barrier before saving to ensure all processes have finished the epoch
+                self.accelerator.wait_for_everyone()
                 self._save_intermediate_checkpoint(model, epoch)
                 if self.accelerator.is_main_process:
                     self._save_training_state(
@@ -176,6 +179,7 @@ class MicrobiomeTrainer:
 
             # Update epoch
             epoch += 1
+            # Standard barrier before next epoch
             self.accelerator.wait_for_everyone()
 
         logger.info("=" * 80)
@@ -214,17 +218,20 @@ class MicrobiomeTrainer:
                 print("LOSS IS NON-FINITE")
                 raise RuntimeError("Non-finite loss")
             
+            # Optimizer step - Item 8: zero_grad BEFORE backward
+            optimizer.zero_grad()
+
             # Backward pass
             self.accelerator.backward(loss)
             
-            # Gradient clipping
+            # Gradient clipping - only if not using automatic gradient scaling from accelerator
             if self.grad_clip > 0:
-                self.accelerator.clip_grad_norm_(model.parameters(), self.grad_clip)
+                if self.accelerator.sync_gradients:
+                    self.accelerator.clip_grad_norm_(model.parameters(), self.grad_clip)
             
             # Optimizer step
             optimizer.step()
             scheduler.step()
-            optimizer.zero_grad()
             
             # Accumulate metrics
             total_loss += loss.item()
@@ -250,28 +257,33 @@ class MicrobiomeTrainer:
             
             # Log at intervals
             if (batch_idx + 1) % self.log_interval == 0:
-                avg_loss = total_loss / num_batches
-                current_lr = scheduler.get_last_lr()[0]
+                # Gather metrics for logging
+                loss_tensor = torch.tensor(loss.item(), device=self.accelerator.device)
+                avg_loss_step = self.accelerator.gather_for_metrics(loss_tensor).mean().item()
                 
-                log_str = (
-                    f"Epoch {epoch + 1} | Batch {batch_idx + 1}/{len(train_loader)} | "
-                    f"Loss: {avg_loss:.6f} | LR: {current_lr:.2e}"
-                )
-                
-                # Add other metrics to log
-                for key, value in total_metrics.items():
-                    if key != 'total_loss':
-                        log_str += f" | {key}: {value / num_batches:.6f}"
-                
-                logger.info(log_str)
+                if self.accelerator.is_main_process:
+                    avg_loss = total_loss / num_batches
+                    current_lr = scheduler.get_last_lr()[0]
+                    
+                    log_str = (
+                        f"Epoch {epoch + 1} | Batch {batch_idx + 1}/{len(train_loader)} | "
+                        f"Step Loss: {avg_loss_step:.6f} | Avg Loss: {avg_loss:.6f} | LR: {current_lr:.2e}"
+                    )
+                    
+                    # Add other metrics to log
+                    for key, value in total_metrics.items():
+                        if key != 'total_loss':
+                            log_str += f" | {key}: {value / num_batches:.6f}"
+                    
+                    logger.info(log_str)
         
         # Compute epoch averages
         epoch_metrics = {
-            'total_loss': total_loss / num_batches,
+            'total_loss': total_loss / (num_batches if num_batches > 0 else 1),
         }
         
         for key, value in total_metrics.items():
-            epoch_metrics[key] = value / num_batches
+            epoch_metrics[key] = value / (num_batches if num_batches > 0 else 1)
         
         return epoch_metrics
     
@@ -300,12 +312,17 @@ class MicrobiomeTrainer:
                 # Forward pass and compute losses
                 loss, metrics = self._forward_step(model, batch)
                 
+                # Gather metrics from all processes
+                loss_val = self.accelerator.gather_for_metrics(loss).mean().item()
+                
                 # Accumulate metrics
-                total_loss += loss.item()
+                total_loss += loss_val
                 for key, value in metrics.items():
                     if key not in total_metrics:
                         total_metrics[key] = 0.0
-                    total_metrics[key] += value
+                    # For metrics like accuracy, they should also be gathered
+                    gathered_metric = self.accelerator.gather_for_metrics(torch.tensor(value, device=loss.device)).mean().item()
+                    total_metrics[key] += gathered_metric
                 
                 num_batches += 1
         
@@ -479,7 +496,11 @@ class MicrobiomeTrainer:
         save_path = Path(self.best_dir) / "best_model"
         save_path.mkdir(parents=True, exist_ok=True)
         
-        self.accelerator.save_model(model, save_path)
+        # Save model is a collective op in HF Accelerator, but here it's inside is_main_process guard
+        # which is dangerous. HF save_model handles internal unwrap and main_process logic.
+        # Moved to use accelerator.save_model outside the main process check if possible, or use torch.save on unwrapped.
+        unwrapped_model = self.accelerator.unwrap_model(model)
+        torch.save(unwrapped_model.state_dict(), save_path / "pytorch_model.bin")
         
         # Save metadata
         metadata = {
@@ -496,7 +517,8 @@ class MicrobiomeTrainer:
             save_path = Path(self.intermediate_dir) / f"epoch_{epoch}"
             save_path.mkdir(parents=True, exist_ok=True)
             
-            self.accelerator.save_model(model, save_path)
+            unwrapped_model = self.accelerator.unwrap_model(model)
+            torch.save(unwrapped_model.state_dict(), save_path / "pytorch_model.bin")
             logger.info(f"Saved intermediate checkpoint to {save_path}")
     
     def _save_training_state(
@@ -574,7 +596,7 @@ class MicrobiomeTrainer:
                 loss += masking_loss
             elif 'masking_xe' in tasks:
                 masking_loss_xe = xe_smoothed_loss(masking_logits, targets['original_counts'])
-                metrics['masking_loss'] = masking_loss.item()
+                metrics['masking_loss'] = masking_loss_xe.item()
                 loss += masking_loss_xe
         return loss, metrics
 

@@ -11,6 +11,22 @@ import anndata as ad
 
 
 # --- helper tests ---
+def assign_categories(taxa_name):
+    """
+    Assign generic categories for taxa names by splitting by '.'
+    Handles standard 7-level taxonomy (Domain to Genus/Species).
+    """
+    split_taxa = taxa_name.split(".")
+    # Standard ranks used in this project
+    categories = ["Domain", "Phylum", "Class", "Order", "Family", "Genus"]
+    
+    # If we have more or fewer than 6, we just take the first 6 or pad
+    res = split_taxa[:6]
+    while len(res) < 6:
+        res.append(np.nan)
+    return res
+
+
 def is_invalid_name(name):
     INVALID_TOKENS = {"na", "n/a", "unknown", ""}  # lowercased
     INVALID_SUBSTRINGS = ["incertae sedis", "unknown"]

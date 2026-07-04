@@ -4,15 +4,22 @@ Main data preparation pipeline orchestration.
 import torch
 import anndata as ad
 import numpy as np
-import torch
+import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 from pathlib import Path
 from typing import Dict, Tuple, Optional
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 from trainers import logger
-from sklearn.model_selection import train_test_split
-from data_utils import MicrobiomeDataset, MicrobiomeCollator, TaxaVocabulary, BatchVocabulary, FinetuningDataset, build_tg_data_from_taxon_df
+from data_utils import (
+    MicrobiomeDataset, 
+    MicrobiomeCollator, 
+    TaxaVocabulary, 
+    BatchVocabulary, 
+    FinetuningDataset, 
+    build_tg_data_from_taxon_df,
+    assign_categories
+)
 
 
 def prepare_microbiome_data(cfg, accelerator) -> Dict:
@@ -66,7 +73,15 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
     graph_data = None
     if cfg.model.params.get('use_gnn', False):
         logger.info("Building taxonomic graph...")
-        graph_data = build_tg_data_from_taxon_df(adata.varm['taxonomy'], taxa_vocab.id_to_token)
+        if 'taxonomy' not in adata.varm:
+            logger.warning("'taxonomy' not found in adata.varm. Generating from taxa names...")
+            taxon_lists = adata.var['taxa'].apply(assign_categories)
+            categories = ["Domain", "Phylum", "Class", "Order", "Family", "Genus"]
+            taxon_df = pd.DataFrame(taxon_lists.tolist(), index=adata.var_names, columns=categories)
+        else:
+            taxon_df = adata.varm['taxonomy']
+            
+        graph_data = build_tg_data_from_taxon_df(taxon_df, taxa_vocab.id_to_token)
         torch.save(graph_data, cfg.paths.graph_path)
     
     # 5. Create datasets (raw data, no preprocessing)
@@ -109,7 +124,7 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
         perturbation_distribution=cfg.data.get('downsample_distribution', 'binomial'),
         perturbation_scale=cfg.data.get('perturbation_scale', 0.55),
         norm_strategy=cfg.data.get('norm_strategy', 'clr'),
-        do_contrastive=cfg.model.tasks.get('do_contrastive', False)
+        do_contrastive='contrastive' in cfg.training.tasks
     )
     
     if "num_workers" not in cfg.data:
@@ -551,7 +566,14 @@ def prepare_finetune_data(cfg, accelerator):
             graph_data = torch.load(cfg.paths.graph_path)
         else:
             logger.warning("GNN enabled but graph_path not found. Building graph from data...")
-            graph_data = build_tg_data_from_taxon_df(adata_train.varm['taxonomy'], taxa_vocab.id_to_token)
+            if 'taxonomy' not in adata_train.varm:
+                logger.warning("'taxonomy' not found in adata_train.varm. Generating from taxa names...")
+                taxon_lists = adata_train.var['taxa'].apply(assign_categories)
+                categories = ["Domain", "Phylum", "Class", "Order", "Family", "Genus"]
+                taxon_df = pd.DataFrame(taxon_lists.tolist(), index=adata_train.var_names, columns=categories)
+            else:
+                taxon_df = adata_train.varm['taxonomy']
+            graph_data = build_tg_data_from_taxon_df(taxon_df, taxa_vocab.id_to_token)
 
     # Handle classification vs regression
     if cfg.training.finetune_task == 'classification':
@@ -603,6 +625,7 @@ def prepare_finetune_data(cfg, accelerator):
         metadata_fields=cfg.data.get('metadata_fields', None)
     )
 
+    test_dataset = None # Initialize to avoid UnboundLocalError
     if adata_test_task is not None:
         test_dataset = FinetuningDataset(
             adata=adata_test_task,

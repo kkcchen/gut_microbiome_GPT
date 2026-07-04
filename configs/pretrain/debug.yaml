@@ -1,7 +1,7 @@
 paths:
   output_dir: "outputs/pretrain"
   model_config_path: "outputs/pretrain/model_config.json"
-  ann_table_path: "datasets/hmc_final/pretrain.h5ad"
+  ann_table_path: "/scratch/kchen13/hmc_final_fixed/pretrain.h5ad"
 
 wandb:
   enabled: false
@@ -55,7 +55,7 @@ model:
     nlayers: 3
     dropout: 0.1
     abundance_emb_style: "continuous" # choices: scaling, continuous, category
-    use_gnn: true
+    use_gnn: false
     # Example: If you change architecture, just add new keys here
     # activation: "gelu" 
     # use_flash_attn: true

@@ -5,6 +5,7 @@ Main entry point for pretraining transformer models on microbiome data.
 import argparse
 import torch
 import numpy as np
+import random
 from pathlib import Path
 from omegaconf import OmegaConf
 from accelerate import Accelerator
@@ -25,8 +26,13 @@ def setup_training_environment(cfg):
     :return: Initialized Accelerator instance.
     """
     # Set seeds for reproducibility
-    torch.manual_seed(cfg.training.seed)
-    np.random.seed(cfg.training.seed)
+    seed = cfg.training.seed
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
     
     # Initialize distributed training accelerator
     accelerator = Accelerator(
@@ -74,7 +80,13 @@ def main(cfg):
         save_training_artifacts(cfg, model_config)
     
     logger.info("Initializing training components...")
-    total_steps = len(train_loader) * cfg.training.max_epochs
+    
+    # total_steps should account for gradient accumulation and multi-GPU splitting
+    # BUT most importantly, initialize_training_components is called BEFORE prepare.
+    # We should prepare the loader first to get the true length per process if using distributed.
+    prepared_train_loader = accelerator.prepare(train_loader)
+    total_steps = (len(prepared_train_loader) * cfg.training.max_epochs) // cfg.training.grad_accumulation_steps
+    
     training_state = initialize_training_components(
         model_config=model_config,
         cfg=cfg,
@@ -82,8 +94,16 @@ def main(cfg):
         accelerator=accelerator
     )
     
-    prepared_train_loader, prepared_valid_loader, prepared_model, prepared_optimizer, prepared_scheduler = accelerator.prepare(
-        train_loader,
+    # Handle actual state loading if a checkpoint is provided
+    if cfg.get('checkpoint_path') and Path(cfg.checkpoint_path).exists():
+        accelerator.load_state(cfg.checkpoint_path)
+        # Assuming our Wrapper matches the saved state keys
+        training_state['epoch'] = training_state['extra_state'].data.get('epoch', 0)
+        training_state['best_val_loss'] = training_state['extra_state'].data.get('best_val_loss', float('inf'))
+        training_state['patience_counter'] = training_state['extra_state'].data.get('patience_counter', 0)
+
+    # Prepare remaining components
+    prepared_valid_loader, prepared_model, prepared_optimizer, prepared_scheduler = accelerator.prepare(
         valid_loader,
         training_state['model'],
         training_state['optimizer'],

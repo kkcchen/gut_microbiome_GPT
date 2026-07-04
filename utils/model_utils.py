@@ -162,6 +162,13 @@ def initialize_training_components(model_config: dict, cfg, total_steps: int, ac
     logger.info(f"Model initialized with {sum(p.numel() for p in trainable_params)} trainable parameters.")
     # initialize optimizer based on config
     optimizer = initialize_optimizer(parameters=trainable_params,config=cfg)
+    
+    # load_state logic to handle resuming
+    # checkpoint_path = cfg.paths.get('checkpoint_path', None)
+    # if checkpoint_path and os.path.exists(checkpoint_path):
+    #     logger.info(f"Loading training state from {checkpoint_path}...")
+    #     raise NotImplementedError("State loading from checkpoint is not implemented yet. Please implement this logic.")
+
     # initialize scheduler based on config
     scheduler = initialize_scheduler(optimizer=optimizer, config=cfg, total_steps=total_steps)
     # initialize other training states
@@ -176,7 +183,10 @@ def initialize_training_components(model_config: dict, cfg, total_steps: int, ac
     # initialize wandb
     wandb_run = initialize_wandb(cfg, accelerator=accelerator)
     extra_states.data['wandb_run'] = wandb_run if wandb_run else None
-    accelerator.register_for_checkpointing(model, optimizer, scheduler, extra_states)
+    accelerator.register_for_checkpointing(model)
+    accelerator.register_for_checkpointing(optimizer)
+    accelerator.register_for_checkpointing(scheduler)
+    accelerator.register_for_checkpointing(extra_states)
     # collect and update status
     logger.info("Training components initialized.")
     return {
