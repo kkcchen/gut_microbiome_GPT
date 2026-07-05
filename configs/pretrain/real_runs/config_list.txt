@@ -1,0 +1,9 @@
+configs/pretrain/real_runs/bins10_mask015.yaml
+configs/pretrain/real_runs/bins10_mask030.yaml
+configs/pretrain/real_runs/bins10_mask050.yaml
+configs/pretrain/real_runs/bins25_mask015.yaml
+configs/pretrain/real_runs/bins25_mask030.yaml
+configs/pretrain/real_runs/bins25_mask050.yaml
+configs/pretrain/real_runs/bins50_mask015.yaml
+configs/pretrain/real_runs/bins50_mask030.yaml
+configs/pretrain/real_runs/bins50_mask050.yaml
