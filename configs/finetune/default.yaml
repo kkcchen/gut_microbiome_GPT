@@ -21,7 +21,6 @@ data:
   use_batch_labels: false
   max_seq_len: 200
   num_workers: 4
-  downsample_distribution: null  # Not used in finetuning (no perturbation)
   
   # Finetuning-specific data settings
   label_column: "categorical_label"  # Column in adata.obs with labels
@@ -46,7 +45,6 @@ training:
   
   # Not used in finetuning but kept for compatibility
   train_mask_ratio: null
-  contrastive_temperature: null
   masking_prob: null
 
 validation:
@@ -57,7 +55,6 @@ validation:
 model:
   params:
     d_model: 128
-    d_proj: 128
     seq_len: 200
     nhead: 8
     d_hid: 512

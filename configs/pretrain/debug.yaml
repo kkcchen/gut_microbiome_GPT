@@ -1,7 +1,7 @@
 paths:
   output_dir: "outputs/pretrain"
   model_config_path: "outputs/pretrain/model_config.json"
-  ann_table_path: "/scratch/kchen13/hmc_final_fixed/pretrain.h5ad"
+  ann_table_path: '/mnt/c/Users/kkccc/OneDrive - University of Toronto/MScAC/hmc_final_fixed/hmc_final_fixed/downstream_test.h5ad'
 
 wandb:
   enabled: false
@@ -23,7 +23,6 @@ training:
   train_mask_ratio: 0.15
   notes: "debug"
   tasks: ["masking"]
-  contrastive_temperature: 0.2
   masking_prob: 0.15
 
 validation:
@@ -44,7 +43,6 @@ model:
   tasks:
     do_mvc: false
     do_taxa_decoder: false
-    do_contrastive: false
 
   # === FLEXIBLE ARCHITECTURE SECTION ===
   # Any key added here is automatically passed to the model config dict

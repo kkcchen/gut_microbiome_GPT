@@ -24,7 +24,6 @@ data:
   use_batch_labels: true
   max_seq_len: 200
   num_workers: 4
-  downsample_distribution: "zinb"
 
 model:
   # === FLEXIBLE ARCHITECTURE SECTION ===

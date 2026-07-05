@@ -23,7 +23,6 @@ training:
   train_mask_ratio: 0.15
   notes: "Experimenting with new architecture"
   tasks: ["denoising"]
-  contrastive_temperature: 0.2
   masking_prob: 0.15
 
 validation:
@@ -37,14 +36,12 @@ data:
   use_batch_labels: true
   max_seq_len: 200
   num_workers: 4
-  downsample_distribution: "zinb"
 
 
 model:  
   tasks:
     do_mvc: false
     do_taxa_decoder: false
-    do_contrastive: false
 
   # === FLEXIBLE ARCHITECTURE SECTION ===
   # Any key added here is automatically passed to the model config dict

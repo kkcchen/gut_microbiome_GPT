@@ -29,8 +29,7 @@ training:
   enable_fp16: false
   masking_prob: 0.50
   notes: "Testing denoising after refactor"
-  tasks: ["masking"] # contrastive, denoising, denoising_from_token, denoising_dm, denoising_lnm
-  contrastive_temperature: 0.2
+  tasks: ["masking"] # denoising, denoising_from_token, denoising_dm, denoising_lnm
   # w_denoising: 100
 
 validation:
@@ -44,8 +43,6 @@ data:
   use_batch_labels: false
   max_seq_len: 200
   num_workers: 4
-  downsample_distribution: "binomial"
-  downsample_ratio_range: [0.2, 0.8]
   
 
 model:
@@ -53,13 +50,11 @@ model:
   tasks:
     do_mvc: false
     do_taxa_decoder: false
-    do_contrastive: false
 
   # === FLEXIBLE ARCHITECTURE SECTION ===
   # Any key added here is automatically passed to the model config dict
   params:
     d_model: 128
-    d_proj: 128
     seq_len: 200
     nhead: 8
     d_hid: 512
