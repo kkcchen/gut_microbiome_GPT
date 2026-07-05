@@ -61,34 +61,6 @@ def masked_relative_error(
     return loss.mean()
   
 
-# from chatGPT 
-def nt_xent_loss(z1: torch.Tensor, z2: torch.Tensor, temperature: float = 0.2) -> torch.Tensor:
-    """
-    Standard SimCLR / NT-Xent loss
-    z1, z2: (B, D)
-    """
-    assert z1.ndim == 2 and z2.ndim == 2 and z1.shape == z2.shape
-    B, _ = z1.shape
-    device = z1.device
-
-    z1 = F.normalize(z1, dim=1)
-    z2 = F.normalize(z2, dim=1)
-
-    out = torch.cat([z1, z2], dim=0)  # (2B, D)
-
-    # logits: (2B, 2B)
-    logits = (out @ out.T) / temperature
-
-    # mask self-similarity
-    logits.fill_diagonal_(-torch.inf)
-
-    # positives: for i in [0..B-1], pos is i+B; for i in [B..2B-1], pos is i-B
-    labels = torch.arange(2 * B, device=device)
-    labels = (labels + B) % (2 * B)
-
-    return F.cross_entropy(logits, labels)
-
-
 def mse_loss(
     input: torch.Tensor,
     target: torch.Tensor,

@@ -104,29 +104,14 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
     
     # 6. Create dataloaders
     logger.info("Creating dataloaders...")
-    if 'downsample_ratio_range' not in cfg.data:
-        logger.warning("Config 'data.downsample_ratio_range' not found, using default: (0.5, 0.9)")
-    if 'upsample_ratio_range' not in cfg.data:
-        logger.warning("Config 'data.upsample_ratio_range' not found, using default: (1.1, 2.0)")
-    if 'perturbation_ratio' not in cfg.data:
-        logger.warning("Config 'data.perturbation_ratio' not found, using default: 0.6")
-    if 'downsample_distribution' not in cfg.data:
-        logger.warning("Config 'data.downsample_distribution' not found, using default: 'binomial'")
-    if 'perturbation_scale' not in cfg.data:
-        logger.warning("Config 'data.perturbation_scale' not found, using default: 0.55")
     if 'norm_strategy' not in cfg.data:
         logger.warning("Config 'data.norm_strategy' not found, using default: clr")
     collator = MicrobiomeCollator(
         max_seq_len=cfg.data.max_seq_len,
-        downsample_ratio_range=cfg.data.get('downsample_ratio_range', (0.5, 0.9)),
-        upsample_ratio_range=cfg.data.get('upsample_ratio_range', (1.1, 2.0)),
-        perturbation_ratio=cfg.data.get('perturbation_ratio', 0.6),
-        perturbation_distribution=cfg.data.get('downsample_distribution', 'binomial'),
-        perturbation_scale=cfg.data.get('perturbation_scale', 0.55),
         norm_strategy=cfg.data.get('norm_strategy', 'clr'),
-        do_contrastive='contrastive' in cfg.training.tasks
+        num_bins=cfg.data.get('num_bins', 15),
     )
-    
+
     if "num_workers" not in cfg.data:
         logger.warning("Config 'data.num_workers' not found, using default: 1")
     train_loader = DataLoader(
@@ -300,7 +285,7 @@ def prepare_inference_data(cfg, input_file, accelerator) -> Dict:
     1. Load preprocessed AnnData
     2. Load existing vocabularies (built during training)
     3. Create dataset (no augmentation)
-    4. Create dataloader (no shuffling, no perturbations)
+    4. Create dataloader (no shuffling)
     
     :param cfg: Configuration object (inference config).
     :param input_file: Path to the input data file for inference.
@@ -355,16 +340,12 @@ def prepare_inference_data(cfg, input_file, accelerator) -> Dict:
         metadata_fields=cfg.data.get('metadata_fields', []),
     )
     
-    # 5. Create collator for inference (NO perturbations)
-    logger.info("Creating inference collator (no perturbations)...")
+    # 5. Create collator for inference
+    logger.info("Creating inference collator...")
     inference_collator = MicrobiomeCollator(
         max_seq_len=cfg.data.max_seq_len,
-        downsample_ratio_range=None,
-        upsample_ratio_range=None,
-        perturbation_ratio=0.0,
-        perturbation_distribution=None,
-        perturbation_scale=0.0,
-        eval_mode=True,
+        norm_strategy=cfg.data.get('norm_strategy', 'clr'),
+        num_bins=cfg.data.get('num_bins', 15),
     )
     
     # 6. Create dataloader
@@ -640,19 +621,10 @@ def prepare_finetune_data(cfg, accelerator):
     collator = MicrobiomeCollator(
         max_seq_len=cfg.data.max_seq_len,
         norm_strategy=cfg.data.norm_strategy,
-        finetune_mode=True,  # Skip perturbation
-        do_contrastive=False,
-        eval_mode=False
+        num_bins=cfg.data.get('num_bins', 15),
     )
+    eval_collator = collator
 
-    eval_collator = MicrobiomeCollator(
-        max_seq_len=cfg.data.max_seq_len,
-        norm_strategy=cfg.data.norm_strategy,
-        finetune_mode=True,  # Skip perturbation
-        do_contrastive=False,
-        eval_mode=True  # No augmentation, deterministic
-    )
-    
     # Create data loaders
     train_loader = DataLoader(
         train_dataset,

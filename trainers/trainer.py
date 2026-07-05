@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Dict, Optional
 from trainers import logger
 from trainers.loss_functions import *
+from model import MASKING_TASKS
 import torch.nn.functional as F
 from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, mean_squared_error, r2_score, roc_auc_score
 from omegaconf import OmegaConf
@@ -347,44 +348,44 @@ class MicrobiomeTrainer:
         Expected batch format:
         {
             'taxa_ids': (B, L) - selected taxa indices
-            'perturbed_counts': (B, L) - perturbed counts (model input)
+            'normalized_counts': (B, L) - normalized counts (model input)
             'original_counts': (B, L) - original counts (reconstruction target)
             'expressed_mask': (B, L) - mask for expressed taxa
-            'depth': (B,) - perturbed total count
+            'depth': (B,) - total count
             'original_depth': (B,) - original total count
             'batch_ids': (B,) - optional batch labels
             ... other metadata fields ...
         }
-        
+
         :param model: Model to compute forward pass.
         :param batch: Batch dictionary from dataloader.
         :return: Tuple of (total_loss, metrics_dict).
         """
         # Prepare model inputs
         taxa_ids = batch['taxa_ids']  # (B, L)
-        perturbed_counts = batch['perturbed_counts']  # (B, L)
+        normalized_counts = batch['normalized_counts']  # (B, L)
         original_counts = batch['original_counts']  # (B, L)
         expressed_mask = batch['expressed_mask']  # (B, L)
         depth = batch['depth']  # (B,)
         original_depth = batch['original_depth']  # (B,)
         batch_ids = batch.get('batch_ids', None)  # (B,) or None
         # get metadata fields if specified
-        metadata = {k: v for k, v in batch.items() 
-                    if k not in ['taxa_ids', 'perturbed_counts', 'original_counts', 
+        metadata = {k: v for k, v in batch.items()
+                    if k not in ['taxa_ids', 'normalized_counts', 'original_counts',
                                  'expressed_mask', 'depth', 'original_depth', 'batch_ids']}
-        
-          
-        for k in ["taxa_ids", "perturbed_counts", "depth"]:
+
+
+        for k in ["taxa_ids", "normalized_counts", "depth"]:
             t = batch[k]
             if not torch.isfinite(t).all():
                 raise ValueError(f"Non-finite in batch[{k}]")
-        
+
         # ============= chunk for finetuning =============
         if self.cfg.training.get('finetune_mode', 'none') != 'none':
             # Use dedicated finetune_forward method
             predictions = model.finetune_forward(
                 taxa_ids=taxa_ids,
-                abundance_values=perturbed_counts,  # Use actual data (no perturbation)
+                abundance_values=normalized_counts,
                 depth=depth,
                 batch_ids=batch_ids,
                 graph_data=self.graph_data
@@ -419,26 +420,15 @@ class MicrobiomeTrainer:
         # Forward pass through model
         # Adjust based on your model's forward signature
         outputs = {}
-        if any(task != 'masking' for task in self.cfg.training.tasks):
-            outputs["perturbed"] = model(
+        if any(task not in MASKING_TASKS for task in self.cfg.training.tasks):
+            outputs["normalized"] = model(
                 taxa_ids=taxa_ids,
-                abundance_values=perturbed_counts,
+                abundance_values=normalized_counts,
                 depth=depth,
                 batch_ids=batch_ids,
                 graph_data=self.graph_data,
             )
-            if 'contrastive' in self.cfg.training.tasks:
-                perturbed_counts_2 = batch['perturbed_counts_2']  # (B, L)
-                depth_2 = batch['depth_2']  # (B,)
-                outputs_2 = model(
-                    taxa_ids=taxa_ids,
-                    abundance_values=perturbed_counts_2,
-                    depth=depth_2,
-                    batch_ids=batch_ids,
-                    graph_data=self.graph_data,
-                )
-                outputs["perturbed_2"] = outputs_2
-        if 'masking' in self.cfg.training.tasks:
+        if MASKING_TASKS.intersection(self.cfg.training.tasks):
             outputs_masked = model(
                 taxa_ids=taxa_ids,
                 abundance_values=original_counts,
@@ -563,47 +553,34 @@ class MicrobiomeTrainer:
         norm_strategy = self.cfg.data.norm_strategy
         loss = 0.0
         metrics = {}
-        if any(task != 'masking' for task in self.cfg.training.tasks):
-            outputs_1 = outputs["perturbed"]
-            if 'contrastive' in tasks:
-                outputs_2 = outputs["perturbed_2"]
-        if 'masking' in tasks:
+        if any(task not in MASKING_TASKS for task in self.cfg.training.tasks):
+            outputs_main = outputs["normalized"]
+        if MASKING_TASKS.intersection(tasks):
             original = outputs["original"]
-        
-        # Expression reconstruction loss 
+
+        # Expression reconstruction loss
         if 'denoising' in tasks:
             w = cfg.training.get('w_denoising', 1.0)
-            denoising_loss = w*self._compute_denoising_loss(outputs_1, targets, cfg)
-            
+            denoising_loss = w*self._compute_denoising_loss(outputs_main, targets, cfg)
+
             metrics["denoising_loss"] = denoising_loss.item()
             loss += denoising_loss
-            
-        if 'contrastive' in tasks:
-            contrastive_loss = nt_xent_loss(
-                outputs_1["contrastive_projected"],
-                outputs_2["contrastive_projected"],   
-                temperature=cfg.training.contrastive_temperature
-            )
-            metrics["contrastive_loss"] = contrastive_loss.item()
-            loss += contrastive_loss
-        
-        if 'masking' in tasks or 'masking_xe' in tasks or 'masking_binary' in tasks:
-            masking_logits = original["masking_logits"]
+
+        if MASKING_TASKS.intersection(tasks):
             masking_mask = original["masking_mask"].bool()
+            log_transformed_targets = (norm_strategy == 'clr' or norm_strategy == 'log_rel_abundance' or norm_strategy == 'log_counts')
+
             if 'masking' in tasks:
-                log_transformed_targets = (norm_strategy == 'clr' or norm_strategy == 'log_rel_abundance' or norm_strategy == 'log_counts')
+                masking_logits = original["masking_logits"]
                 masking_loss = masked_mse_loss(masking_logits, targets['original_counts'], masking_mask, log_transform=log_transformed_targets)
                 loss += masking_loss
                 metrics['masking_loss'] = masking_loss.item()
-            elif 'masking_xe' in tasks:
-                masking_loss_xe = xe_smoothed_loss(masking_logits, targets['original_counts'])
-                metrics['masking_loss'] = masking_loss_xe.item()
-                loss += masking_loss_xe
             elif 'masking_binary' in tasks:
+                masking_logits = original["masking_logits"]
                 masking_loss_binary = masked_binary_ce_loss(masking_logits, targets['original_counts'], masking_mask)
                 metrics['masking_loss'] = masking_loss_binary.item()
                 loss += masking_loss_binary
-                
+
                 # Accuracy metric for binary
                 with torch.no_grad():
                     preds_binary = (masking_logits > 0).float()
@@ -611,6 +588,18 @@ class MicrobiomeTrainer:
                     correct = ((preds_binary == targets_binary) * masking_mask).sum()
                     accuracy = correct / (masking_mask.sum() + 1e-6)
                     metrics['masking_binary_acc'] = accuracy.item()
+
+            if 'masking_from_cls' in tasks:
+                # Same masked-reconstruction objective as 'masking', but predicted entirely
+                # from the sample/cls token instead of per-position outputs, so the sample
+                # embedding is pushed to encode information about the masked taxa.
+                w = cfg.training.get('w_masking_from_cls', 1.0)
+                cls_masking_logits = original["cls_masking_logits"]
+                masking_from_cls_loss = w * masked_mse_loss(
+                    cls_masking_logits, targets['original_counts'], masking_mask, log_transform=log_transformed_targets
+                )
+                loss += masking_from_cls_loss
+                metrics['masking_from_cls_loss'] = masking_from_cls_loss.item()
         return loss, metrics
 
     def _compute_denoising_loss(self, outputs, targets, cfg):
@@ -728,15 +717,15 @@ class MicrobiomeTrainer:
         with torch.no_grad():
             for batch in test_loader:
                 taxa_ids = batch['taxa_ids']
-                perturbed_counts = batch['perturbed_counts']
+                normalized_counts = batch['normalized_counts']
                 depth = batch['depth']
                 batch_ids = batch.get('batch_ids', None)
                 labels = batch['labels']
-                
+
                 # Forward pass
                 predictions = model.finetune_forward(
                     taxa_ids=taxa_ids,
-                    abundance_values=perturbed_counts,
+                    abundance_values=normalized_counts,
                     depth=depth,
                     batch_ids=batch_ids,
                     graph_data=self.graph_data

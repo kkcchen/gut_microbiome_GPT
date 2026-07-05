@@ -1,28 +1,29 @@
 paths:
-  output_dir: "outputs/pretrain"
-  model_config_path: "outputs/pretrain/model_config.json"
-  ann_table_path: '/mnt/c/Users/kkccc/OneDrive - University of Toronto/MScAC/hmc_final_fixed/hmc_final_fixed/downstream_test.h5ad'
+  output_dir: "outputs/pretrain/real_runs/bins50_mask015"
+  model_config_path: "${paths.output_dir}/model_config.json"
+  ann_table_path: "/scratch/kchen13/hmc_final_fixed/pretrain.h5ad"
 
 checkpoint_path: null  # set to an accelerator checkpoint dir to resume training
 
 wandb:
-  enabled: false
-  entity: null
-  project: "microbiome-foundation"
-  run_name: null
-  run_notes: null
+  enabled: true
+  entity: "haoze-deng-university-of-toronto"
+  project: "microbiome-pretrain-sweep"
+  run_name: "bins50_mask015"
+  run_notes: "Pretrain sweep: num_bins=50, masking_prob=0.15"
 
 training:
   seed: 42
   init_lr: 1e-3
-  batch_size: 16
+  batch_size: 32
   max_epochs: 15
   cosine_warmup_ratio_or_step: 0.1
   log_interval: 10
   patience: null
   grad_accumulation_steps: 1
   enable_fp16: false
-  notes: "debug"
+  train_mask_ratio: 0.15
+  notes: "Sweep: num_bins=50, masking_prob=0.15"
   tasks: ["masking", "masking_from_cls"]
   masking_prob: 0.15
   optimizer: "adamw" # choices: adamw, sgd
@@ -34,12 +35,12 @@ training:
   w_masking_from_cls: 1.0
 
 validation:
-  batch_size: 2
+  batch_size: 64
   eval_interval_epochs: 1
 
 data:
   norm_strategy: "binning" # choices: clr, none, binning, etc.
-  num_bins: 15
+  num_bins: 50
   split_key: "study_id" # we probably want to split train/val by entire studies, so it resembles close to real-world/test scenario
   val_size: 0.1
   use_batch_labels: true
@@ -48,14 +49,18 @@ data:
   metadata_fields: []
 
 
-model:  
+model:
+  tasks:
+    do_mvc: false
+    do_taxa_decoder: false
+
   # === FLEXIBLE ARCHITECTURE SECTION ===
   # Any key added here is automatically passed to the model config dict
   params:
-    d_model: 16
-    nhead: 2
-    d_hid: 64
-    nlayers: 2
+    d_model: 128
+    nhead: 8
+    d_hid: 512
+    nlayers: 3
     dropout: 0.1
     abundance_emb_style: "continuous" # choices: scaling, continuous, category
     use_gnn: false
@@ -70,5 +75,5 @@ model:
     # use_flash_attn: true
 
 debug:
-  nrows: 50
+  nrows: null
   start_over: true

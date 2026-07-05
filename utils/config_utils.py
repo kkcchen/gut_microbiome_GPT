@@ -54,9 +54,8 @@ def _validate_config_structure(cfg):
     
     # Ensure at least one task is enabled
     tasks = cfg.model.tasks
-    if not any([tasks.get('do_mvc', False), 
-                tasks.get('do_taxa_decoder', False),
-                tasks.get('do_contrastive', False)]):
+    if not any([tasks.get('do_mvc', False),
+                tasks.get('do_taxa_decoder', False)]):
         logger.warning("No pretraining tasks enabled! Set at least one task to True.")
 
 

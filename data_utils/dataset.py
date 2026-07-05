@@ -199,7 +199,6 @@ class FinetuningDataset(Dataset):
     Simplified dataset for supervised finetuning.
     
     Key differences from MicrobiomeDataset:
-    - No perturbation needed (handled by eval_mode in collator)
     - Includes supervised labels
     - Simpler: just taxa selection + labels
     """
