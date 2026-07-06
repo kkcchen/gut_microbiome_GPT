@@ -224,12 +224,23 @@ def load_trained_model(cfg, model_config, accelerator):
         raise FileNotFoundError(f"Checkpoint not found at {checkpoint_path}")
     
     logger.info(f"Loading model checkpoint from {checkpoint_path}...")
-    if checkpoint_path.endswith('.pt') or checkpoint_path.endswith('.pth'):
-        loaded_state = torch.load(checkpoint_path, map_location='cpu')['model']
+    if checkpoint_path.endswith('.pt') or checkpoint_path.endswith('.pth') or checkpoint_path.endswith('.bin'):
+        checkpoint = torch.load(checkpoint_path, map_location='cpu')
     elif checkpoint_path.endswith('.safetensors'):
         from safetensors.torch import load_file
-        loaded_state = load_file(checkpoint_path)
-        
+        checkpoint = load_file(checkpoint_path)
+    else:
+        raise ValueError(f"Unsupported checkpoint format: {checkpoint_path}")
+
+    if 'model_state_dict' in checkpoint:
+        loaded_state = checkpoint['model_state_dict']
+    elif 'model' in checkpoint:
+        loaded_state = checkpoint['model']
+    elif 'state_dict' in checkpoint:
+        loaded_state = checkpoint['state_dict']
+    else:
+        loaded_state = checkpoint
+
     model.load_state_dict(loaded_state)
     model.to(accelerator.device)
     model.eval()
@@ -348,12 +359,12 @@ def load_pretrained_model_for_finetune(cfg, model_config, accelerator):
         
         # Handle different checkpoint formats
         # checkpoint = torch.load(checkpoint_path, map_location='cpu')
-        if checkpoint_path.endswith('.pt') or checkpoint_path.endswith('.pth'):
+        if checkpoint_path.endswith('.pt') or checkpoint_path.endswith('.pth') or checkpoint_path.endswith('.bin'):
             checkpoint = torch.load(checkpoint_path, map_location='cpu')
         elif checkpoint_path.endswith('.safetensors'):
             from safetensors.torch import load_file
             checkpoint = load_file(checkpoint_path)
-        
+
         if 'model_state_dict' in checkpoint:
             state_dict = checkpoint['model_state_dict']
         elif 'state_dict' in checkpoint:
@@ -406,18 +417,24 @@ def initialize_finetuning_components(model, cfg, total_steps):
     # )
     
     optimizer = initialize_optimizer(parameters=trainable_params,config=cfg)
-    
+
     # Create scheduler
     from transformers import get_linear_schedule_with_warmup
-    
+
+    warmup_ratio_or_step = cfg.training.cosine_warmup_ratio_or_step
+    if isinstance(warmup_ratio_or_step, float):
+        warmup_steps = int(total_steps * warmup_ratio_or_step)
+    else:
+        warmup_steps = warmup_ratio_or_step
+
     scheduler = get_linear_schedule_with_warmup(
         optimizer,
-        num_warmup_steps=cfg.training.cosine_warmup_ratio_or_step,
+        num_warmup_steps=warmup_steps,
         num_training_steps=total_steps
     )
-    
+
     logger.info(f"Optimizer: AdamW (lr={cfg.training.init_lr})")
-    logger.info(f"Scheduler: Linear warmup ({cfg.training.cosine_warmup_ratio_or_step} steps) + decay")
+    logger.info(f"Scheduler: Linear warmup ({warmup_steps} steps) + decay")
     
     return {
         'optimizer': optimizer,

@@ -593,16 +593,14 @@ def prepare_finetune_data(cfg, accelerator):
         taxa_vocab=taxa_vocab,
         batch_vocab=batch_vocab,
         label_column=label_column,
-        max_seq_len=cfg.data.max_seq_len,
         metadata_fields=cfg.data.get('metadata_fields', None)
     )
-    
+
     val_dataset = FinetuningDataset(
         adata=adata_train_task[val_idx],
         taxa_vocab=taxa_vocab,
         batch_vocab=batch_vocab,
         label_column=label_column,
-        max_seq_len=cfg.data.max_seq_len,
         metadata_fields=cfg.data.get('metadata_fields', None)
     )
 
@@ -613,7 +611,6 @@ def prepare_finetune_data(cfg, accelerator):
             taxa_vocab=taxa_vocab,
             batch_vocab=batch_vocab,
             label_column=label_column,
-            max_seq_len=cfg.data.max_seq_len,
             metadata_fields=cfg.data.get('metadata_fields', None)
         )
     

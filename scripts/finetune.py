@@ -119,9 +119,6 @@ def main(cfg):
     if graph_data is not None:
         graph_data = graph_data.to(accelerator.device)
     
-    if graph_data is not None:
-        graph_data = graph_data.to(accelerator.device)
-    
     # Create trainer (reuse existing MicrobiomeTrainer)
     trainer = MicrobiomeTrainer(
         cfg=cfg,
