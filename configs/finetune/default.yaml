@@ -3,6 +3,7 @@ paths:
   downstream_train: "/project/aip-rahulgk/gutmodel/hmc_final_fixed/downstream_train.h5ad"
   downstream_test: "/project/aip-rahulgk/gutmodel/hmc_final_fixed/downstream_test.h5ad"  # Optional
   output_dir: "./outputs/finetune/masking_log_rel_abundance_len200_7layers_ratio_70_updated/"
+  model_config_path: "${paths.output_dir}/model_config.json"
   taxa_vocab_path: "./outputs/pretrain/masking_log_rel_abundance_len200_7layers_ratio_70_updated/taxa_vocab.pkl"
   # batch_vocab_path: "./results/pretraining/batch_vocab.json"
   checkpoint_path: "./outputs/pretrain/masking_log_rel_abundance_len200_7layers_ratio_70_updated/best_model/best_model/model.safetensors"
@@ -63,4 +64,8 @@ model:
     abundance_emb_style: "continuous"
     sample_emb_style: "cls"
     use_gnn: false
+
+debug:
+  nrows: null
+  start_over: false
 

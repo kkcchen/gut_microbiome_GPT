@@ -298,7 +298,8 @@ class hgmGPT(nn.Module):
             finetune_mode (str): The finetuning mode to use. Should be one of "none", "full", "partial".
                 - "none": No finetuning, all layers are frozen.
                 - "full": Full finetuning, all layers are trainable.
-                - "partial": Partial finetuning, only the transformer encoder and finetuning head are trainable, all other layers are frozen.
+                - "partial": Linear probing. Only the finetuning head is trainable; the transformer
+                  encoder and all other layers (taxa/batch encoders, etc.) are frozen.
         """
         if finetune_mode == "none":
             # Freeze all layers
@@ -318,7 +319,7 @@ class hgmGPT(nn.Module):
                     param.requires_grad = False
                 else:
                     param.requires_grad = True
-            logger.info("Finetuning mode: PARTIAL. Transformer encoder and finetuning head are trainable, all other layers frozen.")
+            logger.info("Finetuning mode: PARTIAL (linear probing). Only the finetuning head is trainable, all other layers frozen.")
         
         else:
             raise ValueError(f"Unsupported finetune_mode: {finetune_mode}")
