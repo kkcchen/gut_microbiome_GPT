@@ -6,7 +6,7 @@ import os
 import torch
 from omegaconf import OmegaConf
 from trainers import logger
-from model import hgmGPT, MASKING_TASKS
+from model import hgmGPT, MASKING_TASKS, TAXA_MASKING_TASKS
 from typing import Dict, Optional
 
 class DictStateWrapper:
@@ -46,7 +46,8 @@ def build_model_config(cfg, taxa_vocab, batch_vocab=None, graph_data=None, eval=
         "num_batch_labels": len(batch_vocab) if batch_vocab else None,
         "tasks" : tasks,
         "num_gnn_nodes": graph_data.num_nodes if graph_data else None,
-        "masking_prob": cfg.training.masking_prob if MASKING_TASKS.intersection(tasks) and not eval else None
+        "masking_prob": cfg.training.masking_prob if MASKING_TASKS.intersection(tasks) and not eval else None,
+        "masking_taxa_prob": cfg.training.get('masking_taxa_prob', None) if TAXA_MASKING_TASKS.intersection(tasks) and not eval else None
     }
     
     model_config.update(dynamic_config)

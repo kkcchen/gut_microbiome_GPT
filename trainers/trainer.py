@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Dict, Optional
 from trainers import logger
 from trainers.loss_functions import *
-from model import MASKING_TASKS
+from model import MASKING_TASKS, TAXA_MASKING_TASKS, ANY_MASKING_TASKS
 import torch.nn.functional as F
 from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, mean_squared_error, r2_score, roc_auc_score
 from omegaconf import OmegaConf
@@ -420,7 +420,7 @@ class MicrobiomeTrainer:
         # Forward pass through model
         # Adjust based on your model's forward signature
         outputs = {}
-        if any(task not in MASKING_TASKS for task in self.cfg.training.tasks):
+        if any(task not in ANY_MASKING_TASKS for task in self.cfg.training.tasks):
             outputs["normalized"] = model(
                 taxa_ids=taxa_ids,
                 abundance_values=normalized_counts,
@@ -428,7 +428,7 @@ class MicrobiomeTrainer:
                 batch_ids=batch_ids,
                 graph_data=self.graph_data,
             )
-        if MASKING_TASKS.intersection(self.cfg.training.tasks):
+        if ANY_MASKING_TASKS.intersection(self.cfg.training.tasks):
             outputs_masked = model(
                 taxa_ids=taxa_ids,
                 abundance_values=original_counts,
@@ -553,9 +553,9 @@ class MicrobiomeTrainer:
         norm_strategy = self.cfg.data.norm_strategy
         loss = 0.0
         metrics = {}
-        if any(task not in MASKING_TASKS for task in self.cfg.training.tasks):
+        if any(task not in ANY_MASKING_TASKS for task in self.cfg.training.tasks):
             outputs_main = outputs["normalized"]
-        if MASKING_TASKS.intersection(tasks):
+        if ANY_MASKING_TASKS.intersection(tasks):
             original = outputs["original"]
 
         # Expression reconstruction loss
@@ -600,6 +600,21 @@ class MicrobiomeTrainer:
                 )
                 loss += masking_from_cls_loss
                 metrics['masking_from_cls_loss'] = masking_from_cls_loss.item()
+
+        if TAXA_MASKING_TASKS.intersection(tasks):
+            w = cfg.training.get('w_masking_taxa', 1.0)
+            masking_taxa_logits = original["masking_taxa_logits"]
+            masking_taxa_mask = original["masking_taxa_mask"].bool()
+            masking_taxa_loss = w * masked_ce_loss(masking_taxa_logits, targets['taxa_ids'], masking_taxa_mask)
+            loss += masking_taxa_loss
+            metrics['masking_taxa_loss'] = masking_taxa_loss.item()
+
+            # Top-1 accuracy metric
+            with torch.no_grad():
+                preds_taxa = masking_taxa_logits.argmax(dim=-1)
+                correct = ((preds_taxa == targets['taxa_ids']) * masking_taxa_mask).sum()
+                accuracy = correct / (masking_taxa_mask.sum() + 1e-6)
+                metrics['masking_taxa_acc'] = accuracy.item()
         return loss, metrics
 
     def _compute_denoising_loss(self, outputs, targets, cfg):

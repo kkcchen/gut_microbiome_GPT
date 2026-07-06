@@ -50,6 +50,21 @@ def masked_mse_loss(
     loss = F.mse_loss(input * mask, target * mask, reduction="sum")
     return loss / (mask.sum() + 1e-6)
 
+def masked_ce_loss(
+    logits: torch.Tensor, target: torch.Tensor, mask: torch.Tensor
+) -> torch.Tensor:
+    """
+    Compute cross-entropy loss over a vocabulary, restricted to masked positions.
+    logits: (B, L, V), target: (B, L) integer class ids, mask: (B, L) bool.
+    """
+    mask_flat = mask.reshape(-1)
+    if not mask_flat.any():
+        # no masked positions in this batch; keep the value differentiable and zero
+        return logits.sum() * 0.0
+    logits_flat = logits.reshape(-1, logits.size(-1))[mask_flat]
+    target_flat = target.reshape(-1)[mask_flat].long()
+    return F.cross_entropy(logits_flat, target_flat)
+
 def masked_relative_error(
     input: torch.Tensor, target: torch.Tensor, mask: torch.LongTensor
 ) -> torch.Tensor:

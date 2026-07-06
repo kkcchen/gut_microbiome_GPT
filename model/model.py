@@ -23,6 +23,7 @@ from .encoders import (
 from .decoders import (
     AbundanceDecoder,
     SampleProjection,
+    TaxaIdentityDecoder,
 )
 from trainers import logger
 
@@ -30,6 +31,10 @@ from trainers import logger
 
 # tasks that rely on the masked-position machinery (mask token embedding, do_mask sampling)
 MASKING_TASKS = {"masking", "masking_binary", "masking_from_cls"}
+# tasks that mask taxon *identity* instead of abundance value
+TAXA_MASKING_TASKS = {"masking_taxa"}
+# union of all masking-family tasks, used to decide whether a forward pass needs raw/original counts
+ANY_MASKING_TASKS = MASKING_TASKS | TAXA_MASKING_TASKS
 
 
 class hgmGPT(nn.Module):
@@ -54,6 +59,7 @@ class hgmGPT(nn.Module):
         tasks: List[str] = [],
         model_distribution: Optional[str] = None,
         masking_prob: Optional[float] = None,
+        masking_taxa_prob: Optional[float] = None,
         finetune_mode: Optional[str] = None,
         finetune_task: str = "classification",
         finetune_num_classes: Optional[int] = None,
@@ -166,7 +172,12 @@ class hgmGPT(nn.Module):
             # mask token embedding, learned
             self.masking_prob = masking_prob
             self.mask_token_emb = nn.Parameter(torch.randn(1, self.d_model))  # (1, d_model)
-        
+
+        if TAXA_MASKING_TASKS.intersection(self.tasks):
+            # taxon-identity mask token embedding, learned
+            self.masking_taxa_prob = masking_taxa_prob
+            self.taxa_mask_token_emb = nn.Parameter(torch.randn(1, self.d_model))  # (1, d_model)
+
         # TODO: potentially try cross attention
         encoder_layers = TransformerEncoderLayer(
             d_model, nhead, d_hid, self.dropout, batch_first=True
@@ -210,6 +221,15 @@ class hgmGPT(nn.Module):
                 num_special_tokens=2 if use_batch_labels else 1,
                 output_format="logits",
                 dropout=self.dropout
+            )
+
+        # 3b. masking_taxa: predict masked taxon identity from contextual transformer output
+        if "masking_taxa" in tasks:
+            self.taxa_identity_decoder = TaxaIdentityDecoder(
+                d_model=d_model,
+                num_taxa=self.num_taxa,
+                num_special_tokens=2 if use_batch_labels else 1,
+                dropout=self.dropout,
             )
 
         # 4. masking from cls: predict each masked position's abundance from the sample
@@ -311,18 +331,20 @@ class hgmGPT(nn.Module):
         batch_ids: Optional[Tensor] = None,
         graph_data: Optional[Data] = None,
         do_mask: Optional[Tensor] = None,
+        do_mask_taxa: Optional[Tensor] = None,
         attention_mask: Optional[Tensor] = None,
     ) -> Tensor:
         """
-        This is the function that runs the encoder part of the model. Includes taxa/value encoding and transformer encoding. 
+        This is the function that runs the encoder part of the model. Includes taxa/value encoding and transformer encoding.
         Args:
             taxa_ids (Tensor): The taxa ids tensor of shape (batch, seq_len).
             taxa_values (Tensor): The taxa values tensor of shape (batch, seq_len).
             batch_ids (Optional[Tensor]): The batch ids tensor of shape (batch,).
             graph_data (Optional[Data]): The graph data for GNN encoding, if applicable.
-            do_mask (Optional[Tensor]): Boolean tensor indicating which positions to mask, shape (batch, seq_len). Only used if "masking" in tasks.
+            do_mask (Optional[Tensor]): Boolean tensor indicating which positions to value-mask, shape (batch, seq_len). Only used if a task in MASKING_TASKS is active.
+            do_mask_taxa (Optional[Tensor]): Boolean tensor indicating which positions to taxon-mask, shape (batch, seq_len). Only used if "masking_taxa" in tasks. Disjoint from do_mask.
             attention_mask (Optional[Tensor]): Attention mask for padding, shape (batch, num_tokens).
-        Output: 
+        Output:
             tensor of shape (batch, num_tokens, d_model)
         """
         assert torch.isfinite(taxa_ids).all()
@@ -335,6 +357,15 @@ class hgmGPT(nn.Module):
         else:
             taxa_ids_embeds = self.taxa_encoder(taxa_ids)  # (batch, seq_len, d_model)
         assert torch.isfinite(taxa_ids_embeds).all(), "NaN/inf in taxa id embeddings"
+
+        # mask taxon identity, replacing taxa_ids_embeds (abundance value stays visible)
+        if TAXA_MASKING_TASKS.intersection(self.tasks) and do_mask_taxa is not None:
+            taxa_mask_emb = self.taxa_mask_token_emb.unsqueeze(0)  # (1, 1, d_model)
+            taxa_ids_embeds = torch.where(
+                do_mask_taxa.unsqueeze(2),  # (batch, seq_len, 1)
+                taxa_mask_emb,  # (1, 1, d_model)
+                taxa_ids_embeds  # (batch, seq_len, d_model)
+            )  # (batch, seq_len, d_model)
 
         taxa_abundances_embeds = self.value_encoder(taxa_abundances)  # (batch, seq_len, d_model)
         # mask labels, replacing taxa_abundance_embeds
@@ -396,6 +427,7 @@ class hgmGPT(nn.Module):
         self,
         transformer_output: Tensor,
         do_mask: Optional[Tensor] = None,
+        do_mask_taxa: Optional[Tensor] = None,
         taxa_ids: Optional[Tensor] = None,
         graph_data: Optional[Data] = None,
     ) -> Dict[str, Tensor]:
@@ -407,7 +439,8 @@ class hgmGPT(nn.Module):
 
         Args:
             transformer_output: Output from transformer encoder, shape (batch, num_special_tokens + num_taxa, d_model)
-            do_mask: Optional boolean tensor indicating which positions were masked during encoding. Only used if "masking" is in tasks, shape (batch, seq_len)
+            do_mask: Optional boolean tensor indicating which positions were value-masked during encoding. Only used if a task in MASKING_TASKS is active, shape (batch, seq_len)
+            do_mask_taxa: Optional boolean tensor indicating which positions were taxon-masked during encoding. Only used if "masking_taxa" is in tasks, shape (batch, seq_len)
             taxa_ids: Optional taxa id tensor of shape (batch, seq_len). Required when "masking_from_cls" is in tasks, used to recompute each position's taxon-identity embedding via TaxaEncoder.
             graph_data: Optional graph data for GNN taxa encoding. Required when "masking_from_cls" is in tasks and use_gnn is True.
 
@@ -476,6 +509,10 @@ class hgmGPT(nn.Module):
             output["cls_masking_logits"] = self.cls_masking_head(combined).squeeze(-1)  # (B, L)
         if MASKING_TASKS.intersection(self.tasks):
             output["masking_mask"] = do_mask
+        if "masking_taxa" in self.tasks and hasattr(self, 'taxa_identity_decoder'):
+            output["masking_taxa_logits"] = self.taxa_identity_decoder(transformer_output)["logits"]
+        if TAXA_MASKING_TASKS.intersection(self.tasks):
+            output["masking_taxa_mask"] = do_mask_taxa
 
         return output
 
@@ -592,6 +629,16 @@ class hgmGPT(nn.Module):
         else:
             do_mask = None
 
+        if TAXA_MASKING_TASKS.intersection(self.tasks):
+            do_mask_taxa = (torch.rand_like(taxa_ids.float()) < self.masking_taxa_prob)
+            if attention_mask is not None:
+                do_mask_taxa = do_mask_taxa & (~attention_mask)
+            if do_mask is not None:
+                # keep value-masked and taxon-masked positions disjoint
+                do_mask_taxa = do_mask_taxa & (~do_mask)
+        else:
+            do_mask_taxa = None
+
         # 1. encode
         transformer_output = self.encode(
             taxa_ids,
@@ -599,12 +646,13 @@ class hgmGPT(nn.Module):
             batch_ids,
             graph_data,
             do_mask=do_mask,
+            do_mask_taxa=do_mask_taxa,
             attention_mask=full_attention_mask
         )  # (batch, seq_len + number of special tokens, d_model)
 
         assert not torch.isnan(transformer_output).any(), "NaN in transformer output"
         # 2. decode
-        output = self.decode(transformer_output, do_mask=do_mask, taxa_ids=taxa_ids, graph_data=graph_data)
+        output = self.decode(transformer_output, do_mask=do_mask, do_mask_taxa=do_mask_taxa, taxa_ids=taxa_ids, graph_data=graph_data)
         return output
 
     def inference(
