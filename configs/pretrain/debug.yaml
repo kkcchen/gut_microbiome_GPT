@@ -57,7 +57,7 @@ model:
     d_hid: 64
     nlayers: 2
     dropout: 0.1
-    abundance_emb_style: "continuous" # choices: scaling, continuous, category
+    abundance_emb_style: "continuous" # choices: scaling, continuous, category, concatenation
     use_gnn: false
     sample_emb_style: "cls" # choices: cls, avg-pool, w-pool
     model_distribution: null # choices: zinb, dm -- only required if "denoising" is in tasks

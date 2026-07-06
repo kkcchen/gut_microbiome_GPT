@@ -75,7 +75,9 @@ class hgmGPT(nn.Module):
         :type num_batch_labels: Optional[int]
         :param dropout: The dropout rate.
         :type dropout: float
-        :param abundance_emb_style: The style of abundance embedding to use.
+        :param abundance_emb_style: The style of abundance embedding to use. One of "continuous"
+            (additive), "scaling" (elementwise multiplicative), "category" (unimplemented), or
+            "concatenation" (concat taxa-id and abundance embeddings, then project back to d_model).
         :type abundance_emb_style: str
         :param use_gnn: Whether to use a graph neural network for taxa encoding.
         :type use_gnn: bool
@@ -97,7 +99,7 @@ class hgmGPT(nn.Module):
         self.d_model = d_model
         self.use_batch_labels = use_batch_labels
         self.num_batch_labels = num_batch_labels
-        self.abundance_emb_style = abundance_emb_style # default, continuous, mentioned in paper. could try using category encoding but this is likely less expressive
+        self.abundance_emb_style = abundance_emb_style # default, continuous, mentioned in paper. could try using category encoding but this is likely less expressive. "concatenation" combines via concat+linear projection instead of add/multiply
         self.nhead = nhead
         self.tasks = tasks
         self.model_distribution = model_distribution
@@ -111,9 +113,9 @@ class hgmGPT(nn.Module):
         self.freeze_preinitialized_embeddings = freeze_preinitialized_embeddings
         self.preinitialized_embedding_projection = preinitialized_embedding_projection
         self.use_gnn = use_gnn
-        if self.abundance_emb_style not in ["category", "continuous", "scaling"]:
+        if self.abundance_emb_style not in ["category", "continuous", "scaling", "concatenation"]:
             raise ValueError(
-                f"abundance_emb_style should be one of category, continuous, scaling, "
+                f"abundance_emb_style should be one of category, continuous, scaling, concatenation, "
                 f"got {abundance_emb_style}"
             )
         self.seq_len = seq_len
@@ -134,11 +136,17 @@ class hgmGPT(nn.Module):
                                             preinitialized_embedding_projection=preinitialized_embedding_projection
                                             )
 
-        if self.abundance_emb_style == "continuous":
+        if self.abundance_emb_style in ("continuous", "concatenation"):
             self.value_encoder = ContinuousValueEncoder(d_model, self.dropout)
         else:
             print("Using scaling style for input embedding, just identity for now")
             self.value_encoder = nn.Identity()  # nn.Softmax(dim=1)
+
+        if self.abundance_emb_style == "concatenation":
+            # Combines taxa-identity and abundance embeddings by concatenation followed by a
+            # linear projection back to d_model, rather than addition ("continuous") or an
+            # elementwise product ("scaling").
+            self.abundance_concat_proj = nn.Linear(d_model * 2, d_model)
 
         # Batch Encoder
         if use_batch_labels:
@@ -342,6 +350,10 @@ class hgmGPT(nn.Module):
         if self.abundance_emb_style == "scaling":
             taxa_abundances_embeds = taxa_abundances_embeds.unsqueeze(2)
             total_embs = taxa_ids_embeds * taxa_abundances_embeds
+        elif self.abundance_emb_style == "concatenation":
+            total_embs = self.abundance_concat_proj(
+                torch.cat([taxa_ids_embeds, taxa_abundances_embeds], dim=-1)
+            )  # (batch, seq_len, d_model)
         else:
             total_embs = taxa_ids_embeds + taxa_abundances_embeds
         assert torch.isfinite(taxa_abundances_embeds).all(), "NaN/inf in total embeddings"
