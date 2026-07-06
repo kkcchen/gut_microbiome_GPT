@@ -431,7 +431,7 @@ class MicrobiomeTrainer:
         if ANY_MASKING_TASKS.intersection(self.cfg.training.tasks):
             outputs_masked = model(
                 taxa_ids=taxa_ids,
-                abundance_values=original_counts,
+                abundance_values=normalized_counts,
                 depth=depth,
                 batch_ids=batch_ids,
                 graph_data=self.graph_data,
@@ -568,26 +568,25 @@ class MicrobiomeTrainer:
 
         if MASKING_TASKS.intersection(tasks):
             masking_mask = original["masking_mask"].bool()
+            is_binary = (norm_strategy == 'binary')
             log_transformed_targets = (norm_strategy == 'clr' or norm_strategy == 'log_rel_abundance' or norm_strategy == 'log_counts')
 
             if 'masking' in tasks:
                 masking_logits = original["masking_logits"]
-                masking_loss = masked_mse_loss(masking_logits, targets['original_counts'], masking_mask, log_transform=log_transformed_targets)
+                if is_binary:
+                    masking_loss = masked_binary_ce_loss(masking_logits, targets['original_counts'], masking_mask)
+
+                    # Accuracy metric for binary
+                    with torch.no_grad():
+                        preds_binary = (masking_logits > 0).float()
+                        targets_binary = (targets['original_counts'] > 0).float()
+                        correct = ((preds_binary == targets_binary) * masking_mask).sum()
+                        accuracy = correct / (masking_mask.sum() + 1e-6)
+                        metrics['masking_binary_acc'] = accuracy.item()
+                else:
+                    masking_loss = masked_mse_loss(masking_logits, targets['original_counts'], masking_mask, log_transform=log_transformed_targets)
                 loss += masking_loss
                 metrics['masking_loss'] = masking_loss.item()
-            elif 'masking_binary' in tasks:
-                masking_logits = original["masking_logits"]
-                masking_loss_binary = masked_binary_ce_loss(masking_logits, targets['original_counts'], masking_mask)
-                metrics['masking_loss'] = masking_loss_binary.item()
-                loss += masking_loss_binary
-
-                # Accuracy metric for binary
-                with torch.no_grad():
-                    preds_binary = (masking_logits > 0).float()
-                    targets_binary = (targets['original_counts'] > 0).float()
-                    correct = ((preds_binary == targets_binary) * masking_mask).sum()
-                    accuracy = correct / (masking_mask.sum() + 1e-6)
-                    metrics['masking_binary_acc'] = accuracy.item()
 
             if 'masking_from_cls' in tasks:
                 # Same masked-reconstruction objective as 'masking', but predicted entirely
@@ -595,9 +594,19 @@ class MicrobiomeTrainer:
                 # embedding is pushed to encode information about the masked taxa.
                 w = cfg.training.get('w_masking_from_cls', 1.0)
                 cls_masking_logits = original["cls_masking_logits"]
-                masking_from_cls_loss = w * masked_mse_loss(
-                    cls_masking_logits, targets['original_counts'], masking_mask, log_transform=log_transformed_targets
-                )
+                if is_binary:
+                    masking_from_cls_loss = w * masked_binary_ce_loss(cls_masking_logits, targets['original_counts'], masking_mask)
+
+                    with torch.no_grad():
+                        preds_binary = (cls_masking_logits > 0).float()
+                        targets_binary = (targets['original_counts'] > 0).float()
+                        correct = ((preds_binary == targets_binary) * masking_mask).sum()
+                        accuracy = correct / (masking_mask.sum() + 1e-6)
+                        metrics['masking_from_cls_binary_acc'] = accuracy.item()
+                else:
+                    masking_from_cls_loss = w * masked_mse_loss(
+                        cls_masking_logits, targets['original_counts'], masking_mask, log_transform=log_transformed_targets
+                    )
                 loss += masking_from_cls_loss
                 metrics['masking_from_cls_loss'] = masking_from_cls_loss.item()
 

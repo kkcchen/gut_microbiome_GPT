@@ -30,7 +30,7 @@ from trainers import logger
 # PLACEHOLDER FOR NOW
 
 # tasks that rely on the masked-position machinery (mask token embedding, do_mask sampling)
-MASKING_TASKS = {"masking", "masking_binary", "masking_from_cls"}
+MASKING_TASKS = {"masking", "masking_from_cls"}
 # tasks that mask taxon *identity* instead of abundance value
 TAXA_MASKING_TASKS = {"masking_taxa"}
 # union of all masking-family tasks, used to decide whether a forward pass needs raw/original counts

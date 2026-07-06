@@ -31,7 +31,8 @@ def masked_binary_ce_loss(
     target_binary = (target > 0).float()
     mask = mask.float()
     # input are logits
-    loss = F.binary_cross_entropy_with_logits(input * mask, target_binary * mask, reduction="sum")
+    loss = F.binary_cross_entropy_with_logits(input, target_binary, reduction="none")
+    loss = (loss * mask).sum()
     return loss / (mask.sum() + 1e-6)
 
 def masked_mse_loss(

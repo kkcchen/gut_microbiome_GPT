@@ -277,15 +277,15 @@ def inference(
         with torch.no_grad():
             for batch_idx, batch in enumerate(data_loader):
                 taxa_ids = batch['taxa_ids']  # (B, L)
-                original_counts = batch['original_counts']  # (B, L)
+                normalized_counts = batch['normalized_counts']  # (B, L)
                 depth = batch['depth']  # (B,)
                 batch_ids = batch.get('batch_ids', None)  # (B,) or None
                 sample_ids = batch.get('sample_id', None)  # List of sample IDs
-                
+
                 # model inference
                 sample_embeddings = model.inference(
                     taxa_ids=taxa_ids,
-                    abundance_values=original_counts,
+                    abundance_values=normalized_counts,
                     depth=depth,
                     batch_ids=batch_ids,
                     graph_data=graph_data

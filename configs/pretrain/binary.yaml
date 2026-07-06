@@ -22,7 +22,7 @@ training:
   patience: null
   grad_accumulation_steps: 1
   enable_fp16: false
-  notes: "debug"
+  notes: "debug - binary presence/absence"
   tasks: ["masking", "masking_from_cls", "masking_taxa"]
   masking_prob: 0.15
   masking_taxa_prob: 0.15
@@ -40,8 +40,7 @@ validation:
   eval_interval_epochs: 1
 
 data:
-  norm_strategy: "binning" # choices: clr, none, binning, binary, rel_abundance, log_rel_abundance, log_counts, arcsine
-  num_bins: 15
+  norm_strategy: "binary" # presence/absence (0/1) instead of relative abundance -- choices: clr, none, binning, binary, rel_abundance, log_rel_abundance, log_counts, arcsine
   split_key: "study_id" # we probably want to split train/val by entire studies, so it resembles close to real-world/test scenario
   val_size: 0.1
   use_batch_labels: true
@@ -50,7 +49,7 @@ data:
   metadata_fields: []
 
 
-model:  
+model:
   # === FLEXIBLE ARCHITECTURE SECTION ===
   # Any key added here is automatically passed to the model config dict
   params:
