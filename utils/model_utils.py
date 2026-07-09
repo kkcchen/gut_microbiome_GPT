@@ -382,10 +382,19 @@ def load_pretrained_model_for_finetune(cfg, model_config, accelerator):
         
         logger.info("✓ Loaded pretrained weights successfully")
     else:
-        logger.warning("No pretrained checkpoint specified - training from scratch!")
-    
+        logger.info("=" * 80)
+        logger.info("RANDOM WEIGHT INITIALIZATION - NO PRETRAINED CHECKPOINT")
+        logger.info("Model will learn the downstream task entirely from scratch.")
+        logger.info("=" * 80)
+
     # Configure parameter freezing based on finetune_mode
     finetune_mode = cfg.training.finetune_mode
+    if not checkpoint_path and finetune_mode == "none":
+        raise ValueError(
+            "finetune_mode='none' freezes all parameters, but no pretrained checkpoint "
+            "was provided, so the model is randomly initialized. Training would learn "
+            "nothing. Use finetune_mode='full' or 'partial' when training from scratch."
+        )
     logger.info(f"Finetuning mode: {finetune_mode}")
     
     # Log trainable parameters

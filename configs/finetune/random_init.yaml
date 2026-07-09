@@ -1,0 +1,75 @@
+# Random-weight-init finetuning config - classification
+#
+# Runs the downstream finetuning task on a randomly initialized model, with no
+# pretrained checkpoint and no prior pretraining run required. The taxa
+# vocabulary is built directly from the downstream training data the first
+# time this config is run (see utils/data_pipeline.py: prepare_finetune_data).
+paths:
+  downstream_train: "/project/aip-rahulgk/gutmodel/hmc_final_fixed/downstream_train.h5ad"
+  downstream_test: "/project/aip-rahulgk/gutmodel/hmc_final_fixed/downstream_test.h5ad"  # Optional
+  output_dir: "./outputs/finetune/random_init_location/"
+  model_config_path: "${paths.output_dir}/model_config.json"
+  taxa_vocab_path: "${paths.output_dir}/taxa_vocab.pkl"  # built fresh from downstream data
+  # batch_vocab_path: "./results/pretraining/batch_vocab.json"
+  checkpoint_path: null  # no pretrained weights - model is randomly initialized
+
+wandb:
+  enabled: true
+  entity: "haoze-deng-university-of-toronto"
+  project: "microbiome-finetuning"
+  run_name: random_init_location_finetune
+  run_notes: "Random-weight-init finetuning on location classification task (no pretraining)"
+
+data:
+  norm_strategy: "log_rel_abundance"
+  split_key: null
+  val_size: 0.2
+  use_batch_labels: false
+  max_seq_len: 200
+  num_workers: 4
+
+  # Finetuning-specific data settings
+  label_column: "categorical_label"  # Column in adata.obs with labels
+  finetune_task_name: "location"  # Value in adata.obs['downstream_task'] to filter
+
+
+training:
+  seed: 423985693
+  init_lr: 1e-4
+  batch_size: 64
+  max_epochs: 50
+  cosine_warmup_ratio_or_step: 0.1
+  log_interval: 10
+  patience: 10
+  grad_accumulation_steps: 1
+  enable_fp16: false
+  notes: "Finetuning a randomly initialized model on location classification (no pretraining)"
+
+  # Finetuning-specific settings
+  finetune_mode: "full"  # must train all layers - there is no pretrained knowledge to freeze/preserve
+  tasks: []  # Empty for finetuning (not used, model uses finetune_forward)
+
+  # Not used in finetuning but kept for compatibility
+  train_mask_ratio: null
+  masking_prob: null
+
+validation:
+  batch_size: 64
+  eval_interval_epochs: 1
+
+# Model architecture - chosen independently, no pretrained checkpoint to match
+model:
+  params:
+    d_model: 128
+    seq_len: 200
+    nhead: 8
+    d_hid: 512
+    nlayers: 7
+    dropout: 0.1
+    abundance_emb_style: "continuous"
+    sample_emb_style: "cls"
+    use_gnn: false
+
+debug:
+  nrows: null
+  start_over: false

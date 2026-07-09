@@ -515,17 +515,19 @@ def prepare_finetune_data(cfg, accelerator):
     
     labels = adata_train_task.obs[label_column].values
 
-    # 2. Load vocabularies (must exist from training)
-    logger.info("Loading vocabularies from training...")
-    
-    if not Path(cfg.paths.taxa_vocab_path).exists():
-        raise FileNotFoundError(
-            f"Taxa vocabulary not found at {cfg.paths.taxa_vocab_path}. "
-            "Please run training first to generate vocabularies."
+    # 2. Load vocabularies (from a prior pretraining run) or build fresh (random-init finetuning)
+    if Path(cfg.paths.taxa_vocab_path).exists():
+        logger.info(f"Loading taxa vocabulary from: {cfg.paths.taxa_vocab_path}")
+        taxa_vocab = TaxaVocabulary.load(cfg.paths.taxa_vocab_path)
+    else:
+        logger.info(
+            f"No taxa vocabulary found at {cfg.paths.taxa_vocab_path}. "
+            "Building a new vocabulary from the downstream training data "
+            "(random-weight-init finetuning)."
         )
-    
-    taxa_vocab = TaxaVocabulary.load(cfg.paths.taxa_vocab_path)
-    logger.info(f"Loaded taxa vocabulary: {len(taxa_vocab)} taxa")
+        taxa_vocab = TaxaVocabulary.from_adata(adata_train)
+        taxa_vocab.save(cfg.paths.taxa_vocab_path)
+    logger.info(f"Taxa vocabulary: {len(taxa_vocab)} taxa")
 
 
     # # Create vocabularies
