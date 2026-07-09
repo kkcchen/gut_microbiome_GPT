@@ -3,7 +3,7 @@
 #SBATCH -A aip-brudno
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=16
-#SBATCH --time=10:00:00
+#SBATCH --time=1:30:00
 #SBATCH --array=0-8
 #SBATCH --gres=gpu:1
 #SBATCH --output=logs/refactored/pretrain/real_runs/%a_%j.out
@@ -13,7 +13,7 @@ set -euo pipefail
 
 # prepare your environment here
 source ~/hmbenv/bin/activate
-cd /project/aip-brudno/gut_microbiome_GPT
+cd /project/aip-brudno/kchen13/gut_microbiome_GPT
 
 CONFIG_LIST="configs/pretrain/real_runs/config_list.txt"
 CONFIG=$(sed -n "$((SLURM_ARRAY_TASK_ID+1))p" "$CONFIG_LIST")
