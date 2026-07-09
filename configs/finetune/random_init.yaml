@@ -48,6 +48,7 @@ training:
   # Finetuning-specific settings
   finetune_mode: "full"  # must train all layers - there is no pretrained knowledge to freeze/preserve
   tasks: []  # Empty for finetuning (not used, model uses finetune_forward)
+  use_class_weights: true  # Weight the classification loss inversely to class frequency (train-split), helps with class imbalance
 
   # Not used in finetuning but kept for compatibility
   train_mask_ratio: null

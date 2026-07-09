@@ -6,6 +6,7 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
+from sklearn.utils.class_weight import compute_class_weight
 from pathlib import Path
 from typing import Dict, Tuple, Optional
 from sklearn.model_selection import train_test_split
@@ -586,9 +587,19 @@ def prepare_finetune_data(cfg, accelerator):
     )
     
     logger.info(f"[Data Preparation] Train samples: {len(train_idx)}, Validation samples: {len(val_idx)}")
-    
 
-    
+    # Compute class weights from the training split to counter class imbalance
+    class_weights = None
+    if cfg.training.finetune_task == 'classification' and cfg.training.get('use_class_weights', False):
+        train_labels = labels_encoded[train_idx]
+        class_weights_np = compute_class_weight(
+            class_weight='balanced',
+            classes=np.arange(num_classes),
+            y=train_labels
+        )
+        class_weights = torch.tensor(class_weights_np, dtype=torch.float32)
+        logger.info(f"[Data Preparation] Using balanced class weights: {class_weights_np}")
+
     # Create datasets
     train_dataset = FinetuningDataset(
         adata=adata_train_task[train_idx],
@@ -662,5 +673,6 @@ def prepare_finetune_data(cfg, accelerator):
         'taxa_vocab': taxa_vocab,
         'batch_vocab': batch_vocab,
         'num_classes': num_classes,
+        'class_weights': class_weights,
         'graph_data': graph_data  # TODO: Add graph support if needed
     }

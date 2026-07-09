@@ -1,0 +1,49 @@
+# Registry of downstream finetuning tasks, driving the automatic
+# pretrain -> finetune-all-tasks chain in scripts/train.py.
+#
+# label_column matches the adata.obs column read by
+# utils/data_pipeline.py:prepare_finetune_data (categorical_label vs
+# continuous_label), and finetune_task matches training.finetune_task
+# ("classification" or "regression").
+#
+# sunflower_seed_oil_emollient_therapy is intentionally excluded: it's the
+# only downstream task with non-empty ignored_labels (see
+# configs/eval/default.yaml's downstream_tasks_config), which
+# prepare_finetune_data does not currently filter for.
+tasks:
+  age:
+    finetune_task: regression
+    label_column: continuous_label
+  bmi:
+    finetune_task: regression
+    label_column: continuous_label
+  sex:
+    finetune_task: classification
+    label_column: categorical_label
+  supplement:
+    finetune_task: classification
+    label_column: categorical_label
+  helicobacter_pylori_infection:
+    finetune_task: classification
+    label_column: categorical_label
+  hbv_infection:
+    finetune_task: classification
+    label_column: categorical_label
+  hiv_infection:
+    finetune_task: classification
+    label_column: categorical_label
+  chemotherapy:
+    finetune_task: classification
+    label_column: categorical_label
+  type_1_diabetes:
+    finetune_task: classification
+    label_column: categorical_label
+  crohns_disease:
+    finetune_task: classification
+    label_column: categorical_label
+  diarrhea:
+    finetune_task: classification
+    label_column: categorical_label
+  location:
+    finetune_task: classification
+    label_column: categorical_label

@@ -71,6 +71,7 @@ def main(cfg):
     batch_vocab = data_artifacts['batch_vocab']
     graph_data = data_artifacts['graph_data']
     num_classes = data_artifacts['num_classes']
+    class_weights = data_artifacts['class_weights']
     
     # Build model configuration
     logger.info("\nBuilding model configuration...")
@@ -126,6 +127,7 @@ def main(cfg):
         taxa_vocab=taxa_vocab,
         batch_vocab=batch_vocab,
         graph_data=graph_data,
+        class_weights=class_weights,
     )
     
     # Start finetuning

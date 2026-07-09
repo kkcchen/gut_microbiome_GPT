@@ -29,21 +29,27 @@ class MicrobiomeTrainer:
         taxa_vocab,
         batch_vocab: Optional[object] = None,
         graph_data: Optional[torch.Tensor] = None,
+        class_weights: Optional[torch.Tensor] = None,
     ):
         """
         Initialize trainer with configuration and artifacts.
-        
+
         :param cfg: Configuration object (OmegaConf).
         :param accelerator: HuggingFace Accelerator instance.
         :param taxa_vocab: Taxa vocabulary object.
         :param batch_vocab: Batch vocabulary object (optional).
         :param graph_data: Optional graph data for GNN (PyTorch Geometric Data).
+        :param class_weights: Optional per-class loss weights for classification finetuning,
+            e.g. to counter class imbalance (shape [num_classes]).
         """
         self.cfg = cfg
         self.accelerator = accelerator
         self.taxa_vocab = taxa_vocab
         self.batch_vocab = batch_vocab
         self.graph_data = graph_data
+        self.class_weights = (
+            class_weights.to(accelerator.device) if class_weights is not None else None
+        )
         
         # Training config
         if 'grad_clip' not in cfg.training:
@@ -396,7 +402,7 @@ class MicrobiomeTrainer:
             
             # Compute finetuning loss
             if model.finetune_task == 'classification':
-                loss = F.cross_entropy(predictions, labels.long())
+                loss = F.cross_entropy(predictions, labels.long(), weight=self.class_weights)
                 metrics = {'finetune_loss': loss.item()}
                 
                 # Add accuracy metric

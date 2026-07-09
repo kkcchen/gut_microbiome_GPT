@@ -74,3 +74,18 @@ model:
 debug:
   nrows: 50
   start_over: true
+
+# Drives the automatic finetune-all-tasks chain (see utils/finetune_orchestration.py)
+# that scripts/train.py runs after pretraining finishes.
+finetune:
+  paths:
+    downstream_train: "/project/aip-rahulgk/gutmodel/hmc_final_fixed/downstream_train.h5ad"
+    downstream_test: "/project/aip-rahulgk/gutmodel/hmc_final_fixed/downstream_test.h5ad"
+  training:
+    init_lr: 1e-4
+    max_epochs: 2  # kept low for the debug config so the full chain finishes quickly
+    patience: 2
+    finetune_mode: "partial"
+    batch_size: 64
+    use_class_weights: true
+  val_size: 0.2

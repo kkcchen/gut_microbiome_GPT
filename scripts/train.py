@@ -14,6 +14,7 @@ from utils.config_utils import load_and_validate_config, save_training_artifacts
 from utils.model_utils import build_model_config, initialize_training_components
 from utils.checkpoint_utils import setup_directories
 from utils.data_pipeline import prepare_microbiome_data
+from utils.finetune_orchestration import require_finetune_section, run_all_downstream_finetunes
 from trainers.trainer import MicrobiomeTrainer
 from trainers import logger
 
@@ -53,9 +54,14 @@ def main(cfg):
     
     :param cfg: OmegaConf configuration object containing all hyperparameters.
     """
+    # Fail fast: pretraining now always chains into finetuning across every task in
+    # configs/finetune/task_registry.yaml, so a missing 'finetune:' block should stop
+    # the run before any expensive pretraining work starts, not after.
+    require_finetune_section(cfg)
+
     cfg, accelerator = setup_training_environment(cfg)
-    
-    
+
+
     logger.info("Preparing microbiome data...")
     data_artifacts = prepare_microbiome_data(
         cfg=cfg,
@@ -136,6 +142,12 @@ def main(cfg):
     )
     
     logger.info("Training complete!")
+
+    if accelerator.is_main_process:
+        logger.info("Starting automatic finetuning across all downstream tasks...")
+        run_all_downstream_finetunes(cfg, accelerator)
+    accelerator.wait_for_everyone()
+
     accelerator.end_training()
 
 
