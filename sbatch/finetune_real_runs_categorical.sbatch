@@ -3,7 +3,7 @@
 #SBATCH -A aip-brudno
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=8
-#SBATCH --time=24:00:00
+#SBATCH --time=1:00:00
 #SBATCH --gres=gpu:1
 #SBATCH --output=logs/finetune/real_runs/%x_%j.out
 #SBATCH --error=logs/finetune/real_runs/%x_%j.err
@@ -20,7 +20,7 @@ set -uo pipefail
 RUN_NAME=${1:?"Usage: sbatch finetune_real_runs_categorical.sbatch <run_name, e.g. bins10_mask015>"}
 
 source ~/hmbenv/bin/activate
-cd /project/aip-brudno/gut_microbiome_GPT
+cd /project/aip-brudno/kchen13/gut_microbiome_GPT
 
 python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not available. Exiting.'" || exit 1
 
@@ -112,7 +112,8 @@ for TASK in "${TASKS[@]}"; do
 
     TASK_LOG="${LOG_DIR}/${TASK}.log"
 
-    python scripts/finetune.py --config "${BASE_CONFIG}" \
+    
+        accelerate launch -m scripts.finetune --config "${BASE_CONFIG}" \
         paths.downstream_train="${TRAIN_H5AD}" \
         paths.downstream_test="${TEST_H5AD}" \
         paths.output_dir="${OUTPUT_ROOT}/${TASK}" \

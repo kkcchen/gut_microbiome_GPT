@@ -10,7 +10,7 @@
 
 # prepare your environment here
 source ~/hmbenv/bin/activate
-cd /project/aip-brudno/gut_microbiome_GPT
+cd /project/aip-brudno/kchen13/gut_microbiome_GPT
 
 
 # python -m wandb login 7559085cf6a63fa75982fe12e737bdd576c4fc62
