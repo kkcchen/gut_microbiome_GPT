@@ -55,7 +55,7 @@ model:
     d_hid: 512
     nlayers: 3 #3 7
     dropout: 0.1
-    abundance_emb_style: "continuous" # choices: scaling, continuous, category
+    abundance_emb_style: "continuous" # choices: scaling, continuous, concatenation
     # freeze_vocab: false
     # freeze_value_encoder: false
     # do_attn_mask: false

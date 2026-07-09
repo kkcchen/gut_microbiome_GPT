@@ -82,8 +82,8 @@ class hgmGPT(nn.Module):
         :param dropout: The dropout rate.
         :type dropout: float
         :param abundance_emb_style: The style of abundance embedding to use. One of "continuous"
-            (additive), "scaling" (elementwise multiplicative), "category" (unimplemented), or
-            "concatenation" (concat taxa-id and abundance embeddings, then project back to d_model).
+            (additive), "scaling" (elementwise multiplicative), or "concatenation" (concat taxa-id
+            and abundance embeddings, then project back to d_model).
         :type abundance_emb_style: str
         :param use_gnn: Whether to use a graph neural network for taxa encoding.
         :type use_gnn: bool
@@ -91,7 +91,7 @@ class hgmGPT(nn.Module):
         :type num_gnn_nodes: Optional[int]
         :param tasks: The list of tasks to perform, e.g., denoising, bottleneck
         :type tasks: List[str]
-        :param model_distribution: The distribution model to use, e.g., "zinb"
+        :param model_distribution: The distribution model to use, e.g., "dm"
         :type model_distribution: Optional[str]
         :param finetune_mode: The finetuning mode to use, e.g., "none", "full", "partial"
         :type finetune_mode: str
@@ -105,7 +105,7 @@ class hgmGPT(nn.Module):
         self.d_model = d_model
         self.use_batch_labels = use_batch_labels
         self.num_batch_labels = num_batch_labels
-        self.abundance_emb_style = abundance_emb_style # default, continuous, mentioned in paper. could try using category encoding but this is likely less expressive. "concatenation" combines via concat+linear projection instead of add/multiply
+        self.abundance_emb_style = abundance_emb_style # default, continuous, mentioned in paper. "concatenation" combines via concat+linear projection instead of add/multiply
         self.nhead = nhead
         self.tasks = tasks
         self.model_distribution = model_distribution
@@ -119,9 +119,9 @@ class hgmGPT(nn.Module):
         self.freeze_preinitialized_embeddings = freeze_preinitialized_embeddings
         self.preinitialized_embedding_projection = preinitialized_embedding_projection
         self.use_gnn = use_gnn
-        if self.abundance_emb_style not in ["category", "continuous", "scaling", "concatenation"]:
+        if self.abundance_emb_style not in ["continuous", "scaling", "concatenation"]:
             raise ValueError(
-                f"abundance_emb_style should be one of category, continuous, scaling, concatenation, "
+                f"abundance_emb_style should be one of continuous, scaling, concatenation, "
                 f"got {abundance_emb_style}"
             )
         self.seq_len = seq_len
@@ -447,10 +447,8 @@ class hgmGPT(nn.Module):
 
         Returns:
             Dictionary containing task-specific predictions:
-                - For denoising with ZINB: {"denoising_mean", "denoising_disp", "denoising_pi"}
+                - For denoising with Dirichlet-Multinomial: {"denoising_mean"}
                 - For denoising without dist: {"denoising_pred"}
-                - For bottleneck with ZINB: {"bottleneck_mean", "bottleneck_disp", "bottleneck_pi"}
-                - For bottleneck without dist: {"bottleneck_pred"}
         """
         output = {}
         
@@ -520,39 +518,32 @@ class hgmGPT(nn.Module):
 
 
     def _get_sample_embedding(
-        self, transformer_output: Tensor, weights: Tensor = None
+        self, transformer_output: Tensor
     ) -> Tensor:
         """
         helper function for retrieving sample embedding vector from the transformer output.
-        depends on self.sample_emb_style. 
+        depends on self.sample_emb_style.
         IF self.sample_emb_style == "cls", then take the first token output as the sample embedding.
         IF self.sample_emb_style == "avg-pool", then take the average of all token outputs as the sample embedding.
-        IF self.sample_emb_style == "w-pool", then take the weighted average of all token outputs as the sample embedding,
-        with weights provided as input.
 
         Args:
             transformer_output(:obj:`Tensor`): shape (batch, seq_len + number of special tokens, d_model)
-            weights(:obj:`Tensor`): shape (batch, seq_len + number of special tokens), optional and only used
-                when :attr:`self.sample_emb_style` is "w-pool".
 
         Returns:
             :obj:`Tensor`: shape (batch, embsize)
         """
-        # number of special tokens at the beginning of the sequence: 
+        # number of special tokens at the beginning of the sequence:
         # Sample Token always exists. Batch Token exists if use_batch_labels is True.
         n_special = 2 if self.use_batch_labels else 1
-            
+
         if self.sample_emb_style == "cls":
             sample_emb = transformer_output[:, 0, :]  # (batch, embsize)
         elif self.sample_emb_style == "avg-pool":
             sample_emb = torch.mean(transformer_output[:, n_special:, :], dim=1)
-        elif self.sample_emb_style == "w-pool":
-            if weights is None:
-                raise ValueError("weights is required when sample_emb_style is w-pool")
-            if weights.dim() != 2:
-                raise ValueError("weights should be 2D")
-            sample_emb = torch.sum((transformer_output * weights.unsqueeze(2))[:, n_special:, :], dim=1)
-            sample_emb = F.normalize(sample_emb, p=2, dim=1)  # (batch, embsize)
+        else:
+            raise ValueError(
+                f"sample_emb_style should be one of cls, avg-pool, got {self.sample_emb_style}"
+            )
 
         return sample_emb
     

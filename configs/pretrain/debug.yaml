@@ -59,10 +59,10 @@ model:
     d_hid: 64
     nlayers: 2
     dropout: 0.1
-    abundance_emb_style: "continuous" # choices: scaling, continuous, category, concatenation
+    abundance_emb_style: "continuous" # choices: scaling, continuous, concatenation
     use_gnn: false
-    sample_emb_style: "cls" # choices: cls, avg-pool, w-pool
-    model_distribution: null # choices: zinb, dm -- only required if "denoising" is in tasks
+    sample_emb_style: "cls" # choices: cls, avg-pool
+    model_distribution: null # choices: dm -- only required if "denoising" is in tasks
     seq_len: null # only used by the "denoising_from_token" task
     preinitialized_taxa_embedding_path: null
     freeze_preinitialized_embeddings: false

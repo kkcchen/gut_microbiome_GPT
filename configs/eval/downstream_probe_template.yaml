@@ -70,7 +70,7 @@ model:
     d_hid: 512
     nlayers: 3
     dropout: 0.1
-    abundance_emb_style: "continuous" # choices: scaling, continuous, category
+    abundance_emb_style: "continuous" # choices: scaling, continuous, concatenation
     use_gnn: false
 
 downstream_tasks_config:

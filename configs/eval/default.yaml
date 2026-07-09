@@ -34,11 +34,11 @@ model:
     d_hid: 512
     nlayers: 3
     dropout: 0.1
-    abundance_emb_style: "continuous" # choices: scaling, continuous, category
+    abundance_emb_style: "continuous" # choices: scaling, continuous, concatenation
     # Example: If you change architecture, just add new keys here
     # activation: "gelu" 
     # use_flash_attn: true
-    model_distribution: "zinb" # choices: zinb,...
+    model_distribution: "dm" # choices: dm
     use_gnn: false
 
 # optional, if you want to specify downstream tasks
