@@ -149,10 +149,5 @@ def apply_normalization(norm_strategy,
         return bins.astype(np.float32)
     elif norm_strategy == 'binary':
         return (counts > 0).astype(np.float32)
-    elif norm_strategy == 'arcsine':
-        counts_pc = counts + 1e-8
-        counts_closed = closure(counts_pc)
-        arcsine_transformed = np.arcsin(np.sqrt(counts_closed))
-        return arcsine_transformed.astype(np.float32)
     else:
         raise ValueError(f"Unknown normalization strategy: {norm_strategy}")

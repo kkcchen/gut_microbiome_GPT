@@ -37,7 +37,7 @@ validation:
   eval_interval_epochs: 1
 
 data:
-  norm_strategy: "clr" # choices: clr, none, rel_abundance, log_rel_abundance, log_counts, binning, binary, arcsine
+  norm_strategy: "clr" # choices: clr, none, rel_abundance, log_rel_abundance, log_counts, binning, binary
   split_key: "study_id" # we probably want to split train/val by entire studies, so it resembles close to real-world/test scenario
   val_size: 0.1
   use_batch_labels: false

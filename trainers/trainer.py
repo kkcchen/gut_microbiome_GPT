@@ -445,6 +445,7 @@ class MicrobiomeTrainer:
             outputs=outputs,
             targets={
                 'original_counts': original_counts,
+                'normalized_counts': normalized_counts,
                 'taxa_ids': taxa_ids,
                 'expressed_mask': expressed_mask,
                 'original_depth': original_depth,
@@ -569,6 +570,7 @@ class MicrobiomeTrainer:
         if MASKING_TASKS.intersection(tasks):
             masking_mask = original["masking_mask"].bool()
             is_binary = (norm_strategy == 'binary')
+            is_binning = (norm_strategy == 'binning')
             log_transformed_targets = (norm_strategy == 'clr' or norm_strategy == 'log_rel_abundance' or norm_strategy == 'log_counts')
 
             if 'masking' in tasks:
@@ -583,6 +585,9 @@ class MicrobiomeTrainer:
                         correct = ((preds_binary == targets_binary) * masking_mask).sum()
                         accuracy = correct / (masking_mask.sum() + 1e-6)
                         metrics['masking_binary_acc'] = accuracy.item()
+                elif is_binning:
+                    bin_target = targets['normalized_counts'] / cfg.data.get('num_bins', 15)
+                    masking_loss = masked_mse_loss_counts(masking_logits, bin_target, masking_mask, log_transform=False)
                 else:
                     masking_loss = masked_mse_loss(masking_logits, targets['original_counts'], masking_mask, log_transform=log_transformed_targets)
                 loss += masking_loss
@@ -603,6 +608,11 @@ class MicrobiomeTrainer:
                         correct = ((preds_binary == targets_binary) * masking_mask).sum()
                         accuracy = correct / (masking_mask.sum() + 1e-6)
                         metrics['masking_from_cls_binary_acc'] = accuracy.item()
+                elif is_binning:
+                    bin_target = targets['normalized_counts'] / cfg.data.get('num_bins', 15)
+                    masking_from_cls_loss = w * masked_mse_loss_counts(
+                        cls_masking_logits, bin_target, masking_mask, log_transform=False
+                    )
                 else:
                     masking_from_cls_loss = w * masked_mse_loss(
                         cls_masking_logits, targets['original_counts'], masking_mask, log_transform=log_transformed_targets

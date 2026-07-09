@@ -55,7 +55,7 @@ data:
   # (norm_strategy, use_batch_labels, max_seq_len) - check that model's own
   # train/finetune config. Defaults below follow the common repo convention.
   batch_size: 64
-  norm_strategy: "clr" # choices: clr, none, binning, binary, rel_abundance, log_rel_abundance, log_counts, arcsine
+  norm_strategy: "clr" # choices: clr, none, binning, binary, rel_abundance, log_rel_abundance, log_counts
   split_key: "study_id"
   use_batch_labels: true
   max_seq_len: 200
