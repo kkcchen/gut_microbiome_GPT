@@ -1,0 +1,144 @@
+# Downstream probe template: given ANY trained model checkpoint (pretrain- or
+# finetune-produced), extract its output embeddings and run classical ML
+# (xgboost / random_forest / linear / tabpfn) on them, all via the existing
+# generic pipeline: scripts/eval.py -> utils/downstream_utils.py ->
+# utils/downstream_models_utils.py (MODEL_REGISTRY). No new code required.
+#
+# This works unmodified for a pretrain (scripts/train.py) or a finetune
+# (scripts/finetune.py) checkpoint, because utils/checkpoint_utils.py's
+# setup_directories_eval() always derives taxa_vocab.pkl/model_config.json
+# from `paths.pretrained_model_dir`, and both training scripts save those
+# artifacts into their own `output_dir`.
+#
+# HOW TO REUSE FOR A NEW EXPERIMENT (pick one):
+#   1) Copy this file and edit the `paths`/`data` sections below, or
+#   2) Reuse this file as-is with CLI dotlist overrides, e.g.:
+#      python scripts/eval.py --config configs/eval/downstream_probe_template.yaml \
+#        paths.pretrained_model_dir=outputs/finetune/random_init_location \
+#        paths.checkpoint_path=outputs/finetune/random_init_location/best_model/best_model/pytorch_model.bin \
+#        paths.eval_files=[/path/to/downstream_train.h5ad,/path/to/downstream_test.h5ad]
+
+paths:
+  # Directory containing taxa_vocab.pkl + model_config.json, i.e. the
+  # `output_dir` of the train.py/finetune.py run that produced the model.
+  pretrained_model_dir: "outputs/REPLACE_ME_WITH_MODEL_OUTPUT_DIR"
+
+  # Path to the actual weights file inside that dir. Local runs from
+  # trainers/trainer.py save to one of:
+  #   <pretrained_model_dir>/best_model/best_model/pytorch_model.bin
+  #   <pretrained_model_dir>/best_model/best_model/model.safetensors
+  # (or supply an arbitrary externally-produced checkpoint path).
+  checkpoint_path: "outputs/REPLACE_ME_WITH_MODEL_OUTPUT_DIR/best_model/best_model/pytorch_model.bin"
+
+  # Where extracted embeddings (.h5ad) and downstream_tasks/ results go.
+  output_dir: "outputs/eval/REPLACE_ME_WITH_EXPERIMENT_NAME"
+
+  # Train/test .h5ad files to embed and probe. Must be compatible with the
+  # taxa vocab the target model was trained/finetuned on.
+  eval_files:
+    - "REPLACE_ME/downstream_train.h5ad"
+    - "REPLACE_ME/downstream_test.h5ad"
+
+eval:
+  seed: 42
+  overwrite_output_dir: true
+  embedding_type: "cls" # choices: cls, mean, sum (pooling is actually controlled by the model's own sample_emb_style)
+  return_full_output: false
+  save_embeddings: true
+  save_metadata: true
+  tasks: ['masking'] # unused for embedding extraction, kept for build_model_config compatibility
+  eval_on_downstream_tasks: true
+  with_model: true # set to false (see configs/eval/raw.yaml) to run these same probes on raw features instead, as a baseline
+
+data:
+  # NOTE: these must match the values used to TRAIN the target model
+  # (norm_strategy, use_batch_labels, max_seq_len) - check that model's own
+  # train/finetune config. Defaults below follow the common repo convention.
+  batch_size: 64
+  norm_strategy: "clr" # choices: clr, none, binning, binary, rel_abundance, log_rel_abundance, log_counts, arcsine
+  split_key: "study_id"
+  use_batch_labels: true
+  max_seq_len: 200
+  num_workers: 4
+
+model:
+  # Fallback architecture, only used if model_config_path is missing.
+  # Normally overridden entirely by the saved model_config.json.
+  params:
+    d_model: 128
+    nhead: 8
+    d_hid: 512
+    nlayers: 3
+    dropout: 0.1
+    abundance_emb_style: "continuous" # choices: scaling, continuous, category
+    use_gnn: false
+
+downstream_tasks_config:
+  methods:
+    # search_type: grid | random | none. "random" runs RandomizedSearchCV
+    # over each method's parameter distributions (see
+    # utils/downstream_models_utils.py for exact search spaces).
+    # TabPFN ignores search_type (no hyperparameter tuning available).
+    xgboost:
+      search_type: "random"
+    random_forest:
+      search_type: "random"
+    linear:
+      search_type: "random"
+    tabpfn:
+      search_type: "random"
+  tasks:
+    # Delete any tasks you don't want probed. label_type determines
+    # classification (categorical_label) vs regression (continuous_label).
+    age:
+      label_type: "continuous_label"
+      ignored_labels: []
+      target_col: "downstream_task"
+    bmi:
+      label_type: "continuous_label"
+      ignored_labels: []
+      target_col: "downstream_task"
+    sex:
+      label_type: "categorical_label"
+      ignored_labels: []
+      target_col: "downstream_task"
+    supplement:
+      label_type: "categorical_label"
+      ignored_labels: []
+      target_col: "downstream_task"
+    helicobacter_pylori_infection:
+      label_type: "categorical_label"
+      ignored_labels: []
+      target_col: "downstream_task"
+    hbv_infection:
+      label_type: "categorical_label"
+      ignored_labels: []
+      target_col: "downstream_task"
+    hiv_infection:
+      label_type: "categorical_label"
+      ignored_labels: []
+      target_col: "downstream_task"
+    sunflower_seed_oil_emollient_therapy:
+      label_type: "categorical_label"
+      ignored_labels: ['extraction_control']
+      target_col: "downstream_task"
+    chemotherapy:
+      label_type: "categorical_label"
+      ignored_labels: []
+      target_col: "downstream_task"
+    type_1_diabetes:
+      label_type: "categorical_label"
+      ignored_labels: []
+      target_col: "downstream_task"
+    crohns_disease:
+      label_type: "categorical_label"
+      ignored_labels: []
+      target_col: "downstream_task"
+    diarrhea:
+      label_type: "categorical_label"
+      ignored_labels: []
+      target_col: "downstream_task"
+    location:
+      label_type: "categorical_label"
+      ignored_labels: []
+      target_col: "downstream_task"

@@ -46,11 +46,6 @@ data:
   
 
 model:
-  
-  tasks:
-    do_mvc: false
-    do_taxa_decoder: false
-
   # === FLEXIBLE ARCHITECTURE SECTION ===
   # Any key added here is automatically passed to the model config dict
   params:
