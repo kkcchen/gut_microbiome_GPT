@@ -1,0 +1,12 @@
+configs/pretrain/real_runs/stage2_masking_mask030.yaml
+configs/pretrain/real_runs/stage2_masking_mask050.yaml
+configs/pretrain/real_runs/stage2_masking_mask080.yaml
+configs/pretrain/real_runs/stage2_masking_from_cls_mask030.yaml
+configs/pretrain/real_runs/stage2_masking_from_cls_mask050.yaml
+configs/pretrain/real_runs/stage2_masking_from_cls_mask080.yaml
+configs/pretrain/real_runs/stage2_masking_taxa_mask030.yaml
+configs/pretrain/real_runs/stage2_masking_taxa_mask050.yaml
+configs/pretrain/real_runs/stage2_masking_taxa_mask080.yaml
+configs/pretrain/real_runs/stage2_combined_mask030.yaml
+configs/pretrain/real_runs/stage2_combined_mask050.yaml
+configs/pretrain/real_runs/stage2_combined_mask080.yaml

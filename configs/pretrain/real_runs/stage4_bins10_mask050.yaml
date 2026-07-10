@@ -1,0 +1,80 @@
+paths:
+  output_dir: outputs/pretrain/real_runs/stage4_bins10_mask050
+  model_config_path: ${paths.output_dir}/model_config.json
+  ann_table_path: /scratch/kchen13/hmc_final_fixed/pretrain.h5ad
+checkpoint_path: null
+wandb:
+  enabled: true
+  entity: haoze-deng-university-of-toronto
+  project: microbiome-pretrain-sweep-stage4
+  run_name: stage4_bins10_mask050
+  run_notes: 'Stage 4 fine sweep: num_bins=10, masking_prob=0.5 (on assumed Stage
+    3 winner architecture: {''sample_emb_style'': ''cls'', ''abundance_emb_style'':
+    ''continuous'', ''use_batch_labels'': True}, Stage 2 tasks: [''masking''])'
+training:
+  seed: 42
+  init_lr: 0.001
+  batch_size: 64
+  max_epochs: 200
+  cosine_warmup_ratio_or_step: 0.1
+  log_interval: 10
+  patience: 20
+  grad_accumulation_steps: 1
+  enable_fp16: false
+  notes: 'Stage 4 fine sweep: num_bins=10, masking_prob=0.5 (on assumed Stage 3 winner
+    architecture: {''sample_emb_style'': ''cls'', ''abundance_emb_style'': ''continuous'',
+    ''use_batch_labels'': True}, Stage 2 tasks: [''masking''])'
+  tasks:
+  - masking
+  masking_prob: 0.5
+  masking_taxa_prob: 0.15
+  optimizer: adamw
+  lr_scheduler: cosine
+  grad_clip: 1.0
+  checkpoint_every: 5
+  finetune_mode: none
+  w_denoising: 1.0
+  w_masking_from_cls: 1.0
+  w_masking_taxa: 1.0
+validation:
+  batch_size: 64
+  eval_interval_epochs: 1
+data:
+  norm_strategy: binning
+  num_bins: 10
+  split_key: study_id
+  val_size: 0.1
+  use_batch_labels: true
+  max_seq_len: 200
+  num_workers: 4
+  metadata_fields: []
+model:
+  params:
+    d_model: 128
+    nhead: 8
+    d_hid: 512
+    nlayers: 3
+    dropout: 0.1
+    abundance_emb_style: continuous
+    use_gnn: false
+    sample_emb_style: cls
+    model_distribution: null
+    seq_len: null
+    preinitialized_taxa_embedding_path: null
+    freeze_preinitialized_embeddings: false
+    preinitialized_embedding_projection: linear
+debug:
+  nrows: null
+  start_over: true
+finetune:
+  paths:
+    downstream_train: /scratch/kchen13/hmc_final_fixed/downstream_train.h5ad
+    downstream_test: /scratch/kchen13/hmc_final_fixed/downstream_test.h5ad
+  training:
+    init_lr: 0.0001
+    max_epochs: 50
+    patience: 10
+    finetune_mode: partial
+    batch_size: 64
+    use_class_weights: true
+  val_size: 0.2

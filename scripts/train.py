@@ -3,6 +3,7 @@ Microbiome Representation Learning Training Script
 Main entry point for pretraining transformer models on microbiome data.
 """
 import argparse
+import sys
 import torch
 import numpy as np
 import random
@@ -14,7 +15,7 @@ from utils.config_utils import load_and_validate_config, save_training_artifacts
 from utils.model_utils import build_model_config, initialize_training_components
 from utils.checkpoint_utils import setup_directories
 from utils.data_pipeline import prepare_microbiome_data
-from utils.finetune_orchestration import require_finetune_section, run_all_downstream_finetunes
+from utils.finetune_orchestration import require_finetune_section, require_single_process, run_all_downstream_finetunes
 from trainers.trainer import MicrobiomeTrainer
 from trainers import logger
 
@@ -61,6 +62,10 @@ def main(cfg):
 
     cfg, accelerator = setup_training_environment(cfg)
 
+    # Fail fast on every rank: the auto-finetune chain deadlocks under multi-GPU DDP
+    # (see utils/finetune_orchestration.require_single_process for why), so refuse to
+    # even start pretraining rather than fail confusingly after hours of training.
+    require_single_process(accelerator)
 
     logger.info("Preparing microbiome data...")
     data_artifacts = prepare_microbiome_data(
@@ -143,12 +148,25 @@ def main(cfg):
     
     logger.info("Training complete!")
 
-    if accelerator.is_main_process:
-        logger.info("Starting automatic finetuning across all downstream tasks...")
-        run_all_downstream_finetunes(cfg, accelerator)
+    logger.info("Starting automatic finetuning across all downstream tasks...")
+    # No-ops (returns all "pending") on non-main processes -- safe to call on every rank.
+    task_results = run_all_downstream_finetunes(cfg, accelerator)
     accelerator.wait_for_everyone()
 
     accelerator.end_training()
+
+    # Exit non-zero if any finetune task didn't complete, so SLURM/job monitoring reflects
+    # partial failure instead of always reporting COMPLETED. Only the main process has real
+    # results (see run_all_downstream_finetunes); other ranks would just see "pending" and
+    # must not spuriously exit non-zero on that basis.
+    if accelerator.is_main_process:
+        num_failed = sum(1 for r in task_results.values() if r["status"] != "ok")
+        if num_failed:
+            logger.error(
+                f"{num_failed}/{len(task_results)} auto-finetune tasks did not complete successfully "
+                f"-- see finetune_summary.md and the logs above for details."
+            )
+            sys.exit(1)
 
 
 if __name__ == "__main__":

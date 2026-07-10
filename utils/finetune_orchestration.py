@@ -44,6 +44,31 @@ def require_finetune_section(pretrain_cfg) -> None:
         )
 
 
+def require_single_process(accelerator) -> None:
+    """
+    Fail fast (before any expensive work, on every rank) if pretraining was launched
+    multi-GPU/multi-process.
+
+    The auto-finetune chain reuses the pretraining process's Accelerator: it only
+    runs on the main process (other ranks just wait), and each of the 12 finetune
+    sub-runs constructs its own Accelerator in the same process. Accelerate's
+    AcceleratorState is a process-wide singleton, so under num_processes>1 this
+    deadlocks (the finetune sub-run's DDP wrapping expects collective ops from
+    ranks that never participate) or crashes (destroy_process_group() from the
+    first sub-run's cleanup breaks the next one). Checked unconditionally (not
+    gated by is_main_process) so every rank fails together instead of the other
+    ranks hanging forever at a barrier the main process never reaches.
+    """
+    if accelerator.num_processes > 1:
+        raise RuntimeError(
+            f"This pretrain config would run with {accelerator.num_processes} processes, but the "
+            "automatic finetune-all-tasks chain (utils/finetune_orchestration.py) only supports "
+            "single-GPU/single-process pretraining -- it deadlocks under multi-GPU DDP. Launch this "
+            "config on a single GPU/process instead (e.g. `--gres=gpu:1` with no `--multi_gpu` / "
+            "`--num_processes>1` accelerate launch flags)."
+        )
+
+
 def build_finetune_config(pretrain_cfg, pretrain_output_dir: str, task_name: str, task_spec: Dict):
     """
     Assemble a complete finetuning config for one downstream task, based on the
@@ -94,33 +119,49 @@ def build_finetune_config(pretrain_cfg, pretrain_output_dir: str, task_name: str
     for key, value in ft_cfg.get("training", {}).items():
         cfg.training[key] = value
     cfg.training.finetune_task = task_spec["finetune_task"]
+    # Must match the pretraining run's own enable_fp16, never the template's. Accelerate's
+    # AcceleratorState is a process-wide singleton shared with the pretraining Accelerator that's
+    # still alive when this sub-run's Accelerator gets constructed: a mismatched mixed_precision
+    # raises ValueError deep inside scripts.finetune.main(), after pretraining already finished.
+    cfg.training.enable_fp16 = pretrain_cfg.training.enable_fp16
 
     cfg.model.params = copy.deepcopy(pretrain_cfg.model.params)
 
     return cfg
 
 
-def run_all_downstream_finetunes(pretrain_cfg, accelerator) -> None:
+def run_all_downstream_finetunes(pretrain_cfg, accelerator) -> Dict[str, Dict]:
     """
     Finetune the just-completed pretraining run on every task in the task
-    registry, then write an aggregated summary. No-ops on non-main processes.
+    registry, writing (and re-writing, after every task) an aggregated summary
+    so a hard kill partway through still leaves an accurate summary of whatever
+    completed. No-ops on non-main processes.
 
     :param pretrain_cfg: OmegaConf config of the pretraining run that just finished.
     :param accelerator: Accelerator used for pretraining (checked for is_main_process).
+    :return: {task_name: {status, ...}} -- status is "ok", "failed", or "pending" (if
+        this returned early on a non-main process, before anything ran). Callers can
+        inspect this to decide whether to exit non-zero on partial failure.
     """
+    task_registry = load_task_registry()
+    task_results = {name: {"status": "pending", "finetune_task": spec["finetune_task"]}
+                     for name, spec in task_registry.items()}
+
     if not accelerator.is_main_process:
-        return
+        return task_results
 
     require_finetune_section(pretrain_cfg)
+    require_single_process(accelerator)
 
     # imported lazily to avoid import overhead / cycles for callers that never
     # actually trigger the finetuning chain (e.g. plain inference scripts)
     from scripts.finetune import main as run_single_finetune
 
     pretrain_output_dir = pretrain_cfg.paths.output_dir
-    task_registry = load_task_registry()
 
-    task_results = {}
+    # write the all-pending summary immediately, so the file exists from the very start
+    write_finetune_summary(pretrain_output_dir, task_registry, task_results)
+
     for task_name, task_spec in task_registry.items():
         logger.info("=" * 80)
         logger.info(f"AUTO-FINETUNE: starting task '{task_name}' ({task_spec['finetune_task']})")
@@ -142,7 +183,15 @@ def run_all_downstream_finetunes(pretrain_cfg, accelerator) -> None:
                 "error": str(e),
             }
 
-    write_finetune_summary(pretrain_output_dir, task_registry, task_results)
+        # re-written after every task (not just at the end) so a hard kill (walltime,
+        # OOM, node failure) partway through still leaves an accurate, current summary
+        write_finetune_summary(pretrain_output_dir, task_registry, task_results)
+
+    num_failed = sum(1 for r in task_results.values() if r["status"] != "ok")
+    if num_failed:
+        logger.error(f"AUTO-FINETUNE: {num_failed}/{len(task_results)} tasks did not complete successfully.")
+
+    return task_results
 
 
 def _fmt(value, digits: int = 4) -> str:
@@ -166,7 +215,17 @@ def write_finetune_summary(pretrain_output_dir: str, task_registry: Dict[str, Di
     """
     rows = []
     for task_name in task_registry:
-        result = task_results.get(task_name, {"status": "failed", "error": "not run"})
+        result = task_results.get(task_name, {"status": "pending"})
+
+        if result["status"] == "pending":
+            rows.append({
+                "task": task_name,
+                "type": result.get("finetune_task", "–"),
+                "status": "pending",
+                "accuracy": None, "f1_macro": None, "f1_weighted": None,
+                "auroc": None, "mae": None, "rmse": None, "r2": None,
+            })
+            continue
 
         if result["status"] == "failed":
             rows.append({

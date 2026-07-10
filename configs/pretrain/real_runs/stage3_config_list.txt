@@ -1,0 +1,5 @@
+configs/pretrain/real_runs/stage3_baseline.yaml
+configs/pretrain/real_runs/stage3_sample_emb_avgpool.yaml
+configs/pretrain/real_runs/stage3_abundance_emb_scaling.yaml
+configs/pretrain/real_runs/stage3_abundance_emb_concatenation.yaml
+configs/pretrain/real_runs/stage3_no_batch_labels.yaml

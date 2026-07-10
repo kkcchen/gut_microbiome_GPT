@@ -1,0 +1,9 @@
+configs/pretrain/real_runs/stage4_bins5_mask030.yaml
+configs/pretrain/real_runs/stage4_bins5_mask050.yaml
+configs/pretrain/real_runs/stage4_bins5_mask080.yaml
+configs/pretrain/real_runs/stage4_bins10_mask030.yaml
+configs/pretrain/real_runs/stage4_bins10_mask050.yaml
+configs/pretrain/real_runs/stage4_bins10_mask080.yaml
+configs/pretrain/real_runs/stage4_bins20_mask030.yaml
+configs/pretrain/real_runs/stage4_bins20_mask050.yaml
+configs/pretrain/real_runs/stage4_bins20_mask080.yaml
