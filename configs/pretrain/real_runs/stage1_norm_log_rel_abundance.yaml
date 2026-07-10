@@ -75,7 +75,7 @@ finetune:
     downstream_test: "/scratch/kchen13/hmc_final_fixed/downstream_test.h5ad"
   training:
     init_lr: 1e-4
-    max_epochs: 50
+    max_epochs: 10
     patience: 10
     finetune_mode: "partial"
     batch_size: 64

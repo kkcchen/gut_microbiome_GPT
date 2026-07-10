@@ -297,3 +297,92 @@ def write_finetune_summary(pretrain_output_dir: str, task_registry: Dict[str, Di
     summary_path = Path(pretrain_output_dir) / "finetune_summary.md"
     summary_path.write_text("\n".join(lines) + "\n")
     logger.info(f"Saved finetuning summary to {summary_path}")
+
+    # Every pretrain config's output_dir is a sibling under the same parent (e.g.
+    # outputs/pretrain/real_runs/<config_name>/), so re-scanning that parent after each
+    # write keeps a single combined table current across all configs, including ones
+    # finetuned by a different process/job than this one.
+    combine_finetune_summaries(str(Path(pretrain_output_dir).parent))
+
+
+def combine_finetune_summaries(parent_dir: str, out_name: str = "finetune_summary_combined.md") -> None:
+    """
+    Aggregate every sibling run's finetune_summary.md directly under parent_dir (e.g.
+    outputs/pretrain/real_runs/) into one combined Markdown table at
+    <parent_dir>/<out_name>, one row per (run, task).
+
+    Re-reads each task's test_metrics.yaml directly rather than re-parsing the
+    per-run markdown files, so this has no dependency on in-memory task_results from
+    other runs' (possibly already-finished) processes -- it only needs what's on disk.
+
+    :param parent_dir: Directory containing one subdirectory per pretrain run
+        (each subdirectory optionally holding its own finetune_summary.md).
+    :param out_name: Filename for the combined summary, written under parent_dir.
+    """
+    parent = Path(parent_dir)
+    task_registry = load_task_registry()
+    run_dirs = sorted(
+        d for d in parent.iterdir()
+        if d.is_dir() and (d / "finetune_summary.md").exists()
+    )
+
+    rows = []
+    for run_dir in run_dirs:
+        for task_name, task_spec in task_registry.items():
+            metrics_path = run_dir / "finetune" / task_name / "best_model" / "test_metrics.yaml"
+            if not metrics_path.exists():
+                rows.append({
+                    "run": run_dir.name, "task": task_name, "type": task_spec["finetune_task"],
+                    "status": "MISSING",
+                    "accuracy": None, "f1_macro": None, "f1_weighted": None,
+                    "auroc": None, "mae": None, "rmse": None, "r2": None,
+                })
+                continue
+
+            metrics = OmegaConf.to_container(OmegaConf.load(metrics_path), resolve=True)
+            if task_spec["finetune_task"] == "classification":
+                auroc = metrics.get("test_auroc_weighted", metrics.get("test_auroc"))
+                f1_macro = metrics.get("test_f1_macro", metrics.get("test_f1"))
+                rows.append({
+                    "run": run_dir.name, "task": task_name, "type": "classification", "status": "OK",
+                    "accuracy": metrics.get("test_accuracy"),
+                    "f1_macro": f1_macro,
+                    "f1_weighted": metrics.get("test_f1_weighted"),
+                    "auroc": auroc,
+                    "mae": None, "rmse": None, "r2": None,
+                })
+            else:
+                rows.append({
+                    "run": run_dir.name, "task": task_name, "type": "regression", "status": "OK",
+                    "accuracy": None, "f1_macro": None, "f1_weighted": None, "auroc": None,
+                    "mae": metrics.get("test_mae"),
+                    "rmse": metrics.get("test_rmse"),
+                    "r2": metrics.get("test_r2"),
+                })
+
+    lines = [
+        "# Combined finetuning summary",
+        "",
+        f"Runs: {', '.join(d.name for d in run_dirs) if run_dirs else '(none found)'}",
+        "",
+        "| Run | Task | Type | Status | Accuracy | F1 (macro) | F1 (weighted) | AUROC* | MAE | RMSE | R² |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    for row in rows:
+        lines.append(
+            f"| {row['run']} | {row['task']} | {row['type']} | {row['status']} | "
+            f"{_fmt(row['accuracy'])} | {_fmt(row['f1_macro'])} | {_fmt(row['f1_weighted'])} | "
+            f"{_fmt(row['auroc'])} | {_fmt(row['mae'])} | {_fmt(row['rmse'])} | {_fmt(row['r2'])} |"
+        )
+    lines.append("")
+    lines.append(
+        "*AUROC is the class-weighted (support-weighted) macro-average across classes "
+        'for multi-class tasks (sklearn `average="weighted"`); the standard AUROC for binary tasks.'
+    )
+
+    combined_path = parent / out_name
+    combined_path.write_text("\n".join(lines) + "\n")
+    # Use the underlying stdlib logger (not the accelerate-wrapped one): this function
+    # is also meant to be run standalone (e.g. to re-combine existing summaries) where
+    # no Accelerator/PartialState has been initialized, which accelerate's logger requires.
+    logger.logger.info(f"Saved combined finetuning summary to {combined_path}")
