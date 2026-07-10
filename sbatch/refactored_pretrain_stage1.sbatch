@@ -4,7 +4,7 @@
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=16
 #SBATCH --time=7:00:00
-#SBATCH --array=0-8
+#SBATCH --array=0-7
 #SBATCH --gres=gpu:1
 #SBATCH --output=logs/refactored/pretrain/stage1/%a_%j.out
 #SBATCH --error=logs/refactored/pretrain/stage1/%a_%j.err

@@ -36,7 +36,7 @@ validation:
   eval_interval_epochs: 1
 
 data:
-  norm_strategy: "rel_abundance" # choices: clr, none, binning, binary, rel_abundance, log_rel_abundance, log_counts, arcsine
+  norm_strategy: "rel_abundance" # choices: clr, none, binning, binary, rel_abundance, log_rel_abundance, log_counts
   num_bins: 15  # unused under norm_strategy=rel_abundance
   split_key: "study_id" # we probably want to split train/val by entire studies, so it resembles close to real-world/test scenario
   val_size: 0.1

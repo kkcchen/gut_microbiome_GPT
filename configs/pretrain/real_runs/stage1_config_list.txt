@@ -3,7 +3,6 @@ configs/pretrain/real_runs/stage1_norm_clr.yaml
 configs/pretrain/real_runs/stage1_norm_log_rel_abundance.yaml
 configs/pretrain/real_runs/stage1_norm_log_counts.yaml
 configs/pretrain/real_runs/stage1_norm_rel_abundance.yaml
-configs/pretrain/real_runs/stage1_norm_arcsine.yaml
 configs/pretrain/real_runs/stage1_norm_binning_bins5.yaml
 configs/pretrain/real_runs/stage1_norm_binning_bins10.yaml
 configs/pretrain/real_runs/stage1_norm_binning_bins20.yaml

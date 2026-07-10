@@ -17,7 +17,7 @@ configs/pretrain/
 └── real_runs/                                    <- this directory: the staged sweep
     ├── README.md                                     (this file)
     ├── generate_sweep_configs.py                      regenerates stage2-4 below
-    ├── stage1_norm_*.yaml (9 files)                    Stage 1 configs
+    ├── stage1_norm_*.yaml (8 files)                    Stage 1 configs
     ├── stage1_config_list.txt                          Stage 1 run list
     ├── stage2_*.yaml (12 files)                        Stage 2 configs
     ├── stage2_config_list.txt                          Stage 2 run list
@@ -60,7 +60,7 @@ failure — check `finetune_summary.md` for which task(s) and why.
 
 | Stage | What's varied | What's held fixed | # configs |
 |---|---|---|---|
-| **1 — representation** | `data.norm_strategy` (binary, clr, log_rel_abundance, log_counts, rel_abundance, arcsine, binning) and `data.num_bins` (5, 10, 20 — only under `binning`) | `tasks=["masking"]`, `masking_prob=0.15`, `sample_emb_style=cls`, `abundance_emb_style=continuous`, `use_batch_labels=true` | 9 |
+| **1 — representation** | `data.norm_strategy` (binary, clr, log_rel_abundance, log_counts, rel_abundance, binning) and `data.num_bins` (5, 10, 20 — only under `binning`) | `tasks=["masking"]`, `masking_prob=0.15`, `sample_emb_style=cls`, `abundance_emb_style=continuous`, `use_batch_labels=true` | 8 |
 | **2 — task family** | `training.tasks` (`masking`, `masking_from_cls`, `masking_taxa`, and all three combined) × `masking_prob` (0.3, 0.5, 0.8) | Stage 1's winning representation | 12 |
 | **3 — architecture** | `sample_emb_style` (cls, avg-pool), `abundance_emb_style` (continuous, scaling, concatenation), `use_batch_labels` (true, false) — each varied **one at a time** against a baseline, not fully crossed | Stage 1 representation + Stage 2 tasks | 5 (1 baseline + 4 variants) |
 | **4 — fine sweep** | `num_bins` (5, 10, 20) × `masking_prob` (0.3, 0.5, 0.8), on `norm_strategy=binning` | Stage 3's winning architecture | 9 |
@@ -75,7 +75,7 @@ data pipeline regardless of value — don't bother sweeping it).
 ## How to run each stage
 
 ```bash
-sbatch sbatch/refactored_pretrain_stage1.sbatch       # Stage 1 (9 array tasks, 0-8)
+sbatch sbatch/refactored_pretrain_stage1.sbatch       # Stage 1 (8 array tasks, 0-7)
 sbatch sbatch/refactored_pretrain_stage2.sbatch       # Stage 2 (12 array tasks, 0-11)
 sbatch sbatch/refactored_pretrain_stage3.sbatch       # Stage 3 (5 array tasks, 0-4)
 sbatch sbatch/refactored_pretrain_stage4.sbatch       # Stage 4 (9 array tasks, 0-8)
