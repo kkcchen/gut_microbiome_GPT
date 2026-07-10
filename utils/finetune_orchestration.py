@@ -99,6 +99,7 @@ def build_finetune_config(pretrain_cfg, pretrain_output_dir: str, task_name: str
     cfg.paths.output_dir = task_output_dir
     cfg.paths.model_config_path = os.path.join(task_output_dir, "model_config.json")
     cfg.paths.taxa_vocab_path = os.path.join(pretrain_output_dir, "taxa_vocab.pkl")
+    cfg.paths.batch_vocab_path = os.path.join(pretrain_output_dir, "batch_vocab.pkl")
     cfg.paths.checkpoint_path = os.path.join(
         pretrain_output_dir, "best_model", "best_model", "pytorch_model.bin"
     )

@@ -538,8 +538,17 @@ def prepare_finetune_data(cfg, accelerator):
     
     batch_vocab = None
     if cfg.data.use_batch_labels:
-        batch_vocab = BatchVocabulary()
-        batch_vocab.build_vocab(adata_train_task.obs['study_id'].tolist())
+        if Path(cfg.paths.batch_vocab_path).exists():
+            logger.info(f"Loading batch vocabulary from: {cfg.paths.batch_vocab_path}")
+            batch_vocab = BatchVocabulary.load(cfg.paths.batch_vocab_path)
+        else:
+            logger.info(
+                f"No batch vocabulary found at {cfg.paths.batch_vocab_path}. "
+                "Building a new vocabulary from the downstream training data "
+                "(random-weight-init finetuning)."
+            )
+            batch_vocab = BatchVocabulary.from_adata(adata_train, key='study_id')
+            batch_vocab.save(cfg.paths.batch_vocab_path)
         logger.info(f"[Data Preparation] Batch vocabulary size: {len(batch_vocab)}")
 
     # GNN data (optional)

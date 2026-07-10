@@ -67,6 +67,35 @@ def main(cfg):
     # even start pretraining rather than fail confusingly after hours of training.
     require_single_process(accelerator)
 
+    # If a prior run already produced a usable checkpoint, skip straight to the
+    # auto-finetune chain instead of redoing the (multi-hour) pretraining loop --
+    # e.g. after a rerun following a finetune-only crash.
+    best_model_file = Path(cfg.paths.best_dir) / "best_model" / "pytorch_model.bin"
+    taxa_vocab_file = Path(cfg.paths.taxa_vocab_path)
+    pretraining_done = best_model_file.exists() and taxa_vocab_file.exists()
+    if pretraining_done and cfg.data.get('use_batch_labels', False):
+        pretraining_done = Path(cfg.paths.batch_vocab_path).exists()
+
+    if pretraining_done and not cfg.debug.get('force_repretrain', False):
+        logger.info(
+            f"Found existing completed pretraining checkpoint at {best_model_file}; "
+            "skipping pretraining and resuming the auto-finetune chain. Set "
+            "debug.force_repretrain=true in the config to force a full repretrain."
+        )
+        task_results = run_all_downstream_finetunes(cfg, accelerator)
+        accelerator.wait_for_everyone()
+        accelerator.end_training()
+
+        if accelerator.is_main_process:
+            num_failed = sum(1 for r in task_results.values() if r["status"] != "ok")
+            if num_failed:
+                logger.error(
+                    f"{num_failed}/{len(task_results)} auto-finetune tasks did not complete successfully "
+                    f"-- see finetune_summary.md and the logs above for details."
+                )
+                sys.exit(1)
+        return
+
     logger.info("Preparing microbiome data...")
     data_artifacts = prepare_microbiome_data(
         cfg=cfg,
