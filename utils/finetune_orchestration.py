@@ -298,28 +298,35 @@ def write_finetune_summary(pretrain_output_dir: str, task_registry: Dict[str, Di
     summary_path.write_text("\n".join(lines) + "\n")
     logger.info(f"Saved finetuning summary to {summary_path}")
 
-    # Every pretrain config's output_dir is a sibling under the same parent (e.g.
-    # outputs/pretrain/real_runs/<config_name>/), so re-scanning that parent after each
-    # write keeps a single combined table current across all configs, including ones
-    # finetuned by a different process/job than this one.
+    # Every pretrain config's output_dir is a sibling under the same stage directory
+    # (e.g. outputs/pretrain/real_runs/stage2/<config_name>/), so re-scanning that
+    # directory after each write keeps a single combined table current across all
+    # configs in that stage, including ones finetuned by a different process/job
+    # than this one -- and never mixes rows across stages.
     combine_finetune_summaries(str(Path(pretrain_output_dir).parent))
 
 
-def combine_finetune_summaries(parent_dir: str, out_name: str = "finetune_summary_combined.md") -> None:
+def combine_finetune_summaries(parent_dir: str, out_name: str = None) -> None:
     """
     Aggregate every sibling run's finetune_summary.md directly under parent_dir (e.g.
-    outputs/pretrain/real_runs/) into one combined Markdown table at
+    outputs/pretrain/real_runs/stage2/) into one combined Markdown table at
     <parent_dir>/<out_name>, one row per (run, task).
 
     Re-reads each task's test_metrics.yaml directly rather than re-parsing the
     per-run markdown files, so this has no dependency on in-memory task_results from
     other runs' (possibly already-finished) processes -- it only needs what's on disk.
 
-    :param parent_dir: Directory containing one subdirectory per pretrain run
-        (each subdirectory optionally holding its own finetune_summary.md).
+    :param parent_dir: Stage directory containing one subdirectory per pretrain run
+        (each subdirectory optionally holding its own finetune_summary.md), e.g.
+        outputs/pretrain/real_runs/stage2/.
     :param out_name: Filename for the combined summary, written under parent_dir.
+        Defaults to "<parent_dir's own directory name>_finetune_summary_combined.md"
+        (e.g. "stage2_finetune_summary_combined.md"), so each stage gets its own
+        combined summary automatically.
     """
     parent = Path(parent_dir)
+    if out_name is None:
+        out_name = f"{parent.name}_finetune_summary_combined.md"
     task_registry = load_task_registry()
     run_dirs = sorted(
         d for d in parent.iterdir()

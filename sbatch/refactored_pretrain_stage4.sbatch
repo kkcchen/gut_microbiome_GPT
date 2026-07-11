@@ -3,7 +3,7 @@
 #SBATCH -A aip-brudno
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=16
-#SBATCH --time=12:00:00
+#SBATCH --time=5:00:00
 #SBATCH --array=0-8
 #SBATCH --gres=gpu:1
 #SBATCH --output=logs/refactored/pretrain/stage4/%a_%j.out

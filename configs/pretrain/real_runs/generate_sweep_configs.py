@@ -4,7 +4,7 @@ Generator for the staged pretraining sweep configs under configs/pretrain/real_r
 Regenerates all four stages from the WINNER constants below. To progress from one
 stage to the next with a real result instead of a placeholder assumption, edit the
 relevant *_WINNER constant to match what actually won the previous stage (by
-pretraining val loss or by configs/pretrain/real_runs/<run>/finetune_summary.md),
+pretraining val loss or by outputs/pretrain/real_runs/<stage>/<run>/finetune_summary.md),
 then rerun this script:
 
     python configs/pretrain/real_runs/generate_sweep_configs.py
@@ -100,7 +100,7 @@ BASE = {
         },
         "training": {
             "init_lr": 1e-4,
-            "max_epochs": 50,
+            "max_epochs": 10,
             "patience": 10,
             "finetune_mode": "partial",
             "batch_size": 64,
@@ -111,14 +111,14 @@ BASE = {
 }
 
 # ---- Carry-forward winners: EDIT THESE once a stage's real results are in, then rerun ----
-STAGE1_WINNER = {"norm_strategy": "binning", "num_bins": 10}  # placeholder until Stage 1 finishes
+STAGE1_WINNER = {"norm_strategy": "log_rel_abundance", "num_bins": 10}  # num_bins unused (non-binning strategy); Stage 1 winner picked from outputs/pretrain/real_runs/stage1/stage1_*/finetune_summary.md
 STAGE2_WINNER = {"tasks": ["masking"], "masking_prob": 0.5}   # placeholder until Stage 2 finishes
 STAGE3_WINNER = {"sample_emb_style": "cls", "abundance_emb_style": "continuous", "use_batch_labels": True}  # placeholder until Stage 3 finishes
 
 
 def make_config(name, stage, notes, overrides_training=None, overrides_data=None, overrides_model=None):
     cfg = copy.deepcopy(BASE)
-    cfg["paths"]["output_dir"] = f"outputs/pretrain/real_runs/{name}"
+    cfg["paths"]["output_dir"] = f"outputs/pretrain/real_runs/{stage}/{name}"
     cfg["wandb"]["project"] = f"microbiome-pretrain-sweep-{stage}"
     cfg["wandb"]["run_name"] = name
     cfg["wandb"]["run_notes"] = notes

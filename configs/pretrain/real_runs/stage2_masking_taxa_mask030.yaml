@@ -1,5 +1,5 @@
 paths:
-  output_dir: outputs/pretrain/real_runs/stage2_masking_taxa_mask030
+  output_dir: outputs/pretrain/real_runs/stage2/stage2_masking_taxa_mask030
   model_config_path: ${paths.output_dir}/model_config.json
   ann_table_path: /scratch/kchen13/hmc_final_fixed/pretrain.h5ad
 checkpoint_path: null
@@ -9,7 +9,7 @@ wandb:
   project: microbiome-pretrain-sweep-stage2
   run_name: stage2_masking_taxa_mask030
   run_notes: 'Stage 2 sweep: tasks=[''masking_taxa''], masking_prob=0.3 (on assumed
-    Stage 1 winner: {''norm_strategy'': ''binning'', ''num_bins'': 10})'
+    Stage 1 winner: {''norm_strategy'': ''log_rel_abundance'', ''num_bins'': 10})'
 training:
   seed: 42
   init_lr: 0.001
@@ -21,7 +21,7 @@ training:
   grad_accumulation_steps: 1
   enable_fp16: false
   notes: 'Stage 2 sweep: tasks=[''masking_taxa''], masking_prob=0.3 (on assumed Stage
-    1 winner: {''norm_strategy'': ''binning'', ''num_bins'': 10})'
+    1 winner: {''norm_strategy'': ''log_rel_abundance'', ''num_bins'': 10})'
   tasks:
   - masking_taxa
   masking_prob: 0.3
@@ -38,7 +38,7 @@ validation:
   batch_size: 64
   eval_interval_epochs: 1
 data:
-  norm_strategy: binning
+  norm_strategy: log_rel_abundance
   num_bins: 10
   split_key: study_id
   val_size: 0.1
