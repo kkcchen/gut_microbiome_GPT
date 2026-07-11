@@ -23,8 +23,8 @@ training:
   notes: 'Stage 3 sweep: stage3_abundance_emb_concatenation (baseline + this one change;
     see stage3_baseline for the reference)'
   tasks:
-  - masking
-  masking_prob: 0.5
+  - masking_taxa
+  masking_prob: 0.3
   masking_taxa_prob: 0.15
   optimizer: adamw
   lr_scheduler: cosine

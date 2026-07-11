@@ -112,8 +112,8 @@ BASE = {
 
 # ---- Carry-forward winners: EDIT THESE once a stage's real results are in, then rerun ----
 STAGE1_WINNER = {"norm_strategy": "log_rel_abundance", "num_bins": 10}  # num_bins unused (non-binning strategy); Stage 1 winner picked from outputs/pretrain/real_runs/stage1/stage1_*/finetune_summary.md
-STAGE2_WINNER = {"tasks": ["masking"], "masking_prob": 0.5}   # placeholder until Stage 2 finishes
-STAGE3_WINNER = {"sample_emb_style": "cls", "abundance_emb_style": "continuous", "use_batch_labels": True}  # placeholder until Stage 3 finishes
+STAGE2_WINNER = {"tasks": ["masking_taxa"], "masking_prob": 0.3}  # Stage 2 winner picked from outputs/pretrain/real_runs/stage2/stage2_finetune_summary_combined.md: best aggregate rank across accuracy/F1-macro/AUROC, no majority-class collapse, avoids the "combined" family's task-interference issue
+STAGE3_WINNER = {"sample_emb_style": "cls", "abundance_emb_style": "concatenation", "use_batch_labels": True}  # Stage 3 winner picked from outputs/pretrain/real_runs/stage3/stage3_finetune_summary_combined.md: best aggregate rank across accuracy/F1-macro/AUROC (best AUROC, 2nd-best F1, no majority-class collapse)
 
 
 def make_config(name, stage, notes, overrides_training=None, overrides_data=None, overrides_model=None):

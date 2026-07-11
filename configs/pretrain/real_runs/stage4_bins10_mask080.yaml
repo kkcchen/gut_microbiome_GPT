@@ -10,7 +10,7 @@ wandb:
   run_name: stage4_bins10_mask080
   run_notes: 'Stage 4 fine sweep: num_bins=10, masking_prob=0.8 (on assumed Stage
     3 winner architecture: {''sample_emb_style'': ''cls'', ''abundance_emb_style'':
-    ''continuous'', ''use_batch_labels'': True}, Stage 2 tasks: [''masking''])'
+    ''concatenation'', ''use_batch_labels'': True}, Stage 2 tasks: [''masking_taxa''])'
 training:
   seed: 42
   init_lr: 0.001
@@ -22,10 +22,10 @@ training:
   grad_accumulation_steps: 1
   enable_fp16: false
   notes: 'Stage 4 fine sweep: num_bins=10, masking_prob=0.8 (on assumed Stage 3 winner
-    architecture: {''sample_emb_style'': ''cls'', ''abundance_emb_style'': ''continuous'',
-    ''use_batch_labels'': True}, Stage 2 tasks: [''masking''])'
+    architecture: {''sample_emb_style'': ''cls'', ''abundance_emb_style'': ''concatenation'',
+    ''use_batch_labels'': True}, Stage 2 tasks: [''masking_taxa''])'
   tasks:
-  - masking
+  - masking_taxa
   masking_prob: 0.8
   masking_taxa_prob: 0.15
   optimizer: adamw
@@ -55,7 +55,7 @@ model:
     d_hid: 512
     nlayers: 3
     dropout: 0.1
-    abundance_emb_style: continuous
+    abundance_emb_style: concatenation
     use_gnn: false
     sample_emb_style: cls
     model_distribution: null

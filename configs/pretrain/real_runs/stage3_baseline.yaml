@@ -10,7 +10,7 @@ wandb:
   run_name: stage3_baseline
   run_notes: 'Stage 3 baseline: sample_emb_style=cls, abundance_emb_style=continuous,
     use_batch_labels=true (on assumed Stage 1/2 winners: {''norm_strategy'': ''log_rel_abundance'',
-    ''num_bins'': 10}, {''tasks'': [''masking''], ''masking_prob'': 0.5})'
+    ''num_bins'': 10}, {''tasks'': [''masking_taxa''], ''masking_prob'': 0.3})'
 training:
   seed: 42
   init_lr: 0.001
@@ -23,10 +23,10 @@ training:
   enable_fp16: false
   notes: 'Stage 3 baseline: sample_emb_style=cls, abundance_emb_style=continuous,
     use_batch_labels=true (on assumed Stage 1/2 winners: {''norm_strategy'': ''log_rel_abundance'',
-    ''num_bins'': 10}, {''tasks'': [''masking''], ''masking_prob'': 0.5})'
+    ''num_bins'': 10}, {''tasks'': [''masking_taxa''], ''masking_prob'': 0.3})'
   tasks:
-  - masking
-  masking_prob: 0.5
+  - masking_taxa
+  masking_prob: 0.3
   masking_taxa_prob: 0.15
   optimizer: adamw
   lr_scheduler: cosine
