@@ -33,7 +33,7 @@ array task, so array index 0 runs the first line, index 1 the second, etc.
 
 ## What happens when you run a config
 
-When you call the sbatch file, `accelerate launch -m scripts.train --config <path>` does all of this in one job,
+When you call the sbatch file, `sbatch sbatch/refactored_pretrain_stageN.sbatch` where N is 1 to 4, this will do a hyperparameter sweep. Each configuration will, in one job,
 automatically, for any pretrain config (this sweep or otherwise):
 
 1. Pretrains the model per the config's `training`/`model`/`data` sections.
