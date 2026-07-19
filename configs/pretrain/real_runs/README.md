@@ -24,7 +24,9 @@ configs/pretrain/
     ├── stage3_*.yaml (5 files)                         Stage 3 configs
     ├── stage3_config_list.txt                          Stage 3 run list
     ├── stage4_*.yaml (9 files)                         Stage 4 configs
-    └── stage4_config_list.txt                          Stage 4 run list
+    ├── stage4_config_list.txt                          Stage 4 run list
+    ├── baseline_random_init_*.yaml (2 files)           Baseline configs (see below)
+    └── baseline_config_list.txt                        Baseline run list
 ```
 
 Each `stageN_config_list.txt` lists that stage's config paths, one per line — the
@@ -72,6 +74,36 @@ GNN taxa encoder (`use_gnn`, always `false`), taxa embedding initialization
 schedule (fixed at adamw/cosine/1e-3), and `max_seq_len` (currently a no-op in the
 data pipeline regardless of value — don't bother sweeping it).
 
+## Baseline — no-pretraining ablation
+
+`baseline_random_init_winner_arch.yaml` and `baseline_random_init_default_scgpt.yaml`
+are **not** part of the Stage 1-4 progression above — they're a fixed, two-config
+ablation answering "does pretraining actually help?" by skipping pretraining
+entirely (`training.max_epochs: 0`, so the encoder stays randomly initialized) and
+using `finetune.training.finetune_mode: "full"` (every layer trains on the
+downstream task) instead of the sweep's default `"partial"` (linear probing on a
+frozen encoder):
+
+| Config | Architecture | Tasks |
+|---|---|---|
+| `baseline_random_init_winner_arch` | The sweep's actual winning architecture (`STAGE1/2/3_WINNER` in `generate_sweep_configs.py`): `norm_strategy=log_rel_abundance`, `sample_emb_style=cls`, `abundance_emb_style=concatenation`, `use_batch_labels=true` | `[masking_taxa]`, `masking_prob=0.3` |
+| `baseline_random_init_default_scgpt` | A default scGPT-style architecture: `norm_strategy=binning`, `sample_emb_style=cls`, `abundance_emb_style=continuous` | `[masking, masking_from_cls]`, `masking_prob=0.3` |
+
+`training.tasks`/`masking_prob` are inert at `max_epochs=0` (no pretraining step
+ever runs) — they're kept in the config only for documentation.
+
+`training.max_epochs: 0` is handled specially in `trainers/trainer.py::train()`: the
+epoch loop never runs (nothing to train), so instead of falling through with no
+checkpoint, it saves the freshly-initialized (random) model weights as the "best"
+checkpoint immediately. The auto-finetune chain then picks that up exactly like a
+normal pretraining run's checkpoint and finetunes all 12 downstream tasks from
+there, `finetune_mode=full` and all.
+
+Read each baseline's `finetune_summary.md` against the *matching-architecture*
+stage's own `finetune_summary.md` (Stage 1's `log_rel_abundance` config, or a
+`binning`/`masking`+`masking_from_cls` Stage 2 config) to separate two effects at
+once: pretrained-vs-random-init, and full-vs-partial finetuning.
+
 ## How to run each stage
 
 ```bash
@@ -79,10 +111,12 @@ sbatch sbatch/refactored_pretrain_stage1.sbatch       # Stage 1 (8 array tasks, 
 sbatch sbatch/refactored_pretrain_stage2.sbatch       # Stage 2 (12 array tasks, 0-11)
 sbatch sbatch/refactored_pretrain_stage3.sbatch       # Stage 3 (5 array tasks, 0-4)
 sbatch sbatch/refactored_pretrain_stage4.sbatch       # Stage 4 (9 array tasks, 0-8)
+sbatch sbatch/refactored_pretrain_baseline.sbatch     # Baseline (2 array tasks, 0-1)
 ```
 
 Each is a single `sbatch` call — one job array, one array task per config in that
-stage's `config_list.txt`. Logs land in `logs/refactored/pretrain/<stage>/`.
+stage's `config_list.txt`. Logs land in `logs/refactored/pretrain/<stage>/` (or
+`logs/refactored/pretrain/baseline/` for the baseline).
 
 ## How to progress from one stage to the next
 
@@ -116,4 +150,8 @@ To progress for real, once a stage's jobs have finished:
 Repeat for each stage in order: Stage 1 → set `STAGE1_WINNER` → regenerate →
 Stage 2 → set `STAGE2_WINNER` → regenerate → Stage 3 → set `STAGE3_WINNER` →
 regenerate → Stage 4.
+
+The `baseline_random_init_*.yaml` configs are hand-written and standalone, like
+Stage 1 — `generate_sweep_configs.py` never touches them, so no regeneration step
+is needed for them.
 

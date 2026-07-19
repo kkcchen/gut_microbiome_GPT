@@ -1,0 +1,89 @@
+paths:
+  output_dir: "outputs/pretrain/real_runs/baseline/baseline_random_init_winner_arch"
+  model_config_path: "${paths.output_dir}/model_config.json"
+  ann_table_path: "/scratch/kchen13/hmc_final_fixed/pretrain.h5ad"
+
+checkpoint_path: null  # set to an accelerator checkpoint dir to resume training
+
+wandb:
+  enabled: true
+  entity: "haoze-deng-university-of-toronto"
+  project: "microbiome-pretrain-sweep-baseline"
+  run_name: "baseline_random_init_winner_arch"
+  run_notes: "No-pretraining baseline: max_epochs=0 (random-init encoder), finetune_mode=full,
+    on the sweep's winning architecture (STAGE1/2/3_WINNER in generate_sweep_configs.py:
+    norm_strategy=log_rel_abundance, tasks=[masking_taxa]/masking_prob=0.3, sample_emb_style=cls,
+    abundance_emb_style=concatenation, use_batch_labels=true). Compare its finetune_summary.md
+    against the matching pretrained stage's (partial finetune_mode) to separate the effect of
+    pretraining from the effect of full vs. partial finetuning."
+
+training:
+  seed: 42
+  init_lr: 1e-3
+  batch_size: 64
+  max_epochs: 0  # skip pretraining entirely -- see trainers/trainer.py::train() max_epochs=0 handling
+  cosine_warmup_ratio_or_step: 0.1
+  log_interval: 10
+  patience: 20
+  grad_accumulation_steps: 1
+  enable_fp16: false
+  notes: "No-pretraining baseline (random-init encoder, full finetune) on the sweep's winning architecture"
+  tasks: ["masking_taxa"]  # inert at max_epochs=0, kept for documentation/consistency with Stage 2's winner
+  masking_prob: 0.3
+  masking_taxa_prob: 0.15
+  optimizer: "adamw" # choices: adamw, sgd
+  lr_scheduler: "cosine" # choices: cosine, linear
+  grad_clip: 1.0
+  checkpoint_every: 5
+  finetune_mode: "none" # choices: none, full, partial -- keeps the shared trainer on the pretraining path
+
+validation:
+  batch_size: 64
+  eval_interval_epochs: 1
+
+data:
+  norm_strategy: "log_rel_abundance" # choices: clr, none, binning, binary, rel_abundance, log_rel_abundance, log_counts
+  num_bins: 10  # unused under norm_strategy=log_rel_abundance
+  split_key: "study_id" # we probably want to split train/val by entire studies, so it resembles close to real-world/test scenario
+  val_size: 0.1
+  use_batch_labels: true
+  max_seq_len: 200
+  num_workers: 4
+  metadata_fields: []
+
+model:
+  # === FLEXIBLE ARCHITECTURE SECTION ===
+  # Any key added here is automatically passed to the model config dict
+  params:
+    d_model: 128
+    nhead: 8
+    d_hid: 512
+    nlayers: 3
+    dropout: 0.1
+    abundance_emb_style: "concatenation" # choices: scaling, continuous, concatenation
+    use_gnn: false
+    sample_emb_style: "cls" # choices: cls, avg-pool
+    model_distribution: null # choices: dm -- only required if "denoising" is in tasks
+    seq_len: null # only used by the "denoising_from_token" task
+    preinitialized_taxa_embedding_path: null
+    freeze_preinitialized_embeddings: false
+    preinitialized_embedding_projection: "linear" # choices: linear, mlp -- unused while path above is null
+
+debug:
+  nrows: null
+  start_over: true
+
+# Drives the automatic finetune-all-tasks chain (see utils/finetune_orchestration.py)
+# that scripts/train.py runs after pretraining finishes.
+finetune:
+  paths:
+    downstream_train: "/scratch/kchen13/hmc_final_fixed/downstream_train.h5ad"
+    downstream_test: "/scratch/kchen13/hmc_final_fixed/downstream_test.h5ad"
+  training:
+    init_lr: 1e-4
+    max_epochs: 10
+    patience: 10
+    finetune_mode: "full" # <- the key difference vs. every other real_runs config, which uses "partial"
+    batch_size: 64
+    use_class_weights: true
+  val_size: 0.2

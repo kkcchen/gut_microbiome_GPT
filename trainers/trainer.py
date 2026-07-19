@@ -106,7 +106,20 @@ class MicrobiomeTrainer:
         logger.info("Starting training loop...")
         logger.info(f"Start epoch: {epoch}, Max epochs: {self.max_epochs}")
         logger.info(f"Best val loss: {best_val_loss:.6f}, Patience: {patience_counter}/{self.patience}")
-        
+
+        if self.max_epochs == 0:
+            # Random-init baseline: pretraining is intentionally skipped so the auto-finetune
+            # chain finetunes directly from the freshly initialized weights. The loop below
+            # never runs to save a checkpoint, so save the random-init weights as "best" now.
+            logger.info(
+                "max_epochs=0: skipping pretraining (random-init baseline). Saving the "
+                "randomly-initialized weights as the checkpoint for downstream finetuning."
+            )
+            self.accelerator.wait_for_everyone()
+            if self.accelerator.is_main_process:
+                self._save_best_model(model, epoch, best_val_loss)
+            return
+
         while epoch < self.max_epochs:
             logger.info("=" * 80)
             logger.info(f"Epoch {epoch + 1}/{self.max_epochs}")

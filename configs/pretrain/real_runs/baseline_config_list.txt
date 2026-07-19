@@ -1,0 +1,2 @@
+configs/pretrain/real_runs/baseline_random_init_winner_arch.yaml
+configs/pretrain/real_runs/baseline_random_init_default_scgpt.yaml
