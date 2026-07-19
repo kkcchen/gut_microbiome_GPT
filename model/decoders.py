@@ -1,32 +1,27 @@
-import torch
 from torch import nn, Tensor
-from typing import Optional, Dict
+from typing import Dict
 
 class AbundanceDecoder(nn.Module):
     """
-    Decoder for taxa abundance denoising task.
+    Decoder for per-taxon abundance logits, used by the masking reconstruction task.
 
-    Predicts original taxa counts from noisy/downsampled input.
-    Supports Dirichlet-Multinomial distribution or direct count prediction.
+    Predicts a logit per taxon from the contextual transformer output.
     """
-    
+
     def __init__(
         self,
         d_model: int,
         num_special_tokens: int = 1,
-        output_format: Optional[str] = None,
         dropout: float = 0.1,
     ):
         """
         Args:
             d_model: Dimension of transformer hidden states
             num_special_tokens: Number of special tokens to skip at sequence start (default: 1 for sample embedding)
-            output_format: output_format - None for direct count prediction, "logits" for unnormalized logits, "dm" for Dirichlet-Multinomial
             dropout: Dropout rate for regularization
         """
         super().__init__()
         self.num_special_tokens = num_special_tokens
-        self.output_format = output_format
 
         # Shared MLP backbone (512-512 style from scPRINT)
         self.decoder_mlp = nn.Sequential(
@@ -40,22 +35,15 @@ class AbundanceDecoder(nn.Module):
             nn.Dropout(dropout),
         )
 
-        # Distribution-specific prediction heads
-        if self.output_format == 'dm':
-            self.pred_head = nn.Linear(d_model, 1)  # Predict logits for Dirichlet-Multinomial
-        else:
-            # Direct count prediction
-            self.pred_head = nn.Linear(d_model, 1)
-    
+        self.pred_head = nn.Linear(d_model, 1)
+
     def forward(self, x: Tensor) -> Dict[str, Tensor]:
         """
         Args:
             x: Transformer output of shape (batch_size, num_special_tokens + num_taxa, d_model)
-        
+
         Returns:
-            Dictionary with distribution parameters:
-                - If None: {"pred": Tensor}
-            All output tensors have shape (batch_size, num_taxa)
+            {"logits": Tensor} of shape (batch_size, num_taxa)
         """
         # Skip special tokens (e.g., sample embedding token)
         x_taxa = x[:, self.num_special_tokens:, :]  # (batch, num_taxa, d_model)
@@ -63,26 +51,12 @@ class AbundanceDecoder(nn.Module):
         # Apply decoder MLP
         h = self.decoder_mlp(x_taxa)  # (batch, num_taxa, d_model)
 
-        # Predict distribution parameters
+        # Predict per-taxon logits
         pred = self.pred_head(h)  # (batch, num_taxa, 1)
 
-        if self.output_format == 'dm':
-            # For Dirichlet-Multinomial, we can interpret the output as logits for each taxon
-             return {
-                "mean_logits": pred.squeeze(-1)  # (batch, num_taxa)
-             }
-        elif self.output_format == "logits":
-            return {
-                "logits": pred.squeeze(-1)  # (batch, num_taxa)
-            }
-        else:
-            # Direct count prediction (non-negative)
-            return {
-                # TODO: this may work for raw counts but may want softmax for relative abundance prediction
-                #       for now just return the logits
-                "pred": pred.squeeze(-1)  # (batch, num_taxa)
-                # "pred": F.softplus(pred.squeeze(-1))  # (batch, num_taxa)
-            }
+        return {
+            "logits": pred.squeeze(-1)  # (batch, num_taxa)
+        }
 
 
 class TaxaIdentityDecoder(nn.Module):
@@ -136,42 +110,3 @@ class TaxaIdentityDecoder(nn.Module):
         x_taxa = x[:, self.num_special_tokens:, :]  # (batch, num_taxa, d_model)
         h = self.decoder_mlp(x_taxa)  # (batch, num_taxa, d_model)
         return {"logits": self.pred_head(h)}  # (batch, num_taxa, num_taxa_vocab)
-
-
-class SampleProjection(nn.Module):
-    """
-    Projects sample-level embeddings.
-    
-    Useful for tasks like contrastive learning or batch effect correction.
-    """
-    
-    def __init__(
-        self,
-        d_model: int,
-        projection_dim: int,
-    ):
-        """
-        Args:
-            d_model: Dimension of transformer hidden states
-            projection_dim: Dimension of projected sample embeddings
-        """
-        super().__init__()
-        self.projection = nn.Sequential(
-            nn.Linear(d_model, d_model),
-            nn.ReLU(),
-            nn.Linear(d_model, projection_dim)
-        )
-    
-    def forward(self, x: Tensor) -> Tensor:
-        """
-        Args:
-            x: Transformer cell_embedding of shape (batch_size, d_model)
-        
-        Returns:
-            Projected sample embeddings of shape (batch_size, projection_dim)
-        """
-        # Assume the first token is the sample embedding token
-        
-        # Apply projection MLP
-        return self.projection(x)  # (batch_size, projection_dim)
-        

@@ -4,7 +4,6 @@ import torch
 import numpy as np
 from torch import nn, Tensor
 import torch.distributed as dist
-import torch.nn.functional as F
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 from torch.distributions import Bernoulli
 
@@ -22,7 +21,6 @@ from .encoders import (
 
 from .decoders import (
     AbundanceDecoder,
-    SampleProjection,
     TaxaIdentityDecoder,
 )
 from trainers import logger
@@ -45,7 +43,6 @@ class hgmGPT(nn.Module):
         d_hid: int,
         nlayers: int,
         num_taxa: int,
-        seq_len: Optional[int] = None,
         use_batch_labels: bool = False,
         num_batch_labels: Optional[int] = None,
         dropout: float = 0.5,
@@ -57,7 +54,6 @@ class hgmGPT(nn.Module):
         use_gnn: bool = False,
         num_gnn_nodes: Optional[int] = None,
         tasks: List[str] = [],
-        model_distribution: Optional[str] = None,
         masking_prob: Optional[float] = None,
         masking_taxa_prob: Optional[float] = None,
         finetune_mode: Optional[str] = None,
@@ -89,10 +85,8 @@ class hgmGPT(nn.Module):
         :type use_gnn: bool
         :param num_gnn_nodes: The number of nodes in the graph neural network.
         :type num_gnn_nodes: Optional[int]
-        :param tasks: The list of tasks to perform, e.g., denoising, bottleneck
+        :param tasks: The list of tasks to perform, e.g., masking, masking_taxa
         :type tasks: List[str]
-        :param model_distribution: The distribution model to use, e.g., "dm"
-        :type model_distribution: Optional[str]
         :param finetune_mode: The finetuning mode to use, e.g., "none", "full", "partial"
         :type finetune_mode: str
         :param finetune_task: The downstream task for finetuning, e.g., "classification", "regression"
@@ -108,7 +102,6 @@ class hgmGPT(nn.Module):
         self.abundance_emb_style = abundance_emb_style # default, continuous, mentioned in paper. "concatenation" combines via concat+linear projection instead of add/multiply
         self.nhead = nhead
         self.tasks = tasks
-        self.model_distribution = model_distribution
         self.num_taxa = num_taxa
         self.sample_emb_style = sample_emb_style
         self.dropout = dropout
@@ -124,8 +117,7 @@ class hgmGPT(nn.Module):
                 f"abundance_emb_style should be one of continuous, scaling, concatenation, "
                 f"got {abundance_emb_style}"
             )
-        self.seq_len = seq_len
-        
+
         # ================================ BUILD ENCODERS ================================
         self.use_gnn = use_gnn
         if use_gnn:
@@ -189,37 +181,14 @@ class hgmGPT(nn.Module):
         # ================================ BUILD DECODERS ================================
 
         # output shape: B, num_tokens (max_seq_len + sample_token + batch_id_token + ...), d_model
-        # 1. denoising
-        # expression decoder, this operates on all the taxa tokens
-        if "denoising" in self.tasks:
-            self.abundance_decoder = AbundanceDecoder(
-                d_model=d_model,
-                num_special_tokens=2 if use_batch_labels else 1,
-                output_format=self.model_distribution,
-                dropout=self.dropout
-            )
-            # not checked
-        # TODO: make this into bottleneck
-        if "denoising_from_token" in self.tasks:
-            # should project to the sequence length of the input to the whole model
-            # note, this is not num_taxa, which is the vocab size, but the actual input sequence length
-            self.sample_level_denoising_head = SampleProjection(d_model=d_model, 
-                                                                projection_dim=self.seq_len)
-        if "denoising" in self.tasks and self.model_distribution == "dm":
-            # project the scale parameter from the sample embedding
-            self.dirichlet_scale_head = SampleProjection(d_model=d_model,
-                                                                projection_dim=1)
-        
-        
-        # 2. bottleneck
+        # 1. bottleneck
         # TODO: zero out all the taxa tokens, leave only sample_token and batch_id_token, and essentially recreate the distribution for each taxa
 
-        # 3. masking
+        # 2. masking
         if "masking" in tasks:
             self.masking_decoder = AbundanceDecoder(
                 d_model=d_model,
                 num_special_tokens=2 if use_batch_labels else 1,
-                output_format="logits",
                 dropout=self.dropout
             )
 
@@ -285,7 +254,6 @@ class hgmGPT(nn.Module):
         logger.info(f"\t tasks: {self.tasks}")
         logger.info(f"\t sample_emb_style: {self.sample_emb_style}")
         logger.info(f"\t dropout: {self.dropout}")
-        logger.info(f"\t model_distribution: {self.model_distribution}")
         logger.info(f"\t use_gnn: {self.use_gnn}")
         if self.use_gnn:
             logger.info(f"\t num_taxa (vocab size): {self.num_taxa}")
@@ -435,7 +403,6 @@ class hgmGPT(nn.Module):
         """
         Runs the decoder part of the model. Returns a dictionary of outputs depending on tasks.
 
-        For denoising task: Decodes all taxa tokens to predict denoised abundances.
         For bottleneck task: Uses only special tokens (sample embeddings) to reconstruct full profile.
 
         Args:
@@ -446,23 +413,10 @@ class hgmGPT(nn.Module):
             graph_data: Optional graph data for GNN taxa encoding. Required when "masking_from_cls" is in tasks and use_gnn is True.
 
         Returns:
-            Dictionary containing task-specific predictions:
-                - For denoising with Dirichlet-Multinomial: {"denoising_mean"}
-                - For denoising without dist: {"denoising_pred"}
+            Dictionary containing task-specific predictions.
         """
         output = {}
-        
-        # Denoising task: decode all taxa tokens
-        if 'denoising' in self.tasks and hasattr(self, 'abundance_decoder'):
-            
-            denoising_output = self.abundance_decoder(transformer_output)
-            
-            # Add predictions with task prefix
-            if self.abundance_decoder.output_format == "dm":
-                output["denoising_mean"] = denoising_output["mean_logits"]
-            else:
-                output["denoising_pred"] = denoising_output["pred"]
-        
+
         # Bottleneck task: decode from special tokens only TODO not yet implemented
         # if 'bottleneck' in self.tasks and hasattr(self, 'bottleneck_decoder'):
         #     # Extract only the first special token (sample embedding)
@@ -478,19 +432,6 @@ class hgmGPT(nn.Module):
         #         output["bottleneck_pi"] = bottleneck_output["pi"]
         #     else:
         #         output["bottleneck_pred"] = bottleneck_output["pred"]
-        if "denoising_from_token" in self.tasks and hasattr(self, 'sample_level_denoising_head'):
-            # Get sample embedding
-            sample_embedding = self._get_sample_embedding(transformer_output)
-            output["denoising_projected"] = self.sample_level_denoising_head(sample_embedding)
-        # if "denoising" in self.tasks and hasattr(self, 'dirichlet_scale_head'):
-        if 'denoising' in self.tasks and hasattr(self, 'dirichlet_scale_head'):
-            # Get sample embedding
-            sample_embedding = self._get_sample_embedding(transformer_output)
-            raw_scale = self.dirichlet_scale_head(sample_embedding).squeeze(-1)
-            output["dirichlet_scale"] = F.softplus(raw_scale) + 1e-4
-        # if "denoising_dm" in self.tasks and hasattr(self, 'sample_level_denoising_head'):
-        #     sample_embedding = self._get_sample_embedding(transformer_output)
-        #     output["denoising_projected"] = self.sample_level_denoising_head(sample_embedding)
         if "masking" in self.tasks:
             masking_output = self.masking_decoder(transformer_output)
             output["masking_logits"] = masking_output["logits"]
@@ -591,7 +532,6 @@ class hgmGPT(nn.Module):
         Forward pass of the model.
             taxa_ids (:obj:`Tensor`): Token IDs representing taxa, shape [batch_size, seq_len].
             abundance_values (:obj:`Tensor`): Token values corresponding to taxa, shape [batch_size, seq_len].
-            abundance_values_original (:obj:`Optional[Tensor]`): Original token values for denoising from token task, shape [batch_size, seq_len]. Only used if "denoising_from_token" in tasks.
             depth (:obj:`Tensor`): Depth information, shape [batch_size].
             batch_ids (:obj:`Optional[Tensor]`): Batch IDs for encoding, shape [batch_size]. 
                 Required if `use_batch_labels` is True.

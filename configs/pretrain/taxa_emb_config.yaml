@@ -28,9 +28,8 @@ training:
   grad_accumulation_steps: 1
   enable_fp16: false
   masking_prob: 0.50
-  notes: "Testing denoising after refactor"
-  tasks: ["masking"] # denoising, denoising_from_token, denoising_dm, denoising_lnm
-  # w_denoising: 100
+  notes: "Testing masking after refactor"
+  tasks: ["masking"]
 
 validation:
   batch_size: 128
@@ -50,7 +49,6 @@ model:
   # Any key added here is automatically passed to the model config dict
   params:
     d_model: 128
-    seq_len: 200
     nhead: 8
     d_hid: 512
     nlayers: 3 #3 7
@@ -63,7 +61,6 @@ model:
     # activation: "gelu" 
     # use_flash_attn: true
     use_gnn: false
-    model_distribution: "dm"
 
     # For fixed taxa embeddings:
     preinitialized_taxa_embedding_path: "/project/aip-rahulgk/gutmodel/hmc_final_fixed/qwen3_taxa_embeddings.npy"

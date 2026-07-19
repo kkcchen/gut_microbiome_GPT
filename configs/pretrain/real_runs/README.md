@@ -12,8 +12,8 @@ writes a summary — see "What happens when you run a config" below.
 
 ```
 configs/pretrain/
-├── debug.yaml, default.yaml, binary.yaml,       <- standalone base configs, not part
-│   binning.yaml, taxa_emb_config.yaml              of this sweep, run individually
+├── debug.yaml, binary.yaml,                     <- standalone base configs, not part
+│   taxa_emb_config.yaml                            of this sweep, run individually
 └── real_runs/                                    <- this directory: the staged sweep
     ├── README.md                                     (this file)
     ├── generate_sweep_configs.py                      regenerates stage2-4 below

@@ -1,7 +1,7 @@
 # Instructions
 ## Before You Start
 - make sure venv is installed and activated.
-- ensure configs are correct in `/configs`, pretrain config can be found in `/configs/pretrain/default.yaml`, eval config can be found in `/configs/eval/default.yaml`.
+- ensure configs are correct in `/configs`, pretrain config can be found in `/configs/pretrain/debug.yaml`, eval config can be found in `/configs/eval/debug.yaml`.
 ## Pretrain
 This is for pretraining the model from scratch with initialization parameters specified in config file. 
 from main directory, run 

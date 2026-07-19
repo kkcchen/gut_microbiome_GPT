@@ -57,8 +57,6 @@ model:
     abundance_emb_style: "continuous" # choices: scaling, continuous, concatenation -- fixed for Stage 1 (representation sweep only)
     use_gnn: false
     sample_emb_style: "cls" # choices: cls, avg-pool -- fixed for Stage 1
-    model_distribution: null # choices: dm -- only required if "denoising" is in tasks
-    seq_len: null # only used by the "denoising_from_token" task
     preinitialized_taxa_embedding_path: null
     freeze_preinitialized_embeddings: false
     preinitialized_embedding_projection: "linear" # choices: linear, mlp -- unused while path above is null

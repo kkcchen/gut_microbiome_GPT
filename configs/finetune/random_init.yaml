@@ -62,7 +62,6 @@ validation:
 model:
   params:
     d_model: 128
-    seq_len: 200
     nhead: 8
     d_hid: 512
     nlayers: 7

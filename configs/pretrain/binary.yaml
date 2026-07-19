@@ -31,7 +31,6 @@ training:
   grad_clip: 1.0
   checkpoint_every: 5
   finetune_mode: "none" # choices: none, full, partial -- keeps the shared trainer on the pretraining path
-  w_denoising: 1.0 # only applies if "denoising" is in tasks
   w_masking_from_cls: 1.0
   w_masking_taxa: 1.0
 
@@ -61,8 +60,6 @@ model:
     abundance_emb_style: "continuous" # choices: scaling, continuous, concatenation
     use_gnn: false
     sample_emb_style: "cls" # choices: cls, avg-pool
-    model_distribution: null # choices: dm -- only required if "denoising" is in tasks
-    seq_len: null # only used by the "denoising_from_token" task
     preinitialized_taxa_embedding_path: null
     freeze_preinitialized_embeddings: false
     preinitialized_embedding_projection: "linear" # choices: linear, mlp -- unused while path above is null

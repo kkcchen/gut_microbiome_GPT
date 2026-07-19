@@ -560,18 +560,8 @@ class MicrobiomeTrainer:
         norm_strategy = self.cfg.data.norm_strategy
         loss = 0.0
         metrics = {}
-        if any(task not in ANY_MASKING_TASKS for task in self.cfg.training.tasks):
-            outputs_main = outputs["normalized"]
         if ANY_MASKING_TASKS.intersection(tasks):
             original = outputs["original"]
-
-        # Expression reconstruction loss
-        if 'denoising' in tasks:
-            w = cfg.training.get('w_denoising', 1.0)
-            denoising_loss = w*self._compute_denoising_loss(outputs_main, targets, cfg)
-
-            metrics["denoising_loss"] = denoising_loss.item()
-            loss += denoising_loss
 
         if MASKING_TASKS.intersection(tasks):
             masking_mask = original["masking_mask"].bool()
@@ -641,46 +631,6 @@ class MicrobiomeTrainer:
                 accuracy = correct / (masking_taxa_mask.sum() + 1e-6)
                 metrics['masking_taxa_acc'] = accuracy.item()
         return loss, metrics
-
-    def _compute_denoising_loss(self, outputs, targets, cfg):
-        '''
-        Compute denoising loss.
-        :param outputs: Model outputs for denoising.
-        :param targets: Ground truth counts.
-        :param cfg: Configuration object.
-        :return: Denoising loss tensor.
-        '''
-        model_distr = cfg.model.params.model_distribution
-        tasks = cfg.training.tasks
-        # output from model will be different depending on modelling distribution
-        if model_distr == 'dm':
-            scale = outputs['dirichlet_scale']
-            # for now just implement this from the sample embedding token
-            # but should also be able to implement from the full transformer output
-            mean_logits = outputs['denoising_mean']
-            
-            if not torch.isfinite(scale).all():
-                raise RuntimeError("Non-finite scale before loss")
-           
-            denoising_loss = dm_nll_loss(scale,mean_logits, targets['original_counts'])
-        
-        else: # no distribution specified, direct count prediction
-                # TODO: implement this both using the full transformer output and just the sample-embedding
-                outputs_counts = outputs["denoising_pred"]
-                # denoising_loss = mse_loss(
-                denoising_loss = denoising_reconstruction_loss(
-                                    outputs_counts,
-                                    targets['original_counts']
-                )
-        
-        # if 'denoising_from_token' in tasks:
-        #     output_counts = outputs['denoising_projected']
-        #     denoising_loss = denoising_reconstruction_loss(
-        #         output_counts,
-        #         targets['original_counts']
-        #     )
-        
-        return denoising_loss
 
     def evaluate_on_test_set(
         self,

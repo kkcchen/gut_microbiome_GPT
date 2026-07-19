@@ -5,7 +5,6 @@ import torch
 from typing import Dict, Optional
 from trainers import logger
 import torch.nn.functional as F
-from skbio.stats.composition import closure
 
 
 def masked_mse_loss_counts(
@@ -91,55 +90,6 @@ def mse_loss(
     else:
         loss = F.mse_loss(input, target, reduction="mean")
     return loss
-
-def denoising_reconstruction_loss(
-    input: torch.Tensor,
-    target: torch.Tensor,
-    relative: bool = True
-) -> torch.Tensor:
-    """
-    Cross-entropy between output logits and target counts (relative abundance if relative==True).
-    If relative is True, make target compositional and use softmax, otherwise raw counts (and softplus (?)).
-    """
-    if relative:
-        # Avoid skbio.closure and round-trip to CPU/NumPy
-        target_comp = target / target.sum(dim=-1, keepdim=True).clamp_min(1e-8)
-        loss = F.cross_entropy(input, target_comp)
-    else:
-        print("have not implemented denoising loss for raw counts yet.")
-    return loss
-
-
-def dm_nll_loss(
-    scale: torch.Tensor,
-    logits: torch.Tensor,
-    target: torch.Tensor,
-) -> torch.Tensor:
-    '''
-    Negative log-likelihood of the data under dirichlet multinomial parameterized
-    by the model outputs, optimized for numerical stability.
-    '''
-    # scale is (B,), logits is (B, L)
-    p = F.softmax(logits, dim=-1)
-    alpha = scale.unsqueeze(-1) * p + 1e-7  
-    N = target.sum(dim=-1, keepdim=True)  # total counts per sample
-    alpha_0 = alpha.sum(dim=-1, keepdim=True)
-    
-    # log_gamma(N+1) - sum(log_gamma(target+1)) is the multinomial coefficient part
-    # lgamma(alpha_0) - lgamma(N + alpha_0) + sum(lgamma(target + alpha) - lgamma(alpha))
-    
-    logp = torch.lgamma(alpha_0) - torch.lgamma(N + alpha_0) + \
-           (torch.lgamma(target + alpha) - torch.lgamma(alpha)).sum(dim=-1, keepdim=True)
-    
-    # The multinomial coefficient is constant wrt parameters if we are just doing ML on DM
-    # but for completeness:
-    # log_multinomial = torch.lgamma(N + 1) - torch.lgamma(target + 1).sum(dim=-1, keepdim=True)
-    # logp = logp + log_multinomial
-
-    # Weighting per sample or per count? Per count (normalized by N) is often more stable.
-    # Clip N to avoid division by zero
-    N_clipped = N.clamp(min=1.0)
-    return (-logp / N_clipped).mean()
 
 def xe_smoothed_loss(logits, target_probs, positions_to_count=None, T=2.0, eps=1e-8):
     # Smooth target with temperature

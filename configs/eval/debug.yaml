@@ -37,9 +37,8 @@ model:
     abundance_emb_style: "continuous" # choices: scaling, continuous, concatenation
     use_gnn: true
     # Example: If you change architecture, just add new keys here
-    # activation: "gelu" 
+    # activation: "gelu"
     # use_flash_attn: true
-    # model_distribution: "dm" # choices: dm
 
 # optional, if you want to specify downstream tasks
 downstream_tasks_config:

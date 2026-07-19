@@ -31,7 +31,6 @@ training:
   grad_clip: 1.0
   checkpoint_every: 5
   finetune_mode: none
-  w_denoising: 1.0
   w_masking_from_cls: 1.0
   w_masking_taxa: 1.0
 validation:
@@ -56,8 +55,6 @@ model:
     abundance_emb_style: scaling
     use_gnn: false
     sample_emb_style: cls
-    model_distribution: null
-    seq_len: null
     preinitialized_taxa_embedding_path: null
     freeze_preinitialized_embeddings: false
     preinitialized_embedding_projection: linear
