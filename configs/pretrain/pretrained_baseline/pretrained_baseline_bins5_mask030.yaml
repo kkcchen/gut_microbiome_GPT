@@ -45,7 +45,6 @@ training:
   finetune_mode: none
 validation:
   batch_size: 64
-  eval_interval_epochs: 1
 data:
   norm_strategy: binning
   num_bins: 5
@@ -65,8 +64,6 @@ model:
     abundance_emb_style: continuous
     use_gnn: false
     sample_emb_style: cls
-    model_distribution: null
-    seq_len: null
     preinitialized_taxa_embedding_path: null
     freeze_preinitialized_embeddings: false
     preinitialized_embedding_projection: linear

@@ -56,7 +56,6 @@ training:
 
 validation:
   batch_size: 64
-  eval_interval_epochs: 1
 
 # Model architecture - chosen independently, no pretrained checkpoint to match
 model:

@@ -59,7 +59,6 @@ BASE = {
     },
     "validation": {
         "batch_size": 64,
-        "eval_interval_epochs": 1,
     },
     "data": {
         "norm_strategy": "binning",
@@ -67,7 +66,6 @@ BASE = {
         "split_key": "study_id",
         "val_size": 0.1,
         "use_batch_labels": True,
-        "max_seq_len": 200,
         "num_workers": 4,
         "metadata_fields": [],
     },

@@ -33,7 +33,6 @@ training:
 
 validation:
   batch_size: 64
-  eval_interval_epochs: 1
 
 data:
   norm_strategy: "log_counts" # choices: clr, none, binning, binary, rel_abundance, log_rel_abundance, log_counts
@@ -41,7 +40,6 @@ data:
   split_key: "study_id" # we probably want to split train/val by entire studies, so it resembles close to real-world/test scenario
   val_size: 0.1
   use_batch_labels: true
-  max_seq_len: 200
   num_workers: 4
   metadata_fields: []
 

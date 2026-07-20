@@ -36,7 +36,6 @@ training:
 
 validation:
   batch_size: 2
-  eval_interval_epochs: 1
 
 data:
   norm_strategy: "binary" # presence/absence (0/1) instead of relative abundance -- choices: clr, none, binning, binary, rel_abundance, log_rel_abundance, log_counts

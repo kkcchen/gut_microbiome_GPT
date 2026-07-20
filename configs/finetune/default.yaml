@@ -51,7 +51,6 @@ training:
 
 validation:
   batch_size: 64
-  eval_interval_epochs: 1
 
 # Model (match pretrained)
 model:

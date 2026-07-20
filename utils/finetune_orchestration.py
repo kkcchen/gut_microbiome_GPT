@@ -110,7 +110,7 @@ def build_finetune_config(pretrain_cfg, pretrain_output_dir: str, task_name: str
 
     cfg.data.norm_strategy = pretrain_cfg.data.norm_strategy
     cfg.data.use_batch_labels = pretrain_cfg.data.use_batch_labels
-    cfg.data.max_seq_len = pretrain_cfg.data.max_seq_len
+    cfg.data.max_seq_len = pretrain_cfg.data.get("max_seq_len", 200)
     cfg.data.num_bins = pretrain_cfg.data.get("num_bins", 15)
     cfg.data.num_workers = pretrain_cfg.data.get("num_workers", 4)
     cfg.data.val_size = ft_cfg.get("val_size", 0.2)

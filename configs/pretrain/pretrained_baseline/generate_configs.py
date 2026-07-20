@@ -63,7 +63,6 @@ BASE = {
     },
     "validation": {
         "batch_size": 64,
-        "eval_interval_epochs": 1,
     },
     "data": {
         "norm_strategy": "binning",
@@ -85,8 +84,6 @@ BASE = {
             "abundance_emb_style": "continuous",
             "use_gnn": False,
             "sample_emb_style": "cls",
-            "model_distribution": None,
-            "seq_len": None,
             "preinitialized_taxa_embedding_path": None,
             "freeze_preinitialized_embeddings": False,
             "preinitialized_embedding_projection": "linear",

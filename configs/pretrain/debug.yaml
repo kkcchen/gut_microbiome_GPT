@@ -36,7 +36,6 @@ training:
 
 validation:
   batch_size: 2
-  eval_interval_epochs: 1
 
 data:
   norm_strategy: "binning" # choices: clr, none, binning, binary, rel_abundance, log_rel_abundance, log_counts

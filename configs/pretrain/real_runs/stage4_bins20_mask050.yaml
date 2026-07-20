@@ -37,14 +37,12 @@ training:
   w_masking_taxa: 1.0
 validation:
   batch_size: 64
-  eval_interval_epochs: 1
 data:
   norm_strategy: binning
   num_bins: 20
   split_key: study_id
   val_size: 0.1
   use_batch_labels: true
-  max_seq_len: 200
   num_workers: 4
   metadata_fields: []
 model:

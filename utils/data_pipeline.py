@@ -91,7 +91,7 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
         adata=train_adata,
         taxa_vocab=taxa_vocab,
         batch_vocab=batch_vocab,
-        max_seq_len=cfg.data.max_seq_len,
+        max_seq_len=cfg.data.get('max_seq_len', 200),
         metadata_fields=cfg.data.get('metadata_fields', []),
     )
     
@@ -99,7 +99,7 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
         adata=valid_adata,
         taxa_vocab=taxa_vocab,
         batch_vocab=batch_vocab,
-        max_seq_len=cfg.data.max_seq_len,
+        max_seq_len=cfg.data.get('max_seq_len', 200),
         metadata_fields=cfg.data.get('metadata_fields', []),
     )
     
@@ -108,7 +108,7 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
     if 'norm_strategy' not in cfg.data:
         logger.warning("Config 'data.norm_strategy' not found, using default: clr")
     collator = MicrobiomeCollator(
-        max_seq_len=cfg.data.max_seq_len,
+        max_seq_len=cfg.data.get('max_seq_len', 200),
         norm_strategy=cfg.data.get('norm_strategy', 'clr'),
         num_bins=cfg.data.get('num_bins', 15),
     )
@@ -136,7 +136,7 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
     
     # 7. Print statistics
     if accelerator.is_main_process:
-        print_data_statistics(train_adata, valid_adata, taxa_vocab, batch_vocab, cfg.data.max_seq_len)
+        print_data_statistics(train_adata, valid_adata, taxa_vocab, batch_vocab, cfg.data.get('max_seq_len', 200))
     
     return {
         'train_loader': train_loader,
@@ -337,14 +337,14 @@ def prepare_inference_data(cfg, input_file, accelerator) -> Dict:
         adata=adata,
         taxa_vocab=taxa_vocab,
         batch_vocab=batch_vocab,
-        max_seq_len=cfg.data.max_seq_len,
+        max_seq_len=cfg.data.get('max_seq_len', 200),
         metadata_fields=cfg.data.get('metadata_fields', []),
     )
     
     # 5. Create collator for inference
     logger.info("Creating inference collator...")
     inference_collator = MicrobiomeCollator(
-        max_seq_len=cfg.data.max_seq_len,
+        max_seq_len=cfg.data.get('max_seq_len', 200),
         norm_strategy=cfg.data.get('norm_strategy', 'clr'),
         num_bins=cfg.data.get('num_bins', 15),
     )
@@ -369,7 +369,7 @@ def prepare_inference_data(cfg, input_file, accelerator) -> Dict:
     
     # 7. Print statistics
     if accelerator.is_main_process:
-        print_inference_statistics(adata, taxa_vocab, batch_vocab, cfg.data.max_seq_len)
+        print_inference_statistics(adata, taxa_vocab, batch_vocab, cfg.data.get('max_seq_len', 200))
     
     return {
         'inference_loader': inference_loader,
@@ -638,7 +638,7 @@ def prepare_finetune_data(cfg, accelerator):
     
     # Create collator
     collator = MicrobiomeCollator(
-        max_seq_len=cfg.data.max_seq_len,
+        max_seq_len=cfg.data.get('max_seq_len', 200),
         norm_strategy=cfg.data.norm_strategy,
         num_bins=cfg.data.get('num_bins', 15),
     )
