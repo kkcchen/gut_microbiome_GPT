@@ -87,7 +87,7 @@ frozen encoder):
 | Config | Architecture | Tasks |
 |---|---|---|
 | `baseline_random_init_winner_arch` | The sweep's actual winning architecture (`STAGE1/2/3_WINNER` in `generate_sweep_configs.py`): `norm_strategy=log_rel_abundance`, `sample_emb_style=cls`, `abundance_emb_style=concatenation`, `use_batch_labels=true` | `[masking_taxa]`, `masking_prob=0.3` |
-| `baseline_random_init_default_scgpt` | A default scGPT-style architecture: `norm_strategy=binning`, `sample_emb_style=cls`, `abundance_emb_style=continuous` | `[masking, masking_from_cls]`, `masking_prob=0.3` |
+| `baseline_random_init_default_scgpt` | A default scGPT-style architecture: `norm_strategy=binning`, `num_bins=20`, `sample_emb_style=cls`, `abundance_emb_style=continuous` (the `../pretrained_baseline/` sweep's winning bins/mask cell, `pretrained_baseline_bins20_mask030`) | `[masking, masking_from_cls]`, `masking_prob=0.3` |
 
 `training.tasks`/`masking_prob` are inert at `max_epochs=0` (no pretraining step
 ever runs) — they're kept in the config only for documentation.

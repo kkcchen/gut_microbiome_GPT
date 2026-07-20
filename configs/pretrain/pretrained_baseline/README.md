@@ -10,10 +10,10 @@ probability?"
 
 | | `real_runs/baseline_random_init_default_scgpt.yaml` | `real_runs/stage4_bins{N}_mask{P}.yaml` | This sweep |
 |---|---|---|---|
-| Architecture | default scGPT (binning, cls, continuous, use_batch_labels) | Stage 1-3 winners | Same default scGPT architecture as the baseline |
+| Architecture | default scGPT (binning, num_bins=20, cls, continuous, use_batch_labels) | Stage 1-3 winners | Same default scGPT architecture as the baseline |
 | `training.max_epochs` | 0 (random-init, no pretraining) | 200 | 200 |
 | `training.tasks` | `[masking, masking_from_cls]`, `masking_prob=0.3` (inert at max_epochs=0) | Stage 2's winning task | `[masking, masking_from_cls]` (fixed, actually active) |
-| `data.num_bins` | 10 only | swept: 5, 10, 20 | swept: 5, 10, 20 |
+| `data.num_bins` | 20 only | swept: 5, 10, 20 | swept: 5, 10, 20 |
 | `training.masking_prob` | 0.3 only (inert) | swept: 0.3, 0.5, 0.8 | swept: 0.3, 0.5, 0.8 |
 | `finetune.training.finetune_mode` | `full` | `partial` | `partial` |
 
@@ -52,7 +52,7 @@ Logs land in `logs/refactored/pretrain/pretrained_baseline/`.
 Read each `outputs/pretrain/pretrained_baseline/<name>/finetune_summary.md`
 against:
 - `outputs/pretrain/real_runs/baseline/baseline_random_init_default_scgpt/finetune_summary.md`
-  (num_bins=10 cell only) to separate pretrained-vs-random-init.
+  (num_bins=20 cell only) to separate pretrained-vs-random-init.
 - `outputs/pretrain/real_runs/stage4/stage4_bins{N}_mask{P}/finetune_summary.md`
   (same grid cell) to separate the effect of task family
   (`[masking, masking_from_cls]` here vs. Stage 2's winning task there).

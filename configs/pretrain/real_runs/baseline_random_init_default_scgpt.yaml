@@ -11,9 +11,12 @@ wandb:
   project: "microbiome-pretrain-sweep-baseline"
   run_name: "baseline_random_init_default_scgpt"
   run_notes: "No-pretraining baseline: max_epochs=0 (random-init encoder), finetune_mode=full,
-    on a default scGPT-style architecture (norm_strategy=binning, tasks=[masking, masking_from_cls],
-    masking_prob=0.3 (Stage 2's best), sample_emb_style=cls, abundance_emb_style=continuous,
-    use_batch_labels=true). Compare its finetune_summary.md against Stage 1's binning configs'
+    on a default scGPT-style architecture (norm_strategy=binning, num_bins=20, tasks=[masking,
+    masking_from_cls], masking_prob=0.3, sample_emb_style=cls, abundance_emb_style=continuous,
+    use_batch_labels=true) -- num_bins=20/masking_prob=0.3 is the winning cell
+    (pretrained_baseline_bins20_mask030) from the ../pretrained_baseline/ sweep, judged on
+    classification-task F1-macro/AUROC (regression tasks excluded). Compare its
+    finetune_summary.md against ../pretrained_baseline/pretrained_baseline_bins20_mask030.yaml's
     (partial finetune_mode) to separate the effect of pretraining from full vs. partial finetuning."
 
 training:
@@ -26,7 +29,7 @@ training:
   patience: 20
   grad_accumulation_steps: 1
   enable_fp16: false
-  notes: "No-pretraining baseline (random-init encoder, full finetune) on a default scGPT-style architecture"
+  notes: "No-pretraining baseline (random-init encoder, full finetune) on a default scGPT-style architecture, num_bins=20/masking_prob=0.3 (the pretrained_baseline sweep's winning cell)"
   tasks: ["masking", "masking_from_cls"]  # inert at max_epochs=0, kept for documentation
   masking_prob: 0.3
   masking_taxa_prob: 0.15
@@ -41,7 +44,7 @@ validation:
 
 data:
   norm_strategy: "binning" # choices: clr, none, binning, binary, rel_abundance, log_rel_abundance, log_counts
-  num_bins: 10
+  num_bins: 20  # pretrained_baseline sweep's winning cell (bins20_mask030)
   split_key: "study_id" # we probably want to split train/val by entire studies, so it resembles close to real-world/test scenario
   val_size: 0.1
   use_batch_labels: true

@@ -13,9 +13,9 @@ wandb:
     recipe as real_runs/baseline_random_init_default_scgpt.yaml), but with real pretraining
     (max_epochs=200, like real_runs/stage1-4) instead of max_epochs=0, and finetune_mode=partial
     (like real_runs/stage1-4) instead of full. Compare against real_runs/baseline_random_init_default_scgpt.yaml''s
-    finetune_summary.md (pretrained vs. random-init, num_bins=10 cell only) and against
-    real_runs/stage4_bins5_mask030.yaml''s finetune_summary.md (same grid cell, different
-    task family).'
+    finetune_summary.md (pretrained vs. random-init, num_bins=20 cell only -- the
+    baseline uses this sweep''s winning bins20_mask030 cell) and against real_runs/stage4_bins5_mask030.yaml''s
+    finetune_summary.md (same grid cell, different task family).'
 training:
   seed: 42
   init_lr: 0.001
@@ -31,7 +31,8 @@ training:
     but with real pretraining (max_epochs=200, like real_runs/stage1-4) instead of
     max_epochs=0, and finetune_mode=partial (like real_runs/stage1-4) instead of full.
     Compare against real_runs/baseline_random_init_default_scgpt.yaml''s finetune_summary.md
-    (pretrained vs. random-init, num_bins=10 cell only) and against real_runs/stage4_bins5_mask030.yaml''s
+    (pretrained vs. random-init, num_bins=20 cell only -- the baseline uses this sweep''s
+    winning bins20_mask030 cell) and against real_runs/stage4_bins5_mask030.yaml''s
     finetune_summary.md (same grid cell, different task family).'
   tasks:
   - masking

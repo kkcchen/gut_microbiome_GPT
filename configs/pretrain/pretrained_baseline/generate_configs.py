@@ -123,7 +123,8 @@ def make_config(num_bins, masking_prob):
         f"pretraining (max_epochs=200, like real_runs/stage1-4) instead of max_epochs=0, and "
         f"finetune_mode=partial (like real_runs/stage1-4) instead of full. Compare against "
         f"real_runs/baseline_random_init_default_scgpt.yaml's finetune_summary.md (pretrained "
-        f"vs. random-init, num_bins=10 cell only) and against "
+        f"vs. random-init, num_bins=20 cell only -- the baseline uses this sweep's winning "
+        f"bins20_mask030 cell) and against "
         f"real_runs/stage4_bins{num_bins}_mask{int(masking_prob * 100):03d}.yaml's "
         f"finetune_summary.md (same grid cell, different task family)."
     )
