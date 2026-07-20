@@ -1,9 +1,11 @@
 """
 Model configuration and initialization utilities.
 """
+import inspect
 import json
 import os
 import torch
+import torch.nn.functional as F
 from omegaconf import OmegaConf
 from trainers import logger
 from model import hgmGPT, MASKING_TASKS, TAXA_MASKING_TASKS
@@ -215,6 +217,16 @@ def load_trained_model(cfg, model_config, accelerator):
         logger.info(f"Loading model configuration from {model_config_path}...")
         with open(model_config_path, 'r') as f:
             model_config = json.load(f)
+        # Older checkpoints' saved model_config.json can contain keys that
+        # have since been removed from hgmGPT's signature -- drop them
+        # instead of failing, so any past checkpoint remains loadable.
+        valid_keys = set(inspect.signature(hgmGPT.__init__).parameters) - {'self'}
+        unknown_keys = set(model_config) - valid_keys
+        if unknown_keys:
+            logger.warning(
+                f"Ignoring keys in {model_config_path} no longer accepted by hgmGPT: {sorted(unknown_keys)}"
+            )
+            model_config = {k: v for k, v in model_config.items() if k in valid_keys}
     else:
         logger.warning(f"Model configuration file not found at {model_config_path}. Building model configuration from current cfg.")
 
@@ -315,6 +327,13 @@ def inference(
         
         # Concatenate all batches
         embeddings = torch.cat(all_embeddings, dim=0)  # (N, d_model) or (N, num_tokens, d_model)
+        # Batches are padded independently by the collator (to each batch's own
+        # max expressed-taxa count), so taxa_ids sequence length L can differ
+        # across batches -- pad to the global max before concatenating.
+        max_seq_len = max(t.shape[1] for t in all_taxa_ids)
+        all_taxa_ids = [
+            F.pad(t, (0, max_seq_len - t.shape[1]), value=0) for t in all_taxa_ids
+        ]
         taxa_ids = torch.cat(all_taxa_ids, dim=0)  # (N, L)
         
         results = {

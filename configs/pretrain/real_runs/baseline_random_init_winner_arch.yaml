@@ -36,6 +36,8 @@ training:
   grad_clip: 1.0
   checkpoint_every: 5
   finetune_mode: "none" # choices: none, full, partial -- keeps the shared trainer on the pretraining path
+  w_masking_from_cls: 1.0
+  w_masking_taxa: 1.0
 
 validation:
   batch_size: 64
@@ -46,7 +48,6 @@ data:
   split_key: "study_id" # we probably want to split train/val by entire studies, so it resembles close to real-world/test scenario
   val_size: 0.1
   use_batch_labels: true
-  max_seq_len: 200
   num_workers: 4
   metadata_fields: []
 
