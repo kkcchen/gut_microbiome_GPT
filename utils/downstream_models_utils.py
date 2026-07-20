@@ -77,8 +77,8 @@ def train_random_forest(
 
     if search_type == "grid":
         param_grid = {
-            "min_samples_leaf": [1, 10, 100],
-            "n_estimators": [50, 250, 500, 1000]
+            "min_samples_leaf": [1, 10],
+            "n_estimators": [250, 500]
         }
         search = GridSearchCV(
             estimator=model,
@@ -180,17 +180,15 @@ def train_xgboost(
 
     if search_type == "grid":
         param_grid = {
-            "learning_rate": [0.01, 0.1, 0.2],
-            "max_depth": [3, 6, 10],
-            "n_estimators": [100, 300, 500],
-            "subsample": [0.8, 1.0],
-            "colsample_bytree": [0.8, 1.0]
+            "learning_rate": [0.05, 0.1],
+            "max_depth": [3, 6],
+            "n_estimators": [200, 500]
         }
         search = GridSearchCV(
             estimator=model,
             param_grid=param_grid,
             scoring=search_scoring,
-            cv=5,
+            cv=3,
             n_jobs=-1,
             verbose=1
         )
@@ -283,6 +281,10 @@ def train_linear(
             'model__max_iter': [500, 1000, 2000, 5000],
             'model__alpha': np.logspace(-4, 2, 10)
         }
+        param_grid = {
+            'model__max_iter': [2000],
+            'model__alpha': np.logspace(-3, 1, 5)
+        }
         search_scoring = 'neg_mean_squared_error'
     else:
         n_classes = len(np.unique(y_train))
@@ -294,13 +296,17 @@ def train_linear(
             'model__max_iter': [500, 1000, 2000, 5000],
             'model__C': 1.0 / np.logspace(-4, 2, 10)
         }
+        param_grid = {
+            'model__max_iter': [2000],
+            'model__C': 1.0 / np.logspace(-3, 1, 5)
+        }
         search_scoring = 'roc_auc' if n_classes == 2 else 'f1_weighted'
 
     if search_type == "grid":
         search = GridSearchCV(
             model,
-            param_distributions,
-            cv=5,
+            param_grid,
+            cv=3,
             scoring=search_scoring,
             n_jobs=-1,
             verbose=1
