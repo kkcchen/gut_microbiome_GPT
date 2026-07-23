@@ -30,8 +30,8 @@ from omegaconf import OmegaConf
 SWEEP_DIR = os.path.dirname(os.path.abspath(__file__))
 
 DOWNSTREAM_TASKS = {
-    "age": {"label_type": "continuous_label", "ignored_labels": [], "target_col": "downstream_task"},
-    "bmi": {"label_type": "continuous_label", "ignored_labels": [], "target_col": "downstream_task"},
+    # "age": {"label_type": "continuous_label", "ignored_labels": [], "target_col": "downstream_task"},
+    # "bmi": {"label_type": "continuous_label", "ignored_labels": [], "target_col": "downstream_task"},
     "sex": {"label_type": "categorical_label", "ignored_labels": [], "target_col": "downstream_task"},
     "supplement": {"label_type": "categorical_label", "ignored_labels": [], "target_col": "downstream_task"},
     "helicobacter_pylori_infection": {"label_type": "categorical_label", "ignored_labels": [], "target_col": "downstream_task"},

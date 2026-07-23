@@ -42,14 +42,6 @@ downstream_tasks_config:
     linear:
       search_type: grid
   tasks:
-    age:
-      label_type: continuous_label
-      ignored_labels: []
-      target_col: downstream_task
-    bmi:
-      label_type: continuous_label
-      ignored_labels: []
-      target_col: downstream_task
     sex:
       label_type: categorical_label
       ignored_labels: []

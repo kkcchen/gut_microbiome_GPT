@@ -14,6 +14,7 @@ from sklearn.utils.class_weight import compute_class_weight
 from trainers import logger
 from .downstream_eval_utils import evaluate_multiclass_and_save, evaluate_regression_and_save
 from .downstream_data_utils import handle_normalization_and_thresholding
+from .downstream_summary_utils import write_downstream_summary
 
 # Import model training functions
 from .downstream_models_utils import (
@@ -488,7 +489,11 @@ def run_downstream_evaluation(
             successful_tasks += 1
         else:
             failed_tasks.append(task_name)
-    
+
+        # re-written after every task (not just at the end) so a hard kill partway
+        # through a long eval job still leaves an accurate, current summary
+        write_downstream_summary(Path(cfg.paths.output_dir))
+
     # Final summary
     logger.info("\n" + "=" * 80)
     logger.info("DOWNSTREAM TASK EVALUATION COMPLETE!")
