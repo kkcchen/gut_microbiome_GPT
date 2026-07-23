@@ -181,8 +181,10 @@ def train_xgboost(
     if search_type == "grid":
         param_grid = {
             "learning_rate": [0.05, 0.1],
-            "max_depth": [3, 6],
-            "n_estimators": [200, 500]
+            "max_depth": [3, 6, 9],
+            "n_estimators": [200, 500, 1000],
+            "subsample": [0.7, 1.0],
+            "colsample_bytree": [0.7, 1.0]
         }
         search = GridSearchCV(
             estimator=model,
