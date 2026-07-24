@@ -13,7 +13,7 @@ import json
 
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from xgboost import XGBClassifier, XGBRegressor
-from sklearn.linear_model import LogisticRegression, Lasso
+from sklearn.linear_model import LogisticRegression, ElasticNet
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
@@ -258,7 +258,7 @@ def train_linear(
     task_type: str = "classification"
 ) -> Tuple[Dict, Any]:
     """
-    Train linear model (Logistic Regression or Lasso).
+    Train linear model (Elastic-Net Logistic Regression or Elastic-Net Regression).
 
     Args:
         X_train: Training features
@@ -271,36 +271,40 @@ def train_linear(
         Tuple of (best_params, best_model)
     """
     regression = (task_type == "regression")
-    logger.info(f"  Training Linear Model ({'Lasso' if regression else 'Logistic Regression'})")
+    logger.info(f"  Training Linear Model ({'ElasticNet' if regression else 'Elastic-Net Logistic Regression'})")
     logger.info(f"    X_train: {X_train.shape}, y_train: {y_train.shape}")
 
     if regression:
         model = Pipeline([
             ('scaler', StandardScaler()),
-            ('model', Lasso(random_state=42))
+            ('model', ElasticNet(random_state=42))
         ])
         param_distributions = {
             'model__max_iter': [500, 1000, 2000, 5000],
-            'model__alpha': np.logspace(-4, 2, 10)
+            'model__alpha': np.logspace(-4, 2, 10),
+            'model__l1_ratio': uniform(0.05, 0.9)
         }
         param_grid = {
             'model__max_iter': [2000],
-            'model__alpha': np.logspace(-3, 1, 5)
+            'model__alpha': np.logspace(-3, 1, 5),
+            'model__l1_ratio': [0.1, 0.5, 0.9]
         }
         search_scoring = 'neg_mean_squared_error'
     else:
         n_classes = len(np.unique(y_train))
         model = Pipeline([
             ('scaler', StandardScaler()),
-            ('model', LogisticRegression(penalty='l1', solver='saga', random_state=42))
+            ('model', LogisticRegression(penalty='elasticnet', solver='saga', random_state=42))
         ])
         param_distributions = {
             'model__max_iter': [500, 1000, 2000, 5000],
-            'model__C': 1.0 / np.logspace(-4, 2, 10)
+            'model__C': 1.0 / np.logspace(-4, 2, 10),
+            'model__l1_ratio': uniform(0.05, 0.9)
         }
         param_grid = {
             'model__max_iter': [2000],
-            'model__C': 1.0 / np.logspace(-3, 1, 5)
+            'model__C': 1.0 / np.logspace(-3, 1, 5),
+            'model__l1_ratio': [0.1, 0.5, 0.9]
         }
         search_scoring = 'roc_auc' if n_classes == 2 else 'f1_weighted'
 
@@ -335,7 +339,7 @@ def train_linear(
         return search.best_params_, search.best_estimator_
 
     elif search_type == "none":
-        params = {"model__alpha": 1.0} if regression else {"model__C": 1.0}
+        params = {"model__alpha": 1.0, "model__l1_ratio": 0.5} if regression else {"model__C": 1.0, "model__l1_ratio": 0.5}
         logger.info(f"    Using fixed parameters: {params}")
         model.set_params(**params)
         model.fit(X_train, y_train, model__sample_weight=sample_weights)

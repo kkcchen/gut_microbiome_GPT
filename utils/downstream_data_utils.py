@@ -14,8 +14,9 @@ def normalize_embeddings(adata: ad.AnnData, method: str = "clr") -> np.ndarray:
     current normalization include clr and log, returns anndata with normalized data in adata.X
     Args:
         adata: AnnData object containing the embeddings in adata.X
-        method: Normalization method to apply. Options: "l2", "clr", "log"
-    """    
+        method: Normalization method to apply.
+            Options: "l2", "clr", "log", "log_rel_abundance", "none", "rel_ab"
+    """
     # Convert to dense float
     if sp.issparse(adata.X):
         X = adata.X.toarray().astype(np.float32, copy=False)
@@ -33,6 +34,13 @@ def normalize_embeddings(adata: ad.AnnData, method: str = "clr") -> np.ndarray:
     elif method == "log":
         X_norm = np.log1p(X).astype(np.float32, copy=False)
 
+    elif method == "log_rel_abundance":
+        # log(closure(x)) -- matches data_utils/collator.py::apply_normalization's
+        # "log_rel_abundance" strategy on the pretrain side. NOT the same as "log"
+        # above, which is log1p on raw counts with no closure step.
+        X_replaced = X + 1e-8
+        X_norm = np.log(closure(X_replaced)).astype(np.float32, copy=False)
+
     elif method == "none":
         X_norm = X.astype(np.float32, copy=False)
 
@@ -44,7 +52,7 @@ def normalize_embeddings(adata: ad.AnnData, method: str = "clr") -> np.ndarray:
     else:
         raise ValueError(
             f"Unknown normalization method: '{method}'. "
-            f"Available methods: 'l2', 'clr', 'log', 'none', 'rel_ab'"
+            f"Available methods: 'l2', 'clr', 'log', 'log_rel_abundance', 'none', 'rel_ab'"
         )
 
     new_adata = ad.AnnData(

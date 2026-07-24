@@ -1,0 +1,62 @@
+paths:
+  output_dir: outputs/eval/raw_baselines/none
+  train_path: /scratch/kchen13/hmc_final_fixed/downstream_train.h5ad
+  test_path: /scratch/kchen13/hmc_final_fixed/downstream_test.h5ad
+eval:
+  seed: 42
+  with_model: false
+downstream_tasks_config:
+  normalization: none
+  prevalence_threshold: 0.01
+  abundance_threshold: 0.05
+  methods:
+    xgboost:
+      search_type: grid
+    linear:
+      search_type: grid
+  tasks:
+    sex:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
+    supplement:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
+    helicobacter_pylori_infection:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
+    hbv_infection:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
+    hiv_infection:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
+    sunflower_seed_oil_emollient_therapy:
+      label_type: categorical_label
+      ignored_labels:
+      - extraction_control
+      target_col: downstream_task
+    chemotherapy:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
+    type_1_diabetes:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
+    crohns_disease:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
+    diarrhea:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
+    location:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
