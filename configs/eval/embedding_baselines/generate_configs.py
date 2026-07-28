@@ -89,8 +89,8 @@ BASE = {
     "downstream_tasks_config": {
         "methods": {
             "xgboost": {"search_type": "grid"},
-            "random_forest": {"search_type": "grid"},
-            "linear": {"search_type": "grid"},
+            # "random_forest": {"search_type": "grid"},
+            # "linear": {"search_type": "grid"},
         },
         "tasks": DOWNSTREAM_TASKS,
     },
