@@ -18,6 +18,7 @@ roc_auc_score(average="weighted") for one-vs-rest multiclass).
 """
 import json
 import re
+import statistics
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -252,3 +253,130 @@ def combine_downstream_summaries(parent_dir: Path) -> None:
     combined_path = parent_dir / "combined_summary.md"
     combined_path.write_text("\n".join(lines) + "\n")
     logger.logger.info(f"Saved combined downstream task summary to {combined_path}")
+
+
+# ==============================================================================
+# ERROR BARS ACROSS REPEATED-SEED SPLITS
+#
+# There is no k-fold CV at evaluation time in this pipeline (the cv= in
+# GridSearchCV/RandomizedSearchCV only picks hyperparameters internally; the
+# reported metrics come from one fixed train/test split). To get error bars,
+# rerun preprocessing + eval with several different split seeds and aggregate
+# here across the resulting per-seed result directories.
+# ==============================================================================
+
+def _mean_std(values: List[Optional[float]]) -> Tuple[Optional[float], Optional[float]]:
+    """Sample mean/stdev of a metric across seeds, ignoring seeds with no result."""
+    clean = [v for v in values if v is not None]
+    if not clean:
+        return None, None
+    if len(clean) == 1:
+        return clean[0], None
+    return statistics.mean(clean), statistics.stdev(clean)
+
+
+def _fmt_mean_std(mean_std: Tuple[Optional[float], Optional[float]], digits: int = 4) -> str:
+    mean, std = mean_std
+    if mean is None:
+        return "–"
+    if std is None:
+        return f"{mean:.{digits}f}"
+    return f"{mean:.{digits}f} ± {std:.{digits}f}"
+
+
+def _render_error_bar_tables(rows_by_metric: Dict[str, list], methods: list, extra_column: Optional[str] = None) -> list:
+    """Same layout as _render_tables, but each cell is a (mean, std) tuple rendered as 'mean ± std'."""
+    lines = []
+    metric_titles = {"accuracy": "Accuracy", "macro_f1": "Macro F1"}
+    header_cols = ([extra_column.title()] if extra_column else []) + [_display_method_name(m) for m in methods]
+
+    for metric_key, rows in rows_by_metric.items():
+        lines.append(f"## {metric_titles[metric_key]}")
+        lines.append("")
+        lines.append("| Task | " + " | ".join(header_cols) + " |")
+        lines.append("|" + "---|" * (1 + len(header_cols)))
+        for row in rows:
+            cells = [row["task"]] + ([row[extra_column]] if extra_column else [])
+            cells += [_fmt_mean_std(row["values"].get(m, (None, None))) for m in methods]
+            lines.append("| " + " | ".join(cells) + " |")
+        lines.append("")
+
+    return lines
+
+
+def combine_seeded_downstream_summaries(seeds_root_dir: Path, output_path: Optional[Path] = None) -> None:
+    """
+    Aggregate downstream task results across repeated train/test-split seeds into
+    mean +/- (sample) standard deviation tables.
+
+    Expects the directory layout produced by rerunning the same eval config(s) once per
+    split seed, e.g. via scripts/run_raw_baselines_with_seeds.sh:
+        <seeds_root_dir>/seed_<i>/<config_name>/downstream_tasks/<task>/<method>/...
+
+    :param seeds_root_dir: Parent directory containing one subdirectory per seed
+        (named "seed_<i>"), e.g. outputs/eval/raw_baselines_seeds/.
+    :param output_path: Where to write the resulting summary; defaults to
+        <seeds_root_dir>/combined_summary_with_error_bars.md.
+    """
+    seeds_root_dir = Path(seeds_root_dir)
+    output_path = Path(output_path) if output_path else seeds_root_dir / "combined_summary_with_error_bars.md"
+
+    seed_dirs = sorted(d for d in seeds_root_dir.iterdir() if d.is_dir() and d.name.startswith("seed_"))
+    if not seed_dirs:
+        logger.logger.warning(f"No seed_* directories found under {seeds_root_dir}")
+        return
+
+    config_names = sorted({
+        d.name for seed_dir in seed_dirs for d in seed_dir.iterdir()
+        if d.is_dir() and (d / "downstream_tasks").is_dir()
+    })
+
+    lines = [
+        "# Combined downstream task summary (mean ± std across seeds)",
+        "",
+        f"Seeds: {', '.join(d.name for d in seed_dirs)} (n={len(seed_dirs)})",
+        f"Configs: {', '.join(config_names) if config_names else '(none found)'}",
+        "",
+        "Each cell is the sample mean ± sample standard deviation of the metric across the "
+        "seeds above -- each seed reruns preprocessing with a different stratified train/test "
+        "split, then trains and evaluates from scratch on that split. A cell with no `±` means "
+        "only one seed produced a result for that task/method/config.",
+        "",
+    ]
+
+    if not config_names:
+        lines.append("(no downstream task results found on disk)")
+        output_path.write_text("\n".join(lines) + "\n")
+        return
+
+    per_config_seed_metrics = {
+        config_name: [_collect_run_metrics(seed_dir / config_name) for seed_dir in seed_dirs]
+        for config_name in config_names
+    }
+
+    all_methods = _order_methods({
+        method
+        for seed_metrics_list in per_config_seed_metrics.values()
+        for run_metrics in seed_metrics_list
+        for per_method in run_metrics.values()
+        for method in per_method
+    })
+
+    rows_by_metric = {"accuracy": [], "macro_f1": []}
+    for config_name in config_names:
+        seed_metrics_list = per_config_seed_metrics[config_name]
+        all_tasks = sorted({t for m in seed_metrics_list for t in m})
+        for task_name in all_tasks:
+            values_acc, values_f1 = {}, {}
+            for method in all_methods:
+                acc_vals = [(m.get(task_name, {}).get(method) or {}).get("accuracy") for m in seed_metrics_list]
+                f1_vals = [(m.get(task_name, {}).get(method) or {}).get("macro_f1") for m in seed_metrics_list]
+                values_acc[method] = _mean_std(acc_vals)
+                values_f1[method] = _mean_std(f1_vals)
+            rows_by_metric["accuracy"].append({"task": task_name, "config": config_name, "values": values_acc})
+            rows_by_metric["macro_f1"].append({"task": task_name, "config": config_name, "values": values_f1})
+
+    lines += _render_error_bar_tables(rows_by_metric, all_methods, extra_column="config")
+
+    output_path.write_text("\n".join(lines) + "\n")
+    logger.logger.info(f"Saved seeded combined downstream task summary to {output_path}")

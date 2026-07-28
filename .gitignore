@@ -8,5 +8,6 @@ logs/
 datasets_full
 .vscode/
 outputs/
+outputs_old/
 data/
 claude.md

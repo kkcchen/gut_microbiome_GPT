@@ -1,5 +1,5 @@
 import os
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Optional, Tuple
 from sklearn.model_selection import train_test_split
 import yaml
 import argparse
@@ -343,7 +343,7 @@ def print_task_counts(name, ad_obj):
             print("  (No valid labels found)")
         
 
-def preprocess(config_path: Path):
+def preprocess(config_path: Path, seed_override: Optional[int] = None, save_path_override: Optional[str] = None):
     """
     Main preprocessing workflow for the Human Microbiome Compendium (HMC) data. Doesn't return anything, just saves the processed data to disk.
     The saved files are:
@@ -352,15 +352,25 @@ def preprocess(config_path: Path):
     - downstream_test.h5ad: preprocessed data for downstream task testing
     These files are set up in a way that smoothly hooks into the train/eval/test pipeline. Notably, there are redundant samples in the downstream
     files. This is intentional for ease of use. If you want a different split or define more tasks, feel free to modify to config accordingly.
-    
+
     :param config_path: Path to the YAML configuration file.
     :type config_path: Path
+    :param seed_override: If set, overrides general_config.seed -- used to generate a different
+        train/test split (e.g. for repeated-seed runs to compute error bars downstream).
+    :param save_path_override: If set, overrides paths.save_path -- used to keep each seed's split
+        in its own directory instead of overwriting the default one.
     """
     # handle yaml config
     config = load_config(config_path)
     paths = extract_paths(config)
     general_config = config['general_config']
     downstream_tasks = config['downstream_tasks']
+
+    if seed_override is not None:
+        general_config['seed'] = seed_override
+    if save_path_override is not None:
+        paths['save_path'] = Path(save_path_override)
+
     ## seed
     np.random.seed(general_config['seed'])
 
@@ -464,6 +474,8 @@ def preprocess(config_path: Path):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Preprocess gut microbiome data based on configuration.")
     parser.add_argument("--config", type=str, required=True, help="Path to the preprocessing configuration YAML file.")
+    parser.add_argument("--seed", type=int, default=None, help="Override general_config.seed to produce a different train/test split (used for repeated-seed error-bar runs).")
+    parser.add_argument("--save-path", type=str, default=None, help="Override paths.save_path so each seed's split is written to its own directory.")
     args = parser.parse_args()
     config_path = Path(args.config)
-    preprocess(config_path)
+    preprocess(config_path, seed_override=args.seed, save_path_override=args.save_path)
