@@ -4,12 +4,9 @@
 # label_column matches the adata.obs column read by
 # utils/data_pipeline.py:prepare_finetune_data (categorical_label vs
 # continuous_label), and finetune_task matches training.finetune_task
-# ("classification" or "regression").
-#
-# sunflower_seed_oil_emollient_therapy is intentionally excluded: it's the
-# only downstream task with non-empty ignored_labels (see
-# configs/eval/default.yaml's downstream_tasks_config), which
-# prepare_finetune_data does not currently filter for.
+# ("classification" or "regression"). ignored_labels (optional, default [])
+# is filtered out of that label_column before training/eval, matching
+# configs/eval/default.yaml's downstream_tasks_config.
 tasks:
   age:
     finetune_task: regression
@@ -32,6 +29,10 @@ tasks:
   hiv_infection:
     finetune_task: classification
     label_column: categorical_label
+  sunflower_seed_oil_emollient_therapy:
+    finetune_task: classification
+    label_column: categorical_label
+    ignored_labels: ['extraction_control']
   chemotherapy:
     finetune_task: classification
     label_column: categorical_label

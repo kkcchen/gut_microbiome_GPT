@@ -29,7 +29,7 @@ FINETUNE_TEMPLATE_PATH = os.path.join(
 
 
 def load_task_registry(path: str = TASK_REGISTRY_PATH) -> Dict[str, Dict]:
-    """Load the {task_name: {finetune_task, label_column}} registry."""
+    """Load the {task_name: {finetune_task, label_column, ignored_labels}} registry."""
     registry = OmegaConf.load(path)
     return OmegaConf.to_container(registry.tasks, resolve=True)
 
@@ -85,7 +85,7 @@ def build_finetune_config(pretrain_cfg, pretrain_output_dir: str, task_name: str
     :param pretrain_cfg: OmegaConf config of the pretraining run.
     :param pretrain_output_dir: Output directory of the completed pretraining run.
     :param task_name: Downstream task name (matches adata.obs['downstream_task']).
-    :param task_spec: Registry entry for this task ({finetune_task, label_column}).
+    :param task_spec: Registry entry for this task ({finetune_task, label_column, ignored_labels}).
     :return: OmegaConf config ready to pass to scripts.finetune.main().
     """
     require_finetune_section(pretrain_cfg)
@@ -116,6 +116,7 @@ def build_finetune_config(pretrain_cfg, pretrain_output_dir: str, task_name: str
     cfg.data.val_size = ft_cfg.get("val_size", 0.2)
     cfg.data.finetune_task_name = task_name
     cfg.data.label_column = task_spec["label_column"]
+    cfg.data.ignored_labels = task_spec.get("ignored_labels", [])
 
     for key, value in ft_cfg.get("training", {}).items():
         cfg.training[key] = value
@@ -210,7 +211,7 @@ def write_finetune_summary(pretrain_output_dir: str, task_registry: Dict[str, Di
     table at <pretrain_output_dir>/finetune_summary.md.
 
     :param pretrain_output_dir: Output directory of the completed pretraining run.
-    :param task_registry: {task_name: {finetune_task, label_column}}.
+    :param task_registry: {task_name: {finetune_task, label_column, ignored_labels}}.
     :param task_results: {task_name: {status, finetune_task, output_dir?, error?}}, as
         produced by run_all_downstream_finetunes.
     """

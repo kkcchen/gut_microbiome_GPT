@@ -513,7 +513,15 @@ def prepare_finetune_data(cfg, accelerator):
     label_column = cfg.data.label_column
     if label_column not in adata_train_task.obs.columns:
         raise ValueError(f"Label column '{label_column}' not found in adata_train_task.obs")
-    
+
+    # Drop rows whose label is in ignored_labels (e.g. "extraction_control"), matching
+    # the filtering utils/downstream_utils.py::process_task already does for the raw/embedding probes.
+    ignored_labels = cfg.data.get('ignored_labels', [])
+    if ignored_labels:
+        adata_train_task = adata_train_task[~adata_train_task.obs[label_column].isin(ignored_labels)].copy()
+        if adata_test_task is not None:
+            adata_test_task = adata_test_task[~adata_test_task.obs[label_column].isin(ignored_labels)].copy()
+
     labels = adata_train_task.obs[label_column].values
 
     # 2. Load vocabularies (from a prior pretraining run) or build fresh (random-init finetuning)

@@ -367,7 +367,19 @@ def load_pretrained_model_for_finetune(cfg, model_config, accelerator):
     logger.info("=" * 80)
     logger.info("LOADING PRETRAINED MODEL")
     logger.info("=" * 80)
-    
+
+    # Older pretrain run configs' model.params (copied wholesale into model_config by
+    # utils/finetune_orchestration.py::build_finetune_config) can contain keys that have
+    # since been removed from hgmGPT's signature -- drop them instead of failing, so any
+    # past checkpoint remains finetunable. Same fix as load_trained_model above.
+    valid_keys = set(inspect.signature(hgmGPT.__init__).parameters) - {'self'}
+    unknown_keys = set(model_config) - valid_keys
+    if unknown_keys:
+        logger.warning(
+            f"Ignoring model_config keys no longer accepted by hgmGPT: {sorted(unknown_keys)}"
+        )
+        model_config = {k: v for k, v in model_config.items() if k in valid_keys}
+
     # Initialize model with finetuning configuration
     model = hgmGPT(**model_config)
     
