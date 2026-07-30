@@ -1,0 +1,125 @@
+{
+  "_comment": [
+    "Config for runners/run_downstream_final.py (original HMC downstream tasks).",
+    "",
+    "feature_sets: each entry runs end-to-end for every task and method and",
+    "  becomes a row level in the results table, so several preprocessing",
+    "  variants can be compared in one run. Keys:",
+    "    source        'X' (the count matrix) or 'obsm' with a 'key'",
+    "    normalization one of NORMALIZATIONS in downstream_final_utils.py:",
+    "                  'none', 'l2', 'clr', 'log', 'rel_ab' -- same names and",
+    "                  semantics as the earlier normalization script",
+    "    prevalence_threshold / abundance_threshold",
+    "                  optional feature filter applied to raw counts BEFORE",
+    "                  normalization: keep features non-zero in at least this",
+    "                  fraction of samples and with at least this mean count.",
+    "                  Computed over train and test together, as before.",
+    "  Only 'raw' is active; _feature_sets_examples below shows the shape for",
+    "  later experiments. The h5ads currently expose no .obsm keys, so obsm",
+    "  sources only work once embeddings are written there.",
+    "",
+    "split_mode: 'auto' counts distinct obs['study_id'] across the task's rows --",
+    "  one study means pool train+test and run nested CV, more than one means",
+    "  keep the existing split. That routes location and sex to presplit and",
+    "  everything else to combined_cv. Override only to depart from that.",
+    "",
+    "Dropped relative to configs/downstream_tasks.json: 'age' and 'bmi'",
+    "  (continuous, and regression is no longer run) and 'random_forest'.",
+    "",
+    "cv.min_samples_per_class defaults to outer_folds (5), the point below which",
+    "  stratification cannot put a class in every fold -- that is a hard",
+    "  constraint, not a quality threshold, so nothing above it is filtered.",
+    "  Raise it per task to trade classes for tighter error bars."
+  ],
+
+  "dataset": {
+    "train_h5ad": "/scratch/kchen13/hmc_final_fixed/downstream_train.h5ad",
+    "test_h5ad": "/scratch/kchen13/hmc_final_fixed/downstream_test.h5ad",
+    "output_dir": "outputs/downstream_final",
+    "results_dir": "results",
+    "experiment_name": "downstream_final"
+  },
+
+  "feature_sets": {
+    "raw": {"source": "X", "normalization": "none"},
+    "clr": {"source": "X", "normalization": "clr"},
+    "rel_ab": {"source": "X", "normalization": "rel_ab"},
+    "log": {"source": "X", "normalization": "log"}
+  },
+
+  "cv": {
+    "outer_folds": 5,
+    "inner_folds": 2
+  },
+
+  "execution": {
+    "device": "auto",
+    "n_cpus": null
+  },
+
+  "seed": 42,
+
+  "defaults": {
+    "methods": {
+      "linear": {"search_type": "grid"},
+      "xgboost": {"search_type": "grid"}
+    }
+  },
+
+  "tasks": {
+    "location": {
+      "_comment": "12 train / 7 test studies, disjoint -> presplit cross-study holdout",
+      "methods": {}
+    },
+    "sex": {
+      "_comment": "3 train / 2 test studies, disjoint -> presplit cross-study holdout",
+      "methods": {}
+    },
+    "supplement": {
+      "_comment": "PRJNA428736 only; 4 classes, 1152 samples pooled",
+      "methods": {}
+    },
+    "helicobacter_pylori_infection": {
+      "_comment": "PRJNA481413 only; binary, 444 samples pooled",
+      "methods": {}
+    },
+    "hbv_infection": {
+      "_comment": "PRJNA382861 only; hbv 206 / nafld 31 / healthy 26, 263 pooled",
+      "methods": {}
+    },
+    "sunflower_seed_oil_emollient_therapy": {
+      "_comment": [
+        "PRJNA559803 only; 235 samples pooled. extraction_control is a negative",
+        "control (3 samples), not a treatment arm -- excluded explicitly rather",
+        "than left to be silently dropped by the rare-class filter."
+      ],
+      "ignored_labels": ["extraction_control"],
+      "methods": {}
+    },
+    "crohns_disease": {
+      "_comment": "PRJNA450540 only; 227 pooled but only 22 controls -- imbalanced",
+      "methods": {}
+    },
+    "diarrhea": {
+      "_comment": "PRJNA486009 only; binary, 176 samples pooled",
+      "methods": {}
+    },
+    "type_1_diabetes": {
+      "_comment": "PRJNA445932 only; binary, 132 samples pooled",
+      "methods": {}
+    },
+    "hiv_infection": {
+      "_comment": "PRJDB10485 only; binary and balanced, 109 samples pooled",
+      "methods": {}
+    },
+    "chemotherapy": {
+      "_comment": [
+        "PRJNA650259 only, and by far the smallest task: 36 samples pooled,",
+        "23 negative / 13 positive. Both classes clear the stratification floor,",
+        "but each outer fold tests on only ~7 samples -- read its error margin as",
+        "very wide rather than precise."
+      ],
+      "methods": {}
+    }
+  }
+}
