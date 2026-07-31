@@ -49,11 +49,20 @@ def setup_training_environment(cfg):
     return cfg, accelerator
 
 
-def main(cfg):
+def main(cfg, mode_filter=None, tasks=None):
     """
     Main training workflow for microbiome representation learning.
-    
+
     :param cfg: OmegaConf configuration object containing all hyperparameters.
+    :param mode_filter: Passed through to run_all_downstream_finetunes -- if
+        "combined_cv" or "presplit", only finetunes tasks whose auto-detected split mode
+        matches (see utils/downstream_split_mode.py::resolve_split_mode); used by
+        scripts/run_finetune_scratch_with_seeds.sh to repeat only multi-study/presplit
+        tasks across training seeds.
+    :param tasks: Passed through to run_all_downstream_finetunes -- if set, only finetunes
+        tasks whose name is in this list; used when the task registry holds tasks from more
+        than one dataset (finetune.paths.downstream_train/downstream_test are global to the
+        whole run) to keep a run scoped to the tasks that actually live in that data.
     """
     # Fail fast: pretraining now always chains into finetuning across every task in
     # configs/finetune/task_registry.yaml, so a missing 'finetune:' block should stop
@@ -82,12 +91,12 @@ def main(cfg):
             "skipping pretraining and resuming the auto-finetune chain. Set "
             "debug.force_repretrain=true in the config to force a full repretrain."
         )
-        task_results = run_all_downstream_finetunes(cfg, accelerator)
+        task_results = run_all_downstream_finetunes(cfg, accelerator, mode_filter=mode_filter, tasks=tasks)
         accelerator.wait_for_everyone()
         accelerator.end_training()
 
         if accelerator.is_main_process:
-            num_failed = sum(1 for r in task_results.values() if r["status"] != "ok")
+            num_failed = sum(1 for r in task_results.values() if r["status"] not in ("ok", "skipped"))
             if num_failed:
                 logger.error(
                     f"{num_failed}/{len(task_results)} auto-finetune tasks did not complete successfully "
@@ -179,7 +188,7 @@ def main(cfg):
 
     logger.info("Starting automatic finetuning across all downstream tasks...")
     # No-ops (returns all "pending") on non-main processes -- safe to call on every rank.
-    task_results = run_all_downstream_finetunes(cfg, accelerator)
+    task_results = run_all_downstream_finetunes(cfg, accelerator, mode_filter=mode_filter, tasks=tasks)
     accelerator.wait_for_everyone()
 
     accelerator.end_training()
@@ -189,7 +198,7 @@ def main(cfg):
     # results (see run_all_downstream_finetunes); other ranks would just see "pending" and
     # must not spuriously exit non-zero on that basis.
     if accelerator.is_main_process:
-        num_failed = sum(1 for r in task_results.values() if r["status"] != "ok")
+        num_failed = sum(1 for r in task_results.values() if r["status"] not in ("ok", "skipped"))
         if num_failed:
             logger.error(
                 f"{num_failed}/{len(task_results)} auto-finetune tasks did not complete successfully "
@@ -209,15 +218,32 @@ if __name__ == "__main__":
         help="Path to YAML configuration file"
     )
     parser.add_argument(
+        "--mode-filter", type=str, default=None, choices=["combined_cv", "presplit"],
+        help="Only auto-finetune tasks whose auto-detected split mode matches (see "
+             "utils/downstream_split_mode.py::resolve_split_mode); others are recorded as "
+             "'skipped'. Used to repeat only presplit (multi-study) tasks across several "
+             "training seeds -- see scripts/run_finetune_scratch_with_seeds.sh.",
+    )
+    parser.add_argument(
+        "--tasks", type=str, default=None,
+        help="Comma-separated task names to auto-finetune (must match keys in "
+             "configs/finetune/task_registry.yaml); others are recorded as 'skipped'. Needed "
+             "when the registry holds tasks from more than one dataset -- see "
+             "scripts/run_finetune_scratch_with_seeds.sh. A single string (not nargs='*') "
+             "because this parser also has a REMAINDER positional below for config overrides "
+             "-- nargs='*' would greedily swallow those too.",
+    )
+    parser.add_argument(
         "overrides",
         nargs=argparse.REMAINDER,
         help="Override config values (e.g., training.batch_size=64 model.tasks.do_mvc=True)"
     )
-    
+
     args = parser.parse_args()
+    tasks = [t.strip() for t in args.tasks.split(",")] if args.tasks else None
 
     # Load and merge configurations
     cfg = load_and_validate_config(args.config, args.overrides)
-    
+
     # Run training
-    main(cfg)
+    main(cfg, mode_filter=args.mode_filter, tasks=tasks)

@@ -20,7 +20,7 @@ import json
 import re
 import statistics
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -96,20 +96,57 @@ def _determine_task_type(task_dir: Path, method_names: List[str]) -> str:
     for method_name in method_names:
         if (task_dir / method_name / "classification" / "multiclass_scores.json").exists():
             return "classification"
+        if (task_dir / method_name / "classification" / "cv_summary.json").exists():
+            return "classification"
         if (task_dir / method_name / "regression" / "regression_scores.json").exists():
+            return "regression"
+        if (task_dir / method_name / "regression" / "cv_summary.json").exists():
             return "regression"
     return "unknown"
 
 
+def _read_cv_summary_row(cv_path: Path, task_name: str, task_type: str) -> Dict:
+    """
+    A single-study task's pooled-CV result (utils/downstream_utils.py::run_single_method_cv),
+    read back into the same row shape as the presplit path -- the fold mean stands in for the
+    single point estimate a presplit task reports; the fold spread (std/ci_margin/values per
+    fold) stays in cv_summary.json itself for anyone who wants it.
+    """
+    payload = json.loads(cv_path.read_text())
+    aggregates = payload["aggregates"]
+    status = f"OK ({payload['outer_folds']}-fold CV)"
+
+    def mean(key: str) -> Optional[float]:
+        agg = aggregates.get(key)
+        return agg["mean"] if agg else None
+
+    if task_type == "classification":
+        return {
+            "task": task_name, "type": "classification", "status": status,
+            "accuracy": mean("accuracy"), "f1_macro": mean("f1_macro"),
+            "f1_weighted": mean("f1_weighted"), "auroc": mean("auroc"),
+            "mae": None, "rmse": None, "r2": None,
+        }
+    return {
+        "task": task_name, "type": "regression", "status": status,
+        "accuracy": None, "f1_macro": None, "f1_weighted": None, "auroc": None,
+        "mae": mean("mae"), "rmse": mean("rmse"), "r2": mean("r2"),
+    }
+
+
 def _read_task_method_row(task_dir: Path, task_name: str, method_name: str, task_type: str) -> Dict:
     if task_type == "classification":
+        cv_path = task_dir / method_name / "classification" / "cv_summary.json"
+        if cv_path.exists():
+            return _read_cv_summary_row(cv_path, task_name, task_type)
+
         scores_path = task_dir / method_name / "classification" / "multiclass_scores.json"
         if not scores_path.exists():
             return _missing_row(task_name, task_type)
         scores = json.loads(scores_path.read_text())
         summary, label_rows = scores[-1], scores[:-1]
         conf_mat = _parse_confusion_matrix(summary["Confusion Matrix"])
-        return {
+        row = {
             "task": task_name, "type": "classification", "status": "OK",
             "accuracy": summary.get("Total Accuracy"),
             "f1_macro": summary.get("Macro F1"),
@@ -117,8 +154,23 @@ def _read_task_method_row(task_dir: Path, task_name: str, method_name: str, task
             "auroc": _weighted_auroc(label_rows),
             "mae": None, "rmse": None, "r2": None,
         }
+        # Presplit (multi-study) task: no across-fold spread exists, so
+        # utils/downstream_utils.py::run_single_method attaches the inner hyperparameter
+        # search's own CV std (at the winning params) to whichever metric it optimized --
+        # a proxy margin, not a real held-out error bar. Not rendered as a table column
+        # (same as cv_summary.json's fold spread), just exposed here for callers that want it.
+        std_path = task_dir / method_name / "classification" / "search_cv_std.json"
+        if std_path.exists():
+            std_info = json.loads(std_path.read_text())
+            row["ci_metric"] = std_info["metric"]
+            row["ci_margin"] = std_info["std"]
+        return row
 
     if task_type == "regression":
+        cv_path = task_dir / method_name / "regression" / "cv_summary.json"
+        if cv_path.exists():
+            return _read_cv_summary_row(cv_path, task_name, task_type)
+
         scores_path = task_dir / method_name / "regression" / "regression_scores.json"
         if not scores_path.exists():
             return _missing_row(task_name, task_type)
@@ -162,6 +214,24 @@ def _collect_run_rows(run_output_dir: Path) -> Dict[str, List[Dict]]:
             rows_by_method[method_name].append(row)
 
     return rows_by_method
+
+
+def _collect_run_metrics(run_output_dir: Path) -> Dict[str, Dict[str, Dict[str, Optional[float]]]]:
+    """
+    Same underlying scan as _collect_run_rows, reshaped for seeded aggregation.
+
+    :return: {task_name: {method_name: {"accuracy":.., "f1_macro":.., "f1_weighted":..,
+        "auroc":.., "mae":.., "rmse":.., "r2":..}}}
+    """
+    rows_by_method = _collect_run_rows(run_output_dir)
+    metrics: Dict[str, Dict[str, Dict[str, Optional[float]]]] = {}
+    for method_name, rows in rows_by_method.items():
+        for row in rows:
+            metrics.setdefault(row["task"], {})[method_name] = {
+                key: row[key]
+                for key in ("accuracy", "f1_macro", "f1_weighted", "auroc", "mae", "rmse", "r2")
+            }
+    return metrics
 
 
 def _table_header(extra_column: Optional[str]) -> List[str]:
@@ -258,11 +328,15 @@ def combine_downstream_summaries(parent_dir: Path) -> None:
 # ==============================================================================
 # ERROR BARS ACROSS REPEATED-SEED SPLITS
 #
-# There is no k-fold CV at evaluation time in this pipeline (the cv= in
-# GridSearchCV/RandomizedSearchCV only picks hyperparameters internally; the
-# reported metrics come from one fixed train/test split). To get error bars,
-# rerun preprocessing + eval with several different split seeds and aggregate
-# here across the resulting per-seed result directories.
+# Kept for scripts/run_raw_baselines_with_seeds.sh (which still reruns
+# scripts/preprocess.py per seed to get repeated random splits) and
+# scripts/aggregate_seeded_downstream_summary.py, its consumer. The three
+# scripts/run_{embedding_baselines,finetune_pretrained,finetune_scratch}_with_seeds.sh
+# runners no longer use this: single-study tasks now get error bars from pooled CV
+# (utils/downstream_utils.py::run_task_combined_cv writes cv_summary.json, read
+# transparently by _read_task_method_row above), so those three scripts run once per
+# config with no seed loop, matching kd_tasks/run_downstream_final.py's one-seed-one-run
+# design. This block stays for the older, separate tool that still needs it.
 # ==============================================================================
 
 def _mean_std(values: List[Optional[float]]) -> Tuple[Optional[float], Optional[float]]:
@@ -284,14 +358,24 @@ def _fmt_mean_std(mean_std: Tuple[Optional[float], Optional[float]], digits: int
     return f"{mean:.{digits}f} ± {std:.{digits}f}"
 
 
+METRIC_TITLES = {
+    "accuracy": "Accuracy",
+    "f1_macro": "F1 (macro)",
+    "f1_weighted": "F1 (weighted)",
+    "auroc": "AUROC*",
+    "mae": "MAE",
+    "rmse": "RMSE",
+    "r2": "R²",
+}
+
+
 def _render_error_bar_tables(rows_by_metric: Dict[str, list], methods: list, extra_column: Optional[str] = None) -> list:
     """Same layout as _render_tables, but each cell is a (mean, std) tuple rendered as 'mean ± std'."""
     lines = []
-    metric_titles = {"accuracy": "Accuracy", "macro_f1": "Macro F1"}
     header_cols = ([extra_column.title()] if extra_column else []) + [_display_method_name(m) for m in methods]
 
     for metric_key, rows in rows_by_metric.items():
-        lines.append(f"## {metric_titles[metric_key]}")
+        lines.append(f"## {METRIC_TITLES[metric_key]}")
         lines.append("")
         lines.append("| Task | " + " | ".join(header_cols) + " |")
         lines.append("|" + "---|" * (1 + len(header_cols)))
@@ -362,21 +446,22 @@ def combine_seeded_downstream_summaries(seeds_root_dir: Path, output_path: Optio
         for method in per_method
     })
 
-    rows_by_metric = {"accuracy": [], "macro_f1": []}
+    rows_by_metric = {metric_key: [] for metric_key in METRIC_TITLES}
     for config_name in config_names:
         seed_metrics_list = per_config_seed_metrics[config_name]
         all_tasks = sorted({t for m in seed_metrics_list for t in m})
         for task_name in all_tasks:
-            values_acc, values_f1 = {}, {}
+            values_by_metric = {metric_key: {} for metric_key in METRIC_TITLES}
             for method in all_methods:
-                acc_vals = [(m.get(task_name, {}).get(method) or {}).get("accuracy") for m in seed_metrics_list]
-                f1_vals = [(m.get(task_name, {}).get(method) or {}).get("macro_f1") for m in seed_metrics_list]
-                values_acc[method] = _mean_std(acc_vals)
-                values_f1[method] = _mean_std(f1_vals)
-            rows_by_metric["accuracy"].append({"task": task_name, "config": config_name, "values": values_acc})
-            rows_by_metric["macro_f1"].append({"task": task_name, "config": config_name, "values": values_f1})
+                for metric_key in METRIC_TITLES:
+                    vals = [(m.get(task_name, {}).get(method) or {}).get(metric_key) for m in seed_metrics_list]
+                    values_by_metric[metric_key][method] = _mean_std(vals)
+            for metric_key, values in values_by_metric.items():
+                rows_by_metric[metric_key].append({"task": task_name, "config": config_name, "values": values})
 
     lines += _render_error_bar_tables(rows_by_metric, all_methods, extra_column="config")
+    lines.append(AUROC_FOOTNOTE)
 
     output_path.write_text("\n".join(lines) + "\n")
     logger.logger.info(f"Saved seeded combined downstream task summary to {output_path}")
+

@@ -10,14 +10,17 @@ test_metrics.yaml files into a single human-readable Markdown summary.
 """
 import copy
 import os
-import statistics
 import traceback
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import anndata as ad
 from omegaconf import OmegaConf
 
 from trainers import logger
+from .downstream_split_mode import resolve_cv_config
+from .downstream_summary_utils import METRIC_TITLES, _mean_std, _render_error_bar_tables
+from .finetune_cv_utils import resolve_task_mode, run_task_cv
 
 TASK_REGISTRY_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -26,6 +29,14 @@ TASK_REGISTRY_PATH = os.path.join(
 FINETUNE_TEMPLATE_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "configs", "finetune", "default.yaml",
+)
+
+# Describes trainers/trainer.py::evaluate_on_test_set's own AUROC computation -- distinct
+# from utils/downstream_summary_utils.py's AUROC_FOOTNOTE, which describes the classical-ML
+# embedding-baselines pipeline's per-label-AUC-reweighting instead.
+FINETUNE_AUROC_FOOTNOTE = (
+    "*AUROC is the class-weighted (support-weighted) macro-average across classes "
+    'for multi-class tasks (sklearn `average="weighted"`); the standard AUROC for binary tasks.'
 )
 
 
@@ -76,6 +87,8 @@ def build_finetune_config(
     task_name: str,
     task_spec: Dict,
     finetune_output_root: Optional[str] = None,
+    fold_paths: Optional[Tuple[str, str]] = None,
+    fold_idx: Optional[int] = None,
 ):
     """
     Assemble a complete finetuning config for one downstream task, based on the
@@ -97,8 +110,15 @@ def build_finetune_config(
         model_config_path/best_model/test_metrics.yaml) are written under here instead of
         under pretrain_output_dir -- the checkpoint/vocab are still read from
         pretrain_output_dir either way. Used to re-finetune an already-trained checkpoint
-        against a different data split (e.g. a different seed) without touching or
-        overwriting that checkpoint's own results.
+        against a different data split without touching or overwriting that checkpoint's
+        own results.
+    :param fold_paths: (downstream_train, downstream_test) h5ad paths for one outer CV fold
+        of a single-study task (see utils/finetune_cv_utils.py::run_task_cv). If set, these
+        replace ft_cfg.paths.downstream_train/downstream_test; taxa_vocab_path/
+        batch_vocab_path/checkpoint_path are unaffected either way -- they're pretraining
+        artifacts, not fold-specific.
+    :param fold_idx: Outer fold index, used only to give this fold's task_output_dir its own
+        fold_<i> subdirectory so folds never overwrite each other's checkpoints/results.
     :return: OmegaConf config ready to pass to scripts.finetune.main().
     """
     require_finetune_section(pretrain_cfg)
@@ -107,9 +127,14 @@ def build_finetune_config(
 
     result_root = finetune_output_root if finetune_output_root is not None else pretrain_output_dir
     task_output_dir = os.path.join(result_root, "finetune", task_name)
+    if fold_idx is not None:
+        task_output_dir = os.path.join(task_output_dir, f"fold_{fold_idx}")
 
-    cfg.paths.downstream_train = ft_cfg.paths.downstream_train
-    cfg.paths.downstream_test = ft_cfg.paths.get("downstream_test", None)
+    if fold_paths is not None:
+        cfg.paths.downstream_train, cfg.paths.downstream_test = fold_paths
+    else:
+        cfg.paths.downstream_train = ft_cfg.paths.downstream_train
+        cfg.paths.downstream_test = ft_cfg.paths.get("downstream_test", None)
     cfg.paths.output_dir = task_output_dir
     cfg.paths.model_config_path = os.path.join(task_output_dir, "model_config.json")
     cfg.paths.taxa_vocab_path = os.path.join(pretrain_output_dir, "taxa_vocab.pkl")
@@ -146,7 +171,9 @@ def build_finetune_config(
     return cfg
 
 
-def run_all_downstream_finetunes(pretrain_cfg, accelerator, finetune_output_root: Optional[str] = None) -> Dict[str, Dict]:
+def run_all_downstream_finetunes(pretrain_cfg, accelerator, finetune_output_root: Optional[str] = None,
+                                 mode_filter: Optional[str] = None,
+                                 tasks: Optional[List[str]] = None) -> Dict[str, Dict]:
     """
     Finetune the just-completed pretraining run on every task in the task
     registry, writing (and re-writing, after every task) an aggregated summary
@@ -161,9 +188,24 @@ def run_all_downstream_finetunes(pretrain_cfg, accelerator, finetune_output_root
         Used to re-finetune an already-trained checkpoint against a different data split
         (e.g. scripts/run_finetune_pretrained_with_seeds.sh looping over split seeds) without
         overwriting that checkpoint's own results.
-    :return: {task_name: {status, ...}} -- status is "ok", "failed", or "pending" (if
-        this returned early on a non-main process, before anything ran). Callers can
-        inspect this to decide whether to exit non-zero on partial failure.
+    :param mode_filter: If "combined_cv" or "presplit", only tasks whose auto-detected split
+        mode (utils/downstream_split_mode.py::resolve_split_mode) matches are run; the rest
+        are recorded with status "skipped" without doing any of the expensive pooled-CV or
+        finetuning work. Used to repeat only the multi-study/presplit tasks across several
+        training seeds (single-study tasks already get a real error bar from pooled CV, so
+        rerunning them per seed would just waste compute) -- see
+        scripts/run_finetune_pretrained_with_seeds.sh / run_finetune_scratch_with_seeds.sh.
+    :param tasks: If set, only tasks whose name is in this list are run; the rest are recorded
+        as "skipped", same as mode_filter. Needed because the task registry and
+        finetune.paths.downstream_train/downstream_test are both global -- when a task
+        registry holds tasks that live in different base h5ads (e.g. the original HMC tasks
+        vs a separate dataset's tasks), one invocation's downstream_train/downstream_test
+        override only applies to one dataset's tasks, so the other dataset's tasks must be
+        filtered out by name rather than accidentally pointed at the wrong data.
+    :return: {task_name: {status, ...}} -- status is "ok", "failed", "skipped" (filtered out
+        by mode_filter/tasks), or "pending" (if this returned early on a non-main process,
+        before anything ran). Callers can inspect this to decide whether to exit non-zero on
+        partial failure.
     """
     task_registry = load_task_registry()
     task_results = {name: {"status": "pending", "finetune_task": spec["finetune_task"]}
@@ -181,6 +223,30 @@ def run_all_downstream_finetunes(pretrain_cfg, accelerator, finetune_output_root
 
     pretrain_output_dir = pretrain_cfg.paths.output_dir
     summary_root = finetune_output_root if finetune_output_root is not None else pretrain_output_dir
+    ft_cfg = pretrain_cfg.finetune
+    # The seed that will actually drive each fold's torch training run: whatever
+    # build_finetune_config resolves cfg.training.seed to (pretrain_cfg.finetune.training.seed
+    # if set, else configs/finetune/default.yaml's own default) -- also reused as the outer
+    # fold-split random_state, so a task's fold membership and its models' initialization
+    # come from the same one seed, mirroring kd_tasks' single seed field.
+    seed = ft_cfg.get("training", {}).get(
+        "seed", OmegaConf.load(FINETUNE_TEMPLATE_PATH).training.seed)
+
+    raw_cv = OmegaConf.to_container(ft_cfg.get("cv", {}), resolve=True) if ft_cfg.get("cv") else {}
+    cv_conf = {**resolve_cv_config(raw_cv), "keep_fold_data": raw_cv.get("keep_fold_data", False)}
+
+    # Loaded once, lazily, the first time a single-study task actually needs pooled data --
+    # every single-study task in the registry shares these two AnnData objects instead of
+    # each re-reading the full base h5ads.
+    pooled_source = {}
+
+    def _pooled_source():
+        if not pooled_source:
+            logger.info(f"AUTO-FINETUNE: loading base h5ads for pooled CV: "
+                       f"{ft_cfg.paths.downstream_train}, {ft_cfg.paths.downstream_test}")
+            pooled_source["train"] = ad.read_h5ad(ft_cfg.paths.downstream_train)
+            pooled_source["test"] = ad.read_h5ad(ft_cfg.paths.downstream_test)
+        return pooled_source["train"], pooled_source["test"]
 
     # write the all-pending summary immediately, so the file exists from the very start
     write_finetune_summary(summary_root, task_registry, task_results)
@@ -190,16 +256,46 @@ def run_all_downstream_finetunes(pretrain_cfg, accelerator, finetune_output_root
         logger.info(f"AUTO-FINETUNE: starting task '{task_name}' ({task_spec['finetune_task']})")
         logger.info("=" * 80)
         try:
-            task_cfg = build_finetune_config(
-                pretrain_cfg, pretrain_output_dir, task_name, task_spec,
-                finetune_output_root=finetune_output_root,
-            )
-            run_single_finetune(task_cfg)
-            task_results[task_name] = {
-                "status": "ok",
-                "finetune_task": task_spec["finetune_task"],
-                "output_dir": task_cfg.paths.output_dir,
-            }
+            skip_reason = None
+            if tasks is not None and task_name not in tasks:
+                skip_reason = "not in tasks filter"
+            else:
+                mode, studies = resolve_task_mode(
+                    ft_cfg.paths.downstream_train, ft_cfg.paths.downstream_test, task_name,
+                    task_spec["label_column"], task_spec.get("ignored_labels", []),
+                    declared=task_spec.get("split_mode", "auto"))
+                logger.info(f"AUTO-FINETUNE: '{task_name}' split mode: {mode} "
+                           f"({len(studies)} distinct study/studies: {studies})")
+                if mode_filter is not None and mode != mode_filter:
+                    skip_reason = f"mode={mode}, filtered to mode_filter={mode_filter}"
+
+            if skip_reason is not None:
+                logger.info(f"AUTO-FINETUNE: '{task_name}' skipped ({skip_reason})")
+                task_results[task_name] = {
+                    "status": "skipped",
+                    "finetune_task": task_spec["finetune_task"],
+                    "reason": skip_reason,
+                }
+            elif mode == "combined_cv":
+                adata_train_full, adata_test_full = _pooled_source()
+                result = run_task_cv(
+                    pretrain_cfg, pretrain_output_dir, task_name, task_spec,
+                    finetune_output_root, cv_conf, seed,
+                    adata_train_full, adata_test_full,
+                    build_finetune_config, run_single_finetune,
+                )
+                task_results[task_name] = {**result, "finetune_task": task_spec["finetune_task"]}
+            else:
+                task_cfg = build_finetune_config(
+                    pretrain_cfg, pretrain_output_dir, task_name, task_spec,
+                    finetune_output_root=finetune_output_root,
+                )
+                run_single_finetune(task_cfg)
+                task_results[task_name] = {
+                    "status": "ok",
+                    "finetune_task": task_spec["finetune_task"],
+                    "output_dir": task_cfg.paths.output_dir,
+                }
         except Exception as e:
             logger.error(f"AUTO-FINETUNE: task '{task_name}' failed: {e}")
             logger.error(traceback.format_exc())
@@ -213,7 +309,7 @@ def run_all_downstream_finetunes(pretrain_cfg, accelerator, finetune_output_root
         # OOM, node failure) partway through still leaves an accurate, current summary
         write_finetune_summary(summary_root, task_registry, task_results)
 
-    num_failed = sum(1 for r in task_results.values() if r["status"] != "ok")
+    num_failed = sum(1 for r in task_results.values() if r["status"] not in ("ok", "skipped"))
     if num_failed:
         logger.error(f"AUTO-FINETUNE: {num_failed}/{len(task_results)} tasks did not complete successfully.")
 
@@ -228,11 +324,72 @@ def _fmt(value, digits: int = 4) -> str:
     return str(value)
 
 
+def _read_task_row(task_dir: Path, task_name: str, finetune_task: str) -> Dict:
+    """
+    One task's result row, mode-aware: task_dir = .../finetune/<task_name>.
+
+    Checks task_dir/cv_summary.yaml first (pooled K-fold CV for single-study tasks -- see
+    utils/finetune_cv_utils.py::run_task_cv), and reports the fold mean in place of a single
+    point estimate. Falls back to task_dir/best_model/test_metrics.yaml (presplit,
+    multi-study tasks, unchanged).
+    """
+    cv_path = task_dir / "cv_summary.yaml"
+    if cv_path.exists():
+        payload = OmegaConf.to_container(OmegaConf.load(cv_path), resolve=True)
+        aggregates = payload["aggregates"]
+        status = f"OK ({payload['outer_folds']}-fold CV)"
+
+        def mean(*keys):
+            for key in keys:
+                if key in aggregates:
+                    return aggregates[key]["mean"]
+            return None
+
+        if finetune_task == "classification":
+            return {
+                "task": task_name, "type": "classification", "status": status,
+                "accuracy": mean("test_accuracy"),
+                "f1_macro": mean("test_f1_macro", "test_f1"),
+                "f1_weighted": mean("test_f1_weighted"),
+                "auroc": mean("test_auroc_weighted", "test_auroc"),
+                "mae": None, "rmse": None, "r2": None,
+            }
+        return {
+            "task": task_name, "type": "regression", "status": status,
+            "accuracy": None, "f1_macro": None, "f1_weighted": None, "auroc": None,
+            "mae": mean("test_mae"), "rmse": mean("test_rmse"), "r2": mean("test_r2"),
+        }
+
+    metrics_path = task_dir / "best_model" / "test_metrics.yaml"
+    if not metrics_path.exists():
+        return {
+            "task": task_name, "type": finetune_task, "status": "MISSING",
+            "accuracy": None, "f1_macro": None, "f1_weighted": None,
+            "auroc": None, "mae": None, "rmse": None, "r2": None,
+        }
+
+    metrics = OmegaConf.to_container(OmegaConf.load(metrics_path), resolve=True)
+    if finetune_task == "classification":
+        return {
+            "task": task_name, "type": "classification", "status": "OK",
+            "accuracy": metrics.get("test_accuracy"),
+            "f1_macro": metrics.get("test_f1_macro", metrics.get("test_f1")),
+            "f1_weighted": metrics.get("test_f1_weighted"),
+            "auroc": metrics.get("test_auroc_weighted", metrics.get("test_auroc")),
+            "mae": None, "rmse": None, "r2": None,
+        }
+    return {
+        "task": task_name, "type": "regression", "status": "OK",
+        "accuracy": None, "f1_macro": None, "f1_weighted": None, "auroc": None,
+        "mae": metrics.get("test_mae"), "rmse": metrics.get("test_rmse"), "r2": metrics.get("test_r2"),
+    }
+
+
 def write_finetune_summary(pretrain_output_dir: str, task_registry: Dict[str, Dict], task_results: Dict[str, Dict]) -> None:
     """
-    Collect every task's test_metrics.yaml (written by
-    trainers.trainer.MicrobiomeTrainer.evaluate_on_test_set) into one Markdown
-    table at <pretrain_output_dir>/finetune_summary.md.
+    Collect every task's result (test_metrics.yaml for presplit tasks, cv_summary.yaml for
+    pooled single-study tasks -- see _read_task_row) into one Markdown table at
+    <pretrain_output_dir>/finetune_summary.md.
 
     :param pretrain_output_dir: Output directory of the completed pretraining run.
     :param task_registry: {task_name: {finetune_task, label_column, ignored_labels}}.
@@ -263,41 +420,17 @@ def write_finetune_summary(pretrain_output_dir: str, task_registry: Dict[str, Di
             })
             continue
 
-        metrics_path = Path(result["output_dir"]) / "best_model" / "test_metrics.yaml"
-        if not metrics_path.exists():
+        if result["status"] == "skipped":
             rows.append({
                 "task": task_name,
-                "type": result["finetune_task"],
-                "status": f"FAILED: test_metrics.yaml not found at {metrics_path}",
+                "type": result.get("finetune_task", "–"),
+                "status": f"SKIPPED ({result.get('reason', 'mode filter')})",
                 "accuracy": None, "f1_macro": None, "f1_weighted": None,
                 "auroc": None, "mae": None, "rmse": None, "r2": None,
             })
             continue
 
-        metrics = OmegaConf.to_container(OmegaConf.load(metrics_path), resolve=True)
-        if result["finetune_task"] == "classification":
-            auroc = metrics.get("test_auroc_weighted", metrics.get("test_auroc"))
-            f1_macro = metrics.get("test_f1_macro", metrics.get("test_f1"))
-            rows.append({
-                "task": task_name,
-                "type": "classification",
-                "status": "OK",
-                "accuracy": metrics.get("test_accuracy"),
-                "f1_macro": f1_macro,
-                "f1_weighted": metrics.get("test_f1_weighted"),
-                "auroc": auroc,
-                "mae": None, "rmse": None, "r2": None,
-            })
-        else:
-            rows.append({
-                "task": task_name,
-                "type": "regression",
-                "status": "OK",
-                "accuracy": None, "f1_macro": None, "f1_weighted": None, "auroc": None,
-                "mae": metrics.get("test_mae"),
-                "rmse": metrics.get("test_rmse"),
-                "r2": metrics.get("test_r2"),
-            })
+        rows.append(_read_task_row(Path(result["output_dir"]), task_name, result["finetune_task"]))
 
     lines = [
         "# Finetuning summary",
@@ -314,12 +447,10 @@ def write_finetune_summary(pretrain_output_dir: str, task_registry: Dict[str, Di
             f"{_fmt(row['auroc'])} | {_fmt(row['mae'])} | {_fmt(row['rmse'])} | {_fmt(row['r2'])} |"
         )
     lines.append("")
-    lines.append(
-        "*AUROC is the class-weighted (support-weighted) macro-average across classes "
-        'for multi-class tasks (sklearn `average="weighted"`); the standard AUROC for binary tasks.'
-    )
+    lines.append(FINETUNE_AUROC_FOOTNOTE)
 
     summary_path = Path(pretrain_output_dir) / "finetune_summary.md"
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.write_text("\n".join(lines) + "\n")
     logger.info(f"Saved finetuning summary to {summary_path}")
 
@@ -361,36 +492,9 @@ def combine_finetune_summaries(parent_dir: str, out_name: str = None) -> None:
     rows = []
     for run_dir in run_dirs:
         for task_name, task_spec in task_registry.items():
-            metrics_path = run_dir / "finetune" / task_name / "best_model" / "test_metrics.yaml"
-            if not metrics_path.exists():
-                rows.append({
-                    "run": run_dir.name, "task": task_name, "type": task_spec["finetune_task"],
-                    "status": "MISSING",
-                    "accuracy": None, "f1_macro": None, "f1_weighted": None,
-                    "auroc": None, "mae": None, "rmse": None, "r2": None,
-                })
-                continue
-
-            metrics = OmegaConf.to_container(OmegaConf.load(metrics_path), resolve=True)
-            if task_spec["finetune_task"] == "classification":
-                auroc = metrics.get("test_auroc_weighted", metrics.get("test_auroc"))
-                f1_macro = metrics.get("test_f1_macro", metrics.get("test_f1"))
-                rows.append({
-                    "run": run_dir.name, "task": task_name, "type": "classification", "status": "OK",
-                    "accuracy": metrics.get("test_accuracy"),
-                    "f1_macro": f1_macro,
-                    "f1_weighted": metrics.get("test_f1_weighted"),
-                    "auroc": auroc,
-                    "mae": None, "rmse": None, "r2": None,
-                })
-            else:
-                rows.append({
-                    "run": run_dir.name, "task": task_name, "type": "regression", "status": "OK",
-                    "accuracy": None, "f1_macro": None, "f1_weighted": None, "auroc": None,
-                    "mae": metrics.get("test_mae"),
-                    "rmse": metrics.get("test_rmse"),
-                    "r2": metrics.get("test_r2"),
-                })
+            task_dir = run_dir / "finetune" / task_name
+            row = _read_task_row(task_dir, task_name, task_spec["finetune_task"])
+            rows.append({"run": run_dir.name, **row})
 
     lines = [
         "# Combined finetuning summary",
@@ -407,10 +511,7 @@ def combine_finetune_summaries(parent_dir: str, out_name: str = None) -> None:
             f"{_fmt(row['auroc'])} | {_fmt(row['mae'])} | {_fmt(row['rmse'])} | {_fmt(row['r2'])} |"
         )
     lines.append("")
-    lines.append(
-        "*AUROC is the class-weighted (support-weighted) macro-average across classes "
-        'for multi-class tasks (sklearn `average="weighted"`); the standard AUROC for binary tasks.'
-    )
+    lines.append(FINETUNE_AUROC_FOOTNOTE)
 
     combined_path = parent / out_name
     combined_path.write_text("\n".join(lines) + "\n")
@@ -420,70 +521,24 @@ def combine_finetune_summaries(parent_dir: str, out_name: str = None) -> None:
     logger.logger.info(f"Saved combined finetuning summary to {combined_path}")
 
 
-# ==============================================================================
-# ERROR BARS ACROSS REPEATED-SEED SPLITS
-#
-# Finetuning here always evaluates on one fixed train/test split. To get error bars,
-# re-finetune the same starting checkpoint against several differently-seeded splits
-# (see scripts/run_finetune_pretrained_with_seeds.sh / scripts/run_finetune_scratch_with_seeds.sh,
-# which pass finetune_output_root=<root>/seed_<i>/<config_name> into
-# run_all_downstream_finetunes so each seed's results land in their own directory) and
-# aggregate across the resulting per-seed directories here.
-# ==============================================================================
-
-def _mean_std(values: List[Optional[float]]) -> Tuple[Optional[float], Optional[float]]:
-    """Sample mean/stdev of a metric across seeds, ignoring seeds with no result."""
-    clean = [v for v in values if v is not None]
-    if not clean:
-        return None, None
-    if len(clean) == 1:
-        return clean[0], None
-    return statistics.mean(clean), statistics.stdev(clean)
-
-
-def _fmt_mean_std(mean_std: Tuple[Optional[float], Optional[float]], digits: int = 4) -> str:
-    mean, std = mean_std
-    if mean is None:
-        return "–"
-    if std is None:
-        return f"{mean:.{digits}f}"
-    return f"{mean:.{digits}f} ± {std:.{digits}f}"
-
-
-def _read_seed_task_metrics(seed_config_dir: Path, task_name: str, finetune_task: str) -> Optional[Dict[str, float]]:
-    """Read one seed's test_metrics.yaml for one (config, task), or None if missing."""
-    metrics_path = seed_config_dir / "finetune" / task_name / "best_model" / "test_metrics.yaml"
-    if not metrics_path.exists():
-        return None
-
-    metrics = OmegaConf.to_container(OmegaConf.load(metrics_path), resolve=True)
-    if finetune_task == "classification":
-        return {
-            "accuracy": metrics.get("test_accuracy"),
-            "f1_macro": metrics.get("test_f1_macro", metrics.get("test_f1")),
-            "f1_weighted": metrics.get("test_f1_weighted"),
-            "auroc": metrics.get("test_auroc_weighted", metrics.get("test_auroc")),
-            "mae": None, "rmse": None, "r2": None,
-        }
-    return {
-        "accuracy": None, "f1_macro": None, "f1_weighted": None, "auroc": None,
-        "mae": metrics.get("test_mae"),
-        "rmse": metrics.get("test_rmse"),
-        "r2": metrics.get("test_r2"),
-    }
-
-
-def combine_seeded_finetune_summaries(seeds_root_dir: str, output_path: Optional[str] = None) -> None:
+def combine_seeded_finetune_summaries(seeds_root_dir, output_path: Optional[Path] = None) -> None:
     """
-    Aggregate finetuning results across repeated train/test-split seeds into mean +/-
-    (sample) standard deviation tables.
+    Aggregate one config's presplit (multi-study) finetuning results across repeated
+    training seeds into mean +/- (sample) standard deviation tables -- the finetuning
+    counterpart to utils/downstream_summary_utils.py::combine_seeded_downstream_summaries,
+    adapted for finetuning's directory layout (one neural net per task, not one per
+    classical-ML method).
 
-    Expects the directory layout produced by rerunning the same finetune config(s) once
-    per split seed:
-        <seeds_root_dir>/seed_<i>/<config_name>/finetune/<task>/best_model/test_metrics.yaml
+    Expects the layout produced by repeating run_all_downstream_finetunes with
+    mode_filter="presplit" once per seed (see scripts/run_finetune_pretrained_with_seeds.sh /
+    run_finetune_scratch_with_seeds.sh):
+        <seeds_root_dir>/seed_<i>/finetune/<task>/...
 
-    :param seeds_root_dir: Parent directory containing one subdirectory per seed
-        (named "seed_<i>"), e.g. outputs/pretrain/real_runs/baseline_seeds/.
+    Tasks with no result in any seed (e.g. single-study tasks correctly excluded by
+    mode_filter="presplit") are skipped entirely rather than rendered as all-missing rows.
+
+    :param seeds_root_dir: Directory containing one subdirectory per seed (named "seed_<i>"),
+        e.g. outputs/pretrain/finetune_pretrained_seeds/<config_name>_multi_study_seeds/.
     :param output_path: Where to write the resulting summary; defaults to
         <seeds_root_dir>/combined_summary_with_error_bars.md.
     """
@@ -495,59 +550,40 @@ def combine_seeded_finetune_summaries(seeds_root_dir: str, output_path: Optional
         logger.logger.warning(f"No seed_* directories found under {seeds_root_dir}")
         return
 
-    config_names = sorted({
-        d.name for seed_dir in seed_dirs for d in seed_dir.iterdir()
-        if d.is_dir() and (d / "finetune").is_dir()
-    })
-
     task_registry = load_task_registry()
 
     lines = [
         "# Combined finetuning summary (mean ± std across seeds)",
         "",
         f"Seeds: {', '.join(d.name for d in seed_dirs)} (n={len(seed_dirs)})",
-        f"Configs: {', '.join(config_names) if config_names else '(none found)'}",
         "",
-        "Each cell is the sample mean ± sample standard deviation across the seeds above "
-        "-- each seed reruns preprocessing with a different train/test split, then finetunes "
-        "from the same starting checkpoint/weights on that split. A cell with no `±` means "
-        "only one seed produced a result for that task/config; MISSING means none did.",
+        "Each cell is the sample mean ± sample standard deviation of the metric across the "
+        "seeds above -- each seed re-finetunes from the same checkpoint with a different "
+        "training seed (see utils/finetune_orchestration.py::run_all_downstream_finetunes' "
+        "mode_filter). A cell with no `±` means only one seed produced a result for that "
+        "task; tasks with no result in any seed (e.g. single-study tasks, correctly excluded "
+        "from this seeded sweep) are omitted below.",
         "",
-        "| Config | Task | Type | N | Accuracy | F1 (macro) | F1 (weighted) | AUROC* | MAE | RMSE | R² |",
-        "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
 
-    for config_name in config_names:
-        for task_name, task_spec in task_registry.items():
-            finetune_task = task_spec["finetune_task"]
-            per_seed = [
-                _read_seed_task_metrics(seed_dir / config_name, task_name, finetune_task)
-                for seed_dir in seed_dirs
-            ]
-            n_found = sum(1 for m in per_seed if m is not None)
+    rows_by_metric = {metric_key: [] for metric_key in METRIC_TITLES}
+    for task_name, task_spec in task_registry.items():
+        per_seed_rows = [_read_task_row(seed_dir / "finetune" / task_name, task_name,
+                                        task_spec["finetune_task"])
+                         for seed_dir in seed_dirs]
+        if all(row["status"] == "MISSING" for row in per_seed_rows):
+            continue
+        for metric_key in METRIC_TITLES:
+            mean_std = _mean_std([row[metric_key] for row in per_seed_rows])
+            rows_by_metric[metric_key].append({"task": task_name, "values": {"finetune": mean_std}})
 
-            if n_found == 0:
-                lines.append(
-                    f"| {config_name} | {task_name} | {finetune_task} | 0/{len(seed_dirs)} | "
-                    "MISSING | MISSING | MISSING | MISSING | MISSING | MISSING | MISSING |"
-                )
-                continue
+    if not any(rows_by_metric.values()):
+        lines.append("(no presplit/multi-study finetuning results found on disk)")
+        output_path.write_text("\n".join(lines) + "\n")
+        return
 
-            def agg(key):
-                return _mean_std([(m or {}).get(key) for m in per_seed])
-
-            lines.append(
-                f"| {config_name} | {task_name} | {finetune_task} | {n_found}/{len(seed_dirs)} | "
-                f"{_fmt_mean_std(agg('accuracy'))} | {_fmt_mean_std(agg('f1_macro'))} | "
-                f"{_fmt_mean_std(agg('f1_weighted'))} | {_fmt_mean_std(agg('auroc'))} | "
-                f"{_fmt_mean_std(agg('mae'))} | {_fmt_mean_std(agg('rmse'))} | {_fmt_mean_std(agg('r2'))} |"
-            )
-
-    lines.append("")
-    lines.append(
-        "*AUROC is the class-weighted (support-weighted) macro-average across classes "
-        'for multi-class tasks (sklearn `average="weighted"`); the standard AUROC for binary tasks.'
-    )
+    lines += _render_error_bar_tables(rows_by_metric, ["finetune"])
+    lines.append(FINETUNE_AUROC_FOOTNOTE)
 
     output_path.write_text("\n".join(lines) + "\n")
     logger.logger.info(f"Saved seeded combined finetuning summary to {output_path}")

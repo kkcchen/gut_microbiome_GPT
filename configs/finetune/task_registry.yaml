@@ -7,6 +7,20 @@
 # ("classification" or "regression"). ignored_labels (optional, default [])
 # is filtered out of that label_column before training/eval, matching
 # configs/eval/default.yaml's downstream_tasks_config.
+#
+# Tasks drawn from only one study (per obs['study_id']) have no natural train/test
+# boundary, so utils/finetune_orchestration.py pools train+test and runs outer K-fold CV
+# instead of one fixed holdout -- see utils/finetune_cv_utils.py and
+# utils/downstream_split_mode.py::resolve_split_mode. That's auto-detected from the data;
+# each task below also accepts an optional `split_mode: auto|combined_cv|presplit` key
+# (default "auto") to override it explicitly. The CV itself (outer_folds,
+# min_samples_per_class) is controlled by an optional `cv:` block under a pretrain config's
+# own `finetune:` section, e.g.:
+#   finetune:
+#     cv:
+#       outer_folds: 5           # default
+#       min_samples_per_class: 5 # default = outer_folds
+#       keep_fold_data: false    # default; set true to keep each fold's h5ad files on disk
 tasks:
   age:
     finetune_task: regression
@@ -46,5 +60,66 @@ tasks:
     finetune_task: classification
     label_column: categorical_label
   location:
+    finetune_task: classification
+    label_column: categorical_label
+
+  # AGP tasks (from downstream_agp_{train,test}.h5ad, see
+  # scripts/split_agp_downstream_tasks.py) -- all single-study, so all resolve to
+  # combined_cv. Only ever run scoped via --tasks to these 18 names, together with
+  # finetune.paths.downstream_train/downstream_test pointed at the AGP files -- see
+  # sbatch/finetune_pretrained_agp.sbatch / finetune_scratch_agp.sbatch. Excludes
+  # "INSDC first public" (sample release-date metadata, not a phenotype).
+  age cat:
+    finetune_task: classification
+    label_column: categorical_label
+  alcohol_frequency:
+    finetune_task: classification
+    label_column: categorical_label
+  antibiotic_history:
+    finetune_task: classification
+    label_column: categorical_label
+  asd:
+    finetune_task: classification
+    label_column: categorical_label
+  autoimmune:
+    finetune_task: classification
+    label_column: categorical_label
+  contraceptive:
+    finetune_task: classification
+    label_column: categorical_label
+  diabetes:
+    finetune_task: classification
+    label_column: categorical_label
+  fruit_frequency:
+    finetune_task: classification
+    label_column: categorical_label
+  gluten:
+    finetune_task: classification
+    label_column: categorical_label
+  ibd:
+    finetune_task: classification
+    label_column: categorical_label
+  ibs:
+    finetune_task: classification
+    label_column: categorical_label
+  meat_eggs_frequency:
+    finetune_task: classification
+    label_column: categorical_label
+  probiotic_frequency:
+    finetune_task: classification
+    label_column: categorical_label
+  sibo:
+    finetune_task: classification
+    label_column: categorical_label
+  sleep_duration:
+    finetune_task: classification
+    label_column: categorical_label
+  sugary_sweets_frequency:
+    finetune_task: classification
+    label_column: categorical_label
+  vegetable_frequency:
+    finetune_task: classification
+    label_column: categorical_label
+  weight_change:
     finetune_task: classification
     label_column: categorical_label

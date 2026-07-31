@@ -74,6 +74,16 @@ model:
     use_gnn: false
 
 downstream_tasks_config:
+  # Tasks drawn from only one study (per obs['study_id']) have no natural train/test
+  # boundary, so they're pooled (train+test combined) and evaluated with outer
+  # StratifiedKFold/KFold cross-validation instead of one fixed holdout -- see
+  # utils/downstream_split_mode.py::resolve_split_mode. Tasks with disjoint train/test
+  # studies (location, sex) are a real cross-study holdout and keep the old presplit
+  # behavior. This is auto-detected from the data; cv below only controls the CV itself,
+  # and can be overridden per task with an explicit `split_mode: combined_cv|presplit`.
+  cv:
+    outer_folds: 5
+    # min_samples_per_class: 5   # optional; defaults to outer_folds -- see resolve_cv_config
   methods:
     # search_type: grid | random | none. "random" runs RandomizedSearchCV
     # over each method's parameter distributions (see
@@ -90,6 +100,8 @@ downstream_tasks_config:
   tasks:
     # Delete any tasks you don't want probed. label_type determines
     # classification (categorical_label) vs regression (continuous_label).
+    # Each task also accepts optional split_mode ("auto" | "combined_cv" | "presplit",
+    # default "auto") and min_samples_per_class overrides -- see the cv block above.
     age:
       label_type: "continuous_label"
       ignored_labels: []

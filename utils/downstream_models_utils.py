@@ -39,8 +39,9 @@ def train_random_forest(
     y_train: np.ndarray,
     search_type: str = "none",
     sample_weights: Optional[np.ndarray] = None,
-    task_type: str = "classification"
-) -> Tuple[Dict, Any]:
+    task_type: str = "classification",
+    random_state: int = 42
+) -> Tuple[Dict, Any, Optional[float], Optional[str]]:
     """
     Train Random Forest model.
 
@@ -50,9 +51,13 @@ def train_random_forest(
         search_type: 'grid', 'random', or 'none'
         sample_weights: Optional sample weights
         task_type: 'classification' or 'regression'
+        random_state: Seed for the model and any hyperparameter search
 
     Returns:
-        Tuple of (best_params, best_model)
+        Tuple of (best_params, best_model, inner_cv_std, search_scoring). inner_cv_std is
+        cv_results_["std_test_score"] at the winning hyperparameters -- the spread across
+        the search's own inner folds, not a real held-out error bar. Both are None when
+        search_type == "none" (no search was run to have a std).
     """
     regression = (task_type == "regression")
     logger.info(f"  Training Random Forest ({'Regression' if regression else 'Classification'})")
@@ -61,14 +66,14 @@ def train_random_forest(
     if regression:
         model = RandomForestRegressor(
             bootstrap=True,
-            random_state=42,
+            random_state=random_state,
             n_jobs=-1
         )
         search_scoring = 'neg_mean_squared_error'
     else:
         model = RandomForestClassifier(
             bootstrap=True,
-            random_state=42,
+            random_state=random_state,
             class_weight="balanced",
             n_jobs=-1
         )
@@ -91,7 +96,8 @@ def train_random_forest(
         start_time = time.time()
         search.fit(X_train, y_train, sample_weight=sample_weights)
         logger.info(f"    Search completed in {time.time() - start_time:.2f}s")
-        return search.best_params_, search.best_estimator_
+        inner_std = float(search.cv_results_["std_test_score"][search.best_index_])
+        return search.best_params_, search.best_estimator_, inner_std, search_scoring
 
     elif search_type == "random":
         param_distributions = {
@@ -107,13 +113,14 @@ def train_random_forest(
             scoring=search_scoring,
             cv=3,
             n_jobs=-1,
-            random_state=42,
+            random_state=random_state,
             verbose=1
         )
         start_time = time.time()
         search.fit(X_train, y_train, sample_weight=sample_weights)
         logger.info(f"    Search completed in {time.time() - start_time:.2f}s")
-        return search.best_params_, search.best_estimator_
+        inner_std = float(search.cv_results_["std_test_score"][search.best_index_])
+        return search.best_params_, search.best_estimator_, inner_std, search_scoring
 
     elif search_type == "none":
         params = {
@@ -125,7 +132,7 @@ def train_random_forest(
         logger.info(f"    Using fixed parameters: {params}")
         model.set_params(**params)
         model.fit(X_train, y_train, sample_weight=sample_weights)
-        return params, model
+        return params, model, None, None
 
     else:
         raise ValueError(f"search_type must be 'grid', 'random', or 'none', got: {search_type}")
@@ -136,8 +143,9 @@ def train_xgboost(
     y_train: np.ndarray,
     search_type: str = "none",
     sample_weights: Optional[np.ndarray] = None,
-    task_type: str = "classification"
-) -> Tuple[Dict, Any]:
+    task_type: str = "classification",
+    random_state: int = 42
+) -> Tuple[Dict, Any, Optional[float], Optional[str]]:
     """
     Train XGBoost model.
 
@@ -147,9 +155,11 @@ def train_xgboost(
         search_type: 'grid', 'random', or 'none'
         sample_weights: Optional sample weights
         task_type: 'classification' or 'regression'
+        random_state: Seed for the model and any hyperparameter search
 
     Returns:
-        Tuple of (best_params, best_model)
+        Tuple of (best_params, best_model, inner_cv_std, search_scoring) -- see
+        train_random_forest for what inner_cv_std/search_scoring mean.
     """
     regression = (task_type == "regression")
     logger.info(f"  Training XGBoost ({'Regression' if regression else 'Classification'})")
@@ -157,7 +167,7 @@ def train_xgboost(
 
     if regression:
         model = XGBRegressor(
-            random_state=42,
+            random_state=random_state,
             n_jobs=-1,
             tree_method="hist",
             eval_metric="rmse"
@@ -170,7 +180,7 @@ def train_xgboost(
 
         n_classes = len(np.unique(y_train))
         model = XGBClassifier(
-            random_state=42,
+            random_state=random_state,
             n_jobs=-1,
             tree_method="hist",
             use_label_encoder=False,
@@ -199,6 +209,7 @@ def train_xgboost(
         logger.info(f"    Search completed in {time.time() - start_time:.2f}s")
         best_model = search.best_estimator_
         best_params = search.best_params_
+        inner_std = float(search.cv_results_["std_test_score"][search.best_index_])
     elif search_type == "random":
         param_distributions = {
             "learning_rate": loguniform(1e-3, 3e-1),
@@ -219,7 +230,7 @@ def train_xgboost(
             scoring=search_scoring,
             cv=5,
             n_jobs=-1,
-            random_state=42,
+            random_state=random_state,
             verbose=1
         )
         start_time = time.time()
@@ -227,6 +238,7 @@ def train_xgboost(
         logger.info(f"    Search completed in {time.time() - start_time:.2f}s")
         best_model = search.best_estimator_
         best_params = search.best_params_
+        inner_std = float(search.cv_results_["std_test_score"][search.best_index_])
     elif search_type == "none":
         params = {
             "learning_rate": 0.05,
@@ -241,13 +253,15 @@ def train_xgboost(
         model.fit(X_train, y_train_encoded, sample_weight=sample_weights)
         best_model = model
         best_params = params
+        inner_std = None
     else:
         raise ValueError(f"search_type must be 'grid', 'random', or 'none', got: {search_type}")
 
     if not regression:
         best_model._label_encoder = label_encoder
-    
-    return best_params, best_model
+
+    search_scoring_used = search_scoring if inner_std is not None else None
+    return best_params, best_model, inner_std, search_scoring_used
 
 
 def train_linear(
@@ -255,8 +269,9 @@ def train_linear(
     y_train: np.ndarray,
     search_type: str = "none",
     sample_weights: Optional[np.ndarray] = None,
-    task_type: str = "classification"
-) -> Tuple[Dict, Any]:
+    task_type: str = "classification",
+    random_state: int = 42
+) -> Tuple[Dict, Any, Optional[float], Optional[str]]:
     """
     Train linear model (Elastic-Net Logistic Regression or Elastic-Net Regression).
 
@@ -266,9 +281,11 @@ def train_linear(
         search_type: 'grid', 'random', or 'none'
         sample_weights: Optional sample weights
         task_type: 'classification' or 'regression'
+        random_state: Seed for the model and any hyperparameter search
 
     Returns:
-        Tuple of (best_params, best_model)
+        Tuple of (best_params, best_model, inner_cv_std, search_scoring) -- see
+        train_random_forest for what inner_cv_std/search_scoring mean.
     """
     regression = (task_type == "regression")
     logger.info(f"  Training Linear Model ({'ElasticNet' if regression else 'Elastic-Net Logistic Regression'})")
@@ -277,7 +294,7 @@ def train_linear(
     if regression:
         model = Pipeline([
             ('scaler', StandardScaler()),
-            ('model', ElasticNet(random_state=42))
+            ('model', ElasticNet(random_state=random_state))
         ])
         param_distributions = {
             'model__max_iter': [500, 1000, 2000, 5000],
@@ -294,7 +311,7 @@ def train_linear(
         n_classes = len(np.unique(y_train))
         model = Pipeline([
             ('scaler', StandardScaler()),
-            ('model', LogisticRegression(penalty='elasticnet', solver='saga', random_state=42))
+            ('model', LogisticRegression(penalty='elasticnet', solver='saga', random_state=random_state))
         ])
         param_distributions = {
             'model__max_iter': [500, 1000, 2000, 5000],
@@ -320,7 +337,8 @@ def train_linear(
         start_time = time.time()
         search.fit(X_train, y_train, model__sample_weight=sample_weights)
         logger.info(f"    Search completed in {time.time() - start_time:.2f}s")
-        return search.best_params_, search.best_estimator_
+        inner_std = float(search.cv_results_["std_test_score"][search.best_index_])
+        return search.best_params_, search.best_estimator_, inner_std, search_scoring
 
     elif search_type == "random":
         search = RandomizedSearchCV(
@@ -330,20 +348,21 @@ def train_linear(
             scoring=search_scoring,
             n_jobs=-1,
             n_iter=5,
-            random_state=42,
+            random_state=random_state,
             verbose=1
         )
         start_time = time.time()
         search.fit(X_train, y_train, model__sample_weight=sample_weights)
         logger.info(f"    Search completed in {time.time() - start_time:.2f}s")
-        return search.best_params_, search.best_estimator_
+        inner_std = float(search.cv_results_["std_test_score"][search.best_index_])
+        return search.best_params_, search.best_estimator_, inner_std, search_scoring
 
     elif search_type == "none":
         params = {"model__alpha": 1.0, "model__l1_ratio": 0.5} if regression else {"model__C": 1.0, "model__l1_ratio": 0.5}
         logger.info(f"    Using fixed parameters: {params}")
         model.set_params(**params)
         model.fit(X_train, y_train, model__sample_weight=sample_weights)
-        return params, model
+        return params, model, None, None
 
     else:
         raise ValueError(f"search_type must be 'grid', 'random', or 'none', got: {search_type}")
@@ -354,8 +373,9 @@ def train_tabpfn(
     y_train: np.ndarray,
     search_type: str = "none",
     sample_weights: Optional[np.ndarray] = None,
-    task_type: str = "classification"
-) -> Tuple[Dict, Any]:
+    task_type: str = "classification",
+    random_state: int = 42
+) -> Tuple[Dict, Any, Optional[float], Optional[str]]:
     """
     Train TabPFN model (no hyperparameter search).
 
@@ -365,9 +385,12 @@ def train_tabpfn(
         search_type: Ignored (TabPFN doesn't need tuning)
         sample_weights: Ignored (TabPFN doesn't support sample weights)
         task_type: 'classification' or 'regression'
+        random_state: Unused -- accepted only so train_model's generic dispatch can pass it
+            uniformly to every registered method
 
     Returns:
-        Tuple of (empty_params_dict, trained_model)
+        Tuple of (empty_params_dict, trained_model, None, None) -- no search means no
+        inner_cv_std/search_scoring to report.
     """
     if not TABPFN_AVAILABLE:
         raise ImportError("TabPFN not available. Install with: pip install tabpfn")
@@ -385,7 +408,7 @@ def train_tabpfn(
     model.fit(X_train, y_train)
     logger.info(f"    Training completed in {time.time() - start_time:.2f}s")
 
-    return {}, model
+    return {}, model, None, None
 
 
 # ==============================================================================
@@ -412,8 +435,9 @@ def train_model(
     y_train: np.ndarray,
     search_type: str = "none",
     sample_weights: Optional[np.ndarray] = None,
-    task_type: str = "classification"
-) -> Tuple[Dict, Any]:
+    task_type: str = "classification",
+    random_state: int = 42
+) -> Tuple[Dict, Any, Optional[float], Optional[str]]:
     """
     Train a model using the specified method.
 
@@ -424,9 +448,11 @@ def train_model(
         search_type: 'grid', 'random', or 'none'
         sample_weights: Optional sample weights
         task_type: 'classification' or 'regression'
+        random_state: Seed for the model and any hyperparameter search
 
     Returns:
-        Tuple of (best_params, best_model)
+        Tuple of (best_params, best_model, inner_cv_std, search_scoring) -- see
+        train_random_forest for what inner_cv_std/search_scoring mean.
 
     Raises:
         ValueError: If method_name not in MODEL_REGISTRY
@@ -439,7 +465,7 @@ def train_model(
         )
 
     train_func = MODEL_REGISTRY[method_name]
-    return train_func(X_train, y_train, search_type, sample_weights, task_type)
+    return train_func(X_train, y_train, search_type, sample_weights, task_type, random_state)
 
 
 # ==============================================================================
@@ -502,9 +528,9 @@ To add a new ML method:
        search_type: str = "none",
        sample_weights: Optional[np.ndarray] = None,
        task_type: str = "classification"
-   ) -> Tuple[Dict, Any]:
+   ) -> Tuple[Dict, Any, Optional[float], Optional[str]]:
        # Your training logic here
-       return params_dict, trained_model
+       return params_dict, trained_model, inner_cv_std, search_scoring
 
 2. Register it in MODEL_REGISTRY:
 

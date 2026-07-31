@@ -1,0 +1,112 @@
+paths:
+  pretrained_model_dir: outputs/pretrain/real_runs/stage3/stage3_abundance_emb_concatenation
+  checkpoint_path: outputs/pretrain/real_runs/stage3/stage3_abundance_emb_concatenation/best_model/best_model/pytorch_model.bin
+  output_dir: outputs/eval/embedding_baselines_agp/stage3_abundance_emb_concatenation_agp
+  eval_files:
+  - /scratch/kchen13/hmc_final_fixed/downstream_agp_train.h5ad
+  - /scratch/kchen13/hmc_final_fixed/downstream_agp_test.h5ad
+eval:
+  seed: 42
+  overwrite_output_dir: true
+  embedding_type: cls
+  return_full_output: false
+  save_embeddings: true
+  save_metadata: true
+  tasks:
+  - masking
+  eval_on_downstream_tasks: true
+  with_model: true
+data:
+  batch_size: 64
+  norm_strategy: log_rel_abundance
+  num_bins: 10
+  split_key: study_id
+  use_batch_labels: true
+  num_workers: 4
+model:
+  params:
+    d_model: 128
+    nhead: 8
+    d_hid: 512
+    nlayers: 3
+    dropout: 0.1
+    abundance_emb_style: concatenation
+    use_gnn: false
+    sample_emb_style: cls
+downstream_tasks_config:
+  methods:
+    xgboost:
+      search_type: grid
+  tasks:
+    age cat:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
+    alcohol_frequency:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
+    antibiotic_history:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
+    asd:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
+    autoimmune:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
+    contraceptive:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
+    diabetes:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
+    fruit_frequency:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
+    gluten:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
+    ibd:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
+    ibs:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
+    meat_eggs_frequency:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
+    probiotic_frequency:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
+    sibo:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
+    sleep_duration:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
+    sugary_sweets_frequency:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
+    vegetable_frequency:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task
+    weight_change:
+      label_type: categorical_label
+      ignored_labels: []
+      target_col: downstream_task

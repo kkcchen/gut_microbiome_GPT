@@ -28,16 +28,16 @@ cd /project/aip-brudno/kchen13/gut_microbiome_GPT
 # Quoted throughout so task names containing spaces survive.
 TASKS=(
     "location"
-    "sex"
+    # "sex"
     "supplement"
-    "helicobacter_pylori_infection"
-    "hbv_infection"
-    "sunflower_seed_oil_emollient_therapy"
-    "crohns_disease"
-    "diarrhea"
-    "type_1_diabetes"
-    "hiv_infection"
-    "chemotherapy"
+    # "helicobacter_pylori_infection"
+    # "hbv_infection"
+    # "sunflower_seed_oil_emollient_therapy"
+    # "crohns_disease"
+    # "diarrhea"
+    # "type_1_diabetes"
+    # "hiv_infection"
+    # "chemotherapy"
 )
 
 TASK="${TASKS[$SLURM_ARRAY_TASK_ID]}"

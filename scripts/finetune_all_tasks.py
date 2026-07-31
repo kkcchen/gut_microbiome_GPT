@@ -40,10 +40,30 @@ def main():
              "(the checkpoint/vocab are still read from paths.output_dir either way).",
     )
     parser.add_argument(
+        "--mode-filter", type=str, default=None, choices=["combined_cv", "presplit"],
+        help="Only run tasks whose auto-detected split mode matches (see "
+             "utils/downstream_split_mode.py::resolve_split_mode); others are recorded as "
+             "'skipped'. Used to repeat only presplit (multi-study) tasks across several "
+             "training seeds without redoing single-study tasks' already-real pooled-CV "
+             "error bars -- see scripts/run_finetune_pretrained_with_seeds.sh.",
+    )
+    parser.add_argument(
+        "--tasks", type=str, default=None,
+        help="Comma-separated task names to run (must match keys in "
+             "configs/finetune/task_registry.yaml); others are recorded as 'skipped'. Needed "
+             "when the registry holds tasks from more than one dataset -- "
+             "finetune.paths.downstream_train/downstream_test are global to the whole run, so "
+             "this keeps a run scoped to the tasks that actually live in the data those paths "
+             "point at. A single string (not nargs='*') because this parser also has a "
+             "REMAINDER positional below for config overrides -- nargs='*' would greedily "
+             "swallow those too.",
+    )
+    parser.add_argument(
         "overrides", nargs=argparse.REMAINDER,
         help="Override config values (e.g. finetune.paths.downstream_train=/path/to/seed/downstream_train.h5ad)",
     )
     args = parser.parse_args()
+    tasks = [t.strip() for t in args.tasks.split(",")] if args.tasks else None
 
     cfg = load_and_validate_config(args.config, args.overrides)
     require_finetune_section(cfg)
@@ -57,12 +77,13 @@ def main():
         logger.info(f"Results will be written under: {args.finetune_output_root}")
     logger.info("=" * 80)
 
-    task_results = run_all_downstream_finetunes(cfg, accelerator, finetune_output_root=args.finetune_output_root)
+    task_results = run_all_downstream_finetunes(cfg, accelerator, finetune_output_root=args.finetune_output_root,
+                                                mode_filter=args.mode_filter, tasks=tasks)
     accelerator.wait_for_everyone()
     accelerator.end_training()
 
     if accelerator.is_main_process:
-        num_failed = sum(1 for r in task_results.values() if r["status"] != "ok")
+        num_failed = sum(1 for r in task_results.values() if r["status"] not in ("ok", "skipped"))
         if num_failed:
             logger.error(
                 f"{num_failed}/{len(task_results)} finetune tasks did not complete successfully -- "

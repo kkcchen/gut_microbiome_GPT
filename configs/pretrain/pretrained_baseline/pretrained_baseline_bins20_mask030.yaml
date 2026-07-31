@@ -83,3 +83,10 @@ finetune:
     batch_size: 64
     use_class_weights: true
   val_size: 0.2
+  # Optional; controls pooled K-fold CV for single-study tasks -- see
+  # configs/finetune/task_registry.yaml and utils/finetune_cv_utils.py. All keys default as
+  # shown, so this block can be omitted entirely (as in every other pretrain config).
+  # cv:
+  #   outer_folds: 5
+  #   min_samples_per_class: 5
+  #   keep_fold_data: false
