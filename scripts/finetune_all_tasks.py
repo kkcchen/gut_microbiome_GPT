@@ -48,6 +48,16 @@ def main():
              "error bars -- see scripts/run_finetune_pretrained_with_seeds.sh.",
     )
     parser.add_argument(
+        "--fold", type=int, default=None,
+        help="Only train this one outer fold (0-indexed) of every combined_cv task, caching "
+             "it, and skip presplit tasks entirely (see utils/finetune_orchestration.py::"
+             "run_all_downstream_finetunes' only_fold param). Run again without --fold once "
+             "every fold of every task is done, to assemble cv_summary.yaml -- that pass "
+             "cache-hits every fold, so it's fast. Lets a task's outer folds run as separate "
+             "parallel jobs, which matters far more here than in the classical-ML pipelines "
+             "since each fold is a full finetuning run.",
+    )
+    parser.add_argument(
         "--tasks", type=str, default=None,
         help="Comma-separated task names to run (must match keys in "
              "configs/finetune/task_registry.yaml); others are recorded as 'skipped'. Needed "
@@ -78,7 +88,8 @@ def main():
     logger.info("=" * 80)
 
     task_results = run_all_downstream_finetunes(cfg, accelerator, finetune_output_root=args.finetune_output_root,
-                                                mode_filter=args.mode_filter, tasks=tasks)
+                                                mode_filter=args.mode_filter, tasks=tasks,
+                                                only_fold=args.fold)
     accelerator.wait_for_everyone()
     accelerator.end_training()
 

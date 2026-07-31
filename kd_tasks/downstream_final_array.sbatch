@@ -3,9 +3,9 @@
 #SBATCH -A aip-brudno
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=16
-#SBATCH --time=12:00:00
-#SBATCH --output=logs/downstream_final/%A_%a.out
-#SBATCH --error=logs/downstream_final/%A_%a.err
+#SBATCH --time=6:00:00
+#SBATCH --output=logs/downstream_final/mgm/%A_%a.out
+#SBATCH --error=logs/downstream_final/mgm/%A_%a.err
 #SBATCH --gres=gpu:1
 #SBATCH --array=0-10
 
@@ -28,16 +28,16 @@ cd /project/aip-brudno/kchen13/gut_microbiome_GPT
 # Quoted throughout so task names containing spaces survive.
 TASKS=(
     "location"
-    # "sex"
+    "sex"
     "supplement"
-    # "helicobacter_pylori_infection"
-    # "hbv_infection"
-    # "sunflower_seed_oil_emollient_therapy"
-    # "crohns_disease"
-    # "diarrhea"
-    # "type_1_diabetes"
-    # "hiv_infection"
-    # "chemotherapy"
+    "helicobacter_pylori_infection"
+    "hbv_infection"
+    "sunflower_seed_oil_emollient_therapy"
+    "crohns_disease"
+    "diarrhea"
+    "type_1_diabetes"
+    "hiv_infection"
+    "chemotherapy"
 )
 
 TASK="${TASKS[$SLURM_ARRAY_TASK_ID]}"

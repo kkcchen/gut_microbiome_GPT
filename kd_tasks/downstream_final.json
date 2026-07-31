@@ -35,21 +35,22 @@
   "dataset": {
     "train_h5ad": "/scratch/kchen13/hmc_final_fixed/downstream_train.h5ad",
     "test_h5ad": "/scratch/kchen13/hmc_final_fixed/downstream_test.h5ad",
-    "output_dir": "outputs/downstream_final",
+    "output_dir": "outputs/downstream_final_orig",
     "results_dir": "results",
-    "experiment_name": "downstream_final"
+    "experiment_name": "downstream_final_orig"
   },
 
   "feature_sets": {
     "raw": {"source": "X", "normalization": "none"},
     "clr": {"source": "X", "normalization": "clr"},
     "rel_ab": {"source": "X", "normalization": "rel_ab"},
-    "log": {"source": "X", "normalization": "log"}
+    "log": {"source": "X", "normalization": "log"},
+    "mgm_embedding": {"source": "obsm", "key": "X_mgm", "normalization": "none"}
   },
 
   "cv": {
     "outer_folds": 5,
-    "inner_folds": 2
+    "inner_folds": 3
   },
 
   "execution": {

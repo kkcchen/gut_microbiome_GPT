@@ -173,7 +173,8 @@ def build_finetune_config(
 
 def run_all_downstream_finetunes(pretrain_cfg, accelerator, finetune_output_root: Optional[str] = None,
                                  mode_filter: Optional[str] = None,
-                                 tasks: Optional[List[str]] = None) -> Dict[str, Dict]:
+                                 tasks: Optional[List[str]] = None,
+                                 only_fold: Optional[int] = None) -> Dict[str, Dict]:
     """
     Finetune the just-completed pretraining run on every task in the task
     registry, writing (and re-writing, after every task) an aggregated summary
@@ -202,10 +203,18 @@ def run_all_downstream_finetunes(pretrain_cfg, accelerator, finetune_output_root
         vs a separate dataset's tasks), one invocation's downstream_train/downstream_test
         override only applies to one dataset's tasks, so the other dataset's tasks must be
         filtered out by name rather than accidentally pointed at the wrong data.
+    :param only_fold: If set, every combined_cv task trains (or skips, if already cached)
+        only this one outer fold and no cv_summary.yaml is written yet -- see
+        utils/finetune_cv_utils.py::run_task_cv. Lets a task's outer folds run as separate,
+        parallel jobs instead of one job finetuning through all of them in sequence, which
+        matters far more here than in the classical-ML pipelines since each fold is a full
+        finetuning run. presplit tasks have no folds and are skipped when this is set; run
+        again without only_fold once every fold of every combined_cv task is done, to
+        assemble the cv_summary.yaml files (cache-hits every fold, so that pass is fast).
     :return: {task_name: {status, ...}} -- status is "ok", "failed", "skipped" (filtered out
-        by mode_filter/tasks), or "pending" (if this returned early on a non-main process,
-        before anything ran). Callers can inspect this to decide whether to exit non-zero on
-        partial failure.
+        by mode_filter/tasks/only_fold), or "pending" (if this returned early on a non-main
+        process, before anything ran). Callers can inspect this to decide whether to exit
+        non-zero on partial failure.
     """
     task_registry = load_task_registry()
     task_results = {name: {"status": "pending", "finetune_task": spec["finetune_task"]}
@@ -268,6 +277,8 @@ def run_all_downstream_finetunes(pretrain_cfg, accelerator, finetune_output_root
                            f"({len(studies)} distinct study/studies: {studies})")
                 if mode_filter is not None and mode != mode_filter:
                     skip_reason = f"mode={mode}, filtered to mode_filter={mode_filter}"
+                elif only_fold is not None and mode != "combined_cv":
+                    skip_reason = f"mode={mode}, only_fold={only_fold} requires combined_cv (no folds here)"
 
             if skip_reason is not None:
                 logger.info(f"AUTO-FINETUNE: '{task_name}' skipped ({skip_reason})")
@@ -283,6 +294,7 @@ def run_all_downstream_finetunes(pretrain_cfg, accelerator, finetune_output_root
                     finetune_output_root, cv_conf, seed,
                     adata_train_full, adata_test_full,
                     build_finetune_config, run_single_finetune,
+                    only_fold=only_fold,
                 )
                 task_results[task_name] = {**result, "finetune_task": task_spec["finetune_task"]}
             else:

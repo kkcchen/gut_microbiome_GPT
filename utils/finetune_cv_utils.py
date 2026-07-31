@@ -87,17 +87,19 @@ def build_folds(pooled: ad.AnnData, label_col: str, finetune_task: str, task_nam
             for train_idx, test_idx in split_iter], dropped
 
 
-def write_fold_h5ads(fold_pairs: List[Tuple[ad.AnnData, ad.AnnData]], out_dir: str) -> List[Tuple[str, str]]:
-    """Write out_dir/fold_<i>/{downstream_train,downstream_test}.h5ad, one pair per fold."""
-    paths = []
-    for i, (fold_train, fold_test) in enumerate(fold_pairs):
-        fold_dir = Path(out_dir) / f"fold_{i}"
-        fold_dir.mkdir(parents=True, exist_ok=True)
-        train_path, test_path = fold_dir / "downstream_train.h5ad", fold_dir / "downstream_test.h5ad"
-        fold_train.write_h5ad(train_path)
-        fold_test.write_h5ad(test_path)
-        paths.append((str(train_path), str(test_path)))
-    return paths
+def write_fold_h5ad(fold_pair: Tuple[ad.AnnData, ad.AnnData], out_dir: str, fold_idx: int) -> Tuple[str, str]:
+    """Write out_dir/fold_<fold_idx>/{downstream_train,downstream_test}.h5ad for one fold.
+
+    Written on demand (only for folds actually about to train) rather than all at once, so
+    a fold-parallel job -- see run_task_cv's only_fold param -- never materializes the other
+    folds' data."""
+    fold_train, fold_test = fold_pair
+    fold_dir = Path(out_dir) / f"fold_{fold_idx}"
+    fold_dir.mkdir(parents=True, exist_ok=True)
+    train_path, test_path = fold_dir / "downstream_train.h5ad", fold_dir / "downstream_test.h5ad"
+    fold_train.write_h5ad(train_path)
+    fold_test.write_h5ad(test_path)
+    return str(train_path), str(test_path)
 
 
 def aggregate_fold_metrics(fold_metrics: List[Dict[str, float]], confidence: float = 0.95) -> Dict:
@@ -138,6 +140,7 @@ def run_task_cv(
     adata_test_full: ad.AnnData,
     build_finetune_config,
     run_single_finetune,
+    only_fold: Optional[int] = None,
 ) -> Dict:
     """
     Pool one single-study task's train+test rows, run outer-fold CV, aggregate.
@@ -146,7 +149,26 @@ def run_task_cv(
     circular import with utils/finetune_orchestration.py (where they live and where this is
     called from).
 
-    :return: {"status": "ok", "output_dir": <task-level dir holding cv_summary.yaml>}
+    Each fold is cached by its own presence: a fold whose fold_<i>/best_model/test_metrics.yaml
+    already exists is never retrained, whether that came from an earlier call to this same
+    function or from a previous only_fold run. Two ways to use that:
+
+      * only_fold=<i>: train (or skip, if already cached) just that one fold and return without
+        writing cv_summary.yaml -- there's nothing to aggregate yet. This is what lets a task's
+        outer folds run as separate, parallel jobs instead of one process training all of them
+        in sequence, which matters here far more than in the classical-ML pipelines: each fold
+        is a full finetuning run (potentially many epochs), not a cheap model fit.
+      * only_fold=None (the default): walk every fold, reusing whatever's already cached and
+        training the rest, then aggregate into cv_summary.yaml as before. Once every fold has
+        been trained by some earlier job (its own or an only_fold run), this path just reads
+        cached test_metrics.yaml files and aggregates -- no training, fast.
+
+    fold_pairs are rebuilt from the pooled data every call (StratifiedKFold/KFold with a fixed
+    seed, so fold membership is deterministic and reproducible across separate processes); the
+    per-fold h5ad is only written to disk for a fold about to actually train, not for cache hits.
+
+    :return: {"status": "ok", "output_dir": <task-level dir holding cv_summary.yaml (once
+        every fold is done) or just the fold_<i>/ subdirectories (partial, under only_fold)>}
     """
     result_root = finetune_output_root if finetune_output_root is not None else pretrain_output_dir
     task_output_dir = os.path.join(result_root, "finetune", task_name)
@@ -162,10 +184,13 @@ def run_task_cv(
                                       cv_conf["outer_folds"], cv_conf["min_samples_per_class"], seed)
 
     cv_data_dir = os.path.join(task_output_dir, "cv_data")
-    fold_h5ad_paths = write_fold_h5ads(fold_pairs, cv_data_dir)
 
-    fold_metrics, fold_output_dirs = [], []
-    for fold_idx, fold_paths in enumerate(fold_h5ad_paths):
+    def _fold_result(fold_idx):
+        fold_output_dir = os.path.join(task_output_dir, f"fold_{fold_idx}")
+        metrics = _read_fold_test_metrics(fold_output_dir)
+        if metrics is not None:
+            return metrics, fold_output_dir
+        fold_paths = write_fold_h5ad(fold_pairs[fold_idx], cv_data_dir, fold_idx)
         fold_cfg = build_finetune_config(
             pretrain_cfg, pretrain_output_dir, task_name, task_spec,
             finetune_output_root=finetune_output_root, fold_paths=fold_paths, fold_idx=fold_idx,
@@ -175,8 +200,17 @@ def run_task_cv(
         if metrics is None:
             raise RuntimeError(f"fold {fold_idx} of task '{task_name}' did not produce "
                                f"test_metrics.yaml at {fold_cfg.paths.output_dir}")
+        return metrics, fold_cfg.paths.output_dir
+
+    if only_fold is not None:
+        _fold_result(only_fold)
+        return {"status": "ok", "output_dir": task_output_dir}
+
+    fold_metrics, fold_output_dirs = [], []
+    for fold_idx in range(len(fold_pairs)):
+        metrics, out_dir = _fold_result(fold_idx)
         fold_metrics.append(metrics)
-        fold_output_dirs.append(fold_cfg.paths.output_dir)
+        fold_output_dirs.append(out_dir)
 
     if not cv_conf.get("keep_fold_data", False):
         shutil.rmtree(cv_data_dir, ignore_errors=True)
