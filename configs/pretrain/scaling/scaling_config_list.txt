@@ -1,0 +1,8 @@
+configs/pretrain/scaling/scaling_baseline_bins20_mask030_r010.yaml
+configs/pretrain/scaling/scaling_baseline_bins20_mask030_r020.yaml
+configs/pretrain/scaling/scaling_baseline_bins20_mask030_r050.yaml
+configs/pretrain/scaling/scaling_baseline_bins20_mask030_r100.yaml
+configs/pretrain/scaling/scaling_stage3_concatenation_r010.yaml
+configs/pretrain/scaling/scaling_stage3_concatenation_r020.yaml
+configs/pretrain/scaling/scaling_stage3_concatenation_r050.yaml
+configs/pretrain/scaling/scaling_stage3_concatenation_r100.yaml

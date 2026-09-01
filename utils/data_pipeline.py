@@ -44,13 +44,25 @@ def prepare_microbiome_data(cfg, accelerator) -> Dict:
 
     
     # 2. Split train/validation
-    logger.info("Splitting train/validation...")
-    train_adata, valid_adata = split_data(
-        adata,
-        split_key=cfg.data.get('split_key', None),
-        val_size=cfg.data.get('val_size', 0.1),
-        seed=cfg.training.seed
-    )
+    scaling_split_file = cfg.data.get('scaling_split_file', None)
+    if scaling_split_file is not None:
+        scaling_split_key = cfg.data.get('scaling_split_key', None)
+        logger.info(
+            f"Using predefined scaling split from {scaling_split_file} "
+            f"(key={scaling_split_key})"
+        )
+        train_idx, valid_idx = load_scaling_split(scaling_split_file, scaling_split_key, adata.n_obs)
+        train_adata = adata[train_idx].copy()
+        valid_adata = adata[valid_idx].copy()
+        logger.info(f"Scaling split: {len(train_idx)} train / {len(valid_idx)} val samples")
+    else:
+        logger.info("Splitting train/validation...")
+        train_adata, valid_adata = split_data(
+            adata,
+            split_key=cfg.data.get('split_key', None),
+            val_size=cfg.data.get('val_size', 0.1),
+            seed=cfg.training.seed
+        )
 
     # moved this below the validation split so that the validation set is the same for subsets during scaling runs
     if cfg.debug.get('nrows', None) is not None:
@@ -242,8 +254,53 @@ def split_data(
         logger.info(f"  Actual val ratio: {actual_val_ratio:.3f}")
     train_adata = adata[train_idx].copy()
     valid_adata = adata[valid_idx].copy()
-    
+
     return train_adata, valid_adata
+
+
+def load_scaling_split(split_file: str, split_key: Optional[str], n_obs: int) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Load predefined train/val positional indices for a data-scaling run.
+
+    The split file is a scaling manifest JSON (see scaling_splits/) with a top-level
+    'splits' mapping of {key: {'train': [...], 'val': [...]}}. Indices are positional
+    into the pretrain AnnData (which must match the manifest's n_total).
+
+    :param split_file: Path to the scaling manifest JSON.
+    :param split_key: Which entry of manifest['splits'] to use. If None and there is
+        exactly one entry, that one is used.
+    :param n_obs: Number of observations in the loaded AnnData (sanity check).
+    :return: (train_idx, valid_idx) as int numpy arrays.
+    """
+    import json
+
+    with open(split_file) as f:
+        manifest = json.load(f)
+
+    n_total = manifest.get('n_total')
+    if n_total is not None and n_total != n_obs:
+        raise ValueError(
+            f"Scaling manifest n_total={n_total} does not match AnnData n_obs={n_obs}; "
+            f"indices would be misaligned."
+        )
+
+    splits = manifest['splits']
+    if split_key is None:
+        if len(splits) != 1:
+            raise ValueError(
+                f"scaling_split_key not set and manifest has {len(splits)} split entries "
+                f"({list(splits)}); specify data.scaling_split_key."
+            )
+        split_key = next(iter(splits))
+    if split_key not in splits:
+        raise ValueError(f"scaling_split_key '{split_key}' not in manifest splits {list(splits)}")
+
+    entry = splits[split_key]
+    train_idx = np.asarray(entry['train'], dtype=int)
+    valid_idx = np.asarray(entry['val'], dtype=int)
+    if train_idx.max(initial=-1) >= n_obs or valid_idx.max(initial=-1) >= n_obs:
+        raise ValueError("Scaling split contains an index >= AnnData n_obs.")
+    return train_idx, valid_idx
 
 
 def print_data_statistics(
