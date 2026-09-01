@@ -1,0 +1,75 @@
+paths:
+  output_dir: outputs/pretrain/scaling_v2/scaling_baseline_bins20_mask030_r100
+  model_config_path: ${paths.output_dir}/model_config.json
+  ann_table_path: /scratch/kchen13/hmc_final_fixed/pretrain.h5ad
+checkpoint_path: null
+wandb:
+  enabled: true
+  entity: haoze-deng-university-of-toronto
+  project: microbiome-pretrain-scaling-v2
+  run_name: scaling_v2_baseline_bins20_mask030_r100
+  run_notes: 'Data-scaling v2: baseline_bins20_mask030 pretrained on the r100 stratified-by-study
+    subset of the study-isolated train pool (scaling_splits/study_manifest_r100.json).'
+training:
+  seed: 42
+  init_lr: 0.001
+  batch_size: 64
+  max_epochs: 200
+  cosine_warmup_ratio_or_step: 0.1
+  log_interval: 10
+  patience: 20
+  grad_accumulation_steps: 1
+  enable_fp16: false
+  notes: 'Data-scaling v2: baseline_bins20_mask030 pretrained on the r100 stratified-by-study
+    subset of the study-isolated train pool (scaling_splits/study_manifest_r100.json).'
+  tasks:
+  - masking
+  - masking_from_cls
+  masking_prob: 0.3
+  masking_taxa_prob: 0.15
+  optimizer: adamw
+  lr_scheduler: cosine
+  grad_clip: 1.0
+  checkpoint_every: 5
+  finetune_mode: none
+validation:
+  batch_size: 64
+data:
+  norm_strategy: binning
+  num_bins: 20
+  split_key: study_id
+  val_size: 0.1
+  use_batch_labels: true
+  max_seq_len: 200
+  num_workers: 4
+  metadata_fields: []
+  scaling_split_file: scaling_splits/study_manifest_r100.json
+  scaling_split_key: r100
+model:
+  params:
+    d_model: 128
+    nhead: 8
+    d_hid: 512
+    nlayers: 3
+    dropout: 0.1
+    abundance_emb_style: continuous
+    use_gnn: false
+    sample_emb_style: cls
+    preinitialized_taxa_embedding_path: null
+    freeze_preinitialized_embeddings: false
+    preinitialized_embedding_projection: linear
+debug:
+  nrows: null
+  start_over: true
+finetune:
+  paths:
+    downstream_train: /scratch/kchen13/hmc_final_fixed/downstream_train.h5ad
+    downstream_test: /scratch/kchen13/hmc_final_fixed/downstream_test.h5ad
+  training:
+    init_lr: 0.0001
+    max_epochs: 10
+    patience: 10
+    finetune_mode: partial
+    batch_size: 64
+    use_class_weights: true
+  val_size: 0.2
