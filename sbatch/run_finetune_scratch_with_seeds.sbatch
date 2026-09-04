@@ -33,4 +33,5 @@ CONFIG="${SCRATCH_CONFIGS_LIST[$SLURM_ARRAY_TASK_ID]}"
 echo "SLURM_JOB_ID=${SLURM_JOB_ID} SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
 echo "Using config: ${CONFIG}"
 
-SCRATCH_CONFIGS="${CONFIG}" scripts/run_finetune_scratch_with_seeds.sh "outputs/pretrain/real_runs/baseline_seeds"
+SCRATCH_CONFIGS="${CONFIG}" scripts/run_finetune_scratch_with_seeds.sh \
+    "${SCRATCH_OUTPUT_ROOT:-outputs/pretrain/real_runs/baseline_seeds}"

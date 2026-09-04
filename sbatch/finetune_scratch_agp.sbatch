@@ -45,6 +45,6 @@ echo "Using config: ${CONFIG}"
 python -m scripts.train \
     --config "${CONFIG}" \
     --tasks "${AGP_TASKS}" \
-    paths.output_dir="outputs/pretrain/real_runs/baseline_agp/${CFG_NAME}" \
+    paths.output_dir="${SCRATCH_AGP_OUTPUT_ROOT:-outputs/pretrain/real_runs/baseline_agp}/${CFG_NAME}" \
     finetune.paths.downstream_train=/scratch/kchen13/hmc_final_fixed/downstream_agp_train.h5ad \
     finetune.paths.downstream_test=/scratch/kchen13/hmc_final_fixed/downstream_agp_test.h5ad
